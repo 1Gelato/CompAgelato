@@ -1,6 +1,7 @@
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
   AppInfo,
   EmailOutcome,
@@ -71,9 +72,19 @@ import {
 } from './services/attachments';
 import { printFile } from './services/printing';
 import { applyTemplate, buildEml, buildMailto, safeFileName } from './services/mail';
+import { applyUpdate, checkForUpdates } from './services/updater';
 
 type Handler = (...args: any[]) => unknown;
 type Registry = Record<string, Record<string, Handler>>;
+
+/**
+ * Racine du projet (dossier cloné du dépôt), utilisée pour la mise à jour par
+ * git. `app.getAppPath()` ne convient pas ici : lancé via `electron dist/main/main.mjs`,
+ * Electron la fait pointer sur `dist/main` plutôt que sur la racine du dépôt.
+ * Le fichier compilé étant unique (bundle esbuild), `import.meta.url` renvoie
+ * toujours son propre emplacement — deux niveaux au-dessus se trouve la racine.
+ */
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -201,6 +212,11 @@ const handlers: Registry = {
     async quit() {
       store.flushSync();
       app.quit();
+    },
+    async relaunch() {
+      store.flushSync();
+      app.relaunch();
+      app.exit(0);
     },
   },
 
@@ -919,6 +935,15 @@ const handlers: Registry = {
     async wipeDemo() {
       wipeDemoData();
       send('documents-changed', { wiped: true });
+    },
+  },
+
+  updates: {
+    async check() {
+      return checkForUpdates(projectRoot);
+    },
+    async apply() {
+      return applyUpdate(projectRoot, (step) => send('toast', { tone: 'info', title: step }));
     },
   },
 };

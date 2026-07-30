@@ -28,7 +28,7 @@ import type {
  * canaux réellement exposés ne peuvent pas diverger.
  */
 export const CHANNELS = {
-  app: ['info', 'openPath', 'openExternal', 'chooseFolder', 'chooseFile', 'revealFile', 'quit'],
+  app: ['info', 'openPath', 'openExternal', 'chooseFolder', 'chooseFile', 'revealFile', 'quit', 'relaunch'],
   settings: ['get', 'update', 'resetFolder'],
   clients: ['list', 'save', 'remove', 'importFrom', 'pickAndImport', 'exportCsv', 'merge', 'geocodeMissing'],
   documents: [
@@ -43,6 +43,7 @@ export const CHANNELS = {
   geo: ['autocomplete', 'reverse', 'fuelPrice'],
   stats: ['dashboard'],
   db: ['backup', 'restore', 'exportAll', 'stats', 'seedDemo', 'wipeDemo'],
+  updates: ['check', 'apply'],
 } as const;
 
 export type ChannelMap = typeof CHANNELS;
@@ -66,6 +67,23 @@ export interface RouteQr {
   /** Découpage en plusieurs liens si la tournée dépasse la limite du fournisseur. */
   segments: { url: string; qrDataUrl: string; from: string; to: string; stops: number }[];
   warning?: string;
+}
+
+export interface UpdateCheckResult {
+  supported: boolean;
+  reason?: string;
+  branch?: string;
+  currentCommit?: string;
+  remoteCommit?: string;
+  available: boolean;
+  behind: number;
+  changes: string[];
+}
+
+export interface UpdateApplyResult {
+  success: boolean;
+  message: string;
+  log: string;
 }
 
 export interface PrintOutcome {
@@ -109,6 +127,8 @@ export interface Api {
     chooseFile(filters?: { name: string; extensions: string[] }[]): Promise<string | null>;
     revealFile(target: string): Promise<void>;
     quit(): Promise<void>;
+    /** Ferme puis relance l'application (utilisé après une mise à jour). */
+    relaunch(): Promise<void>;
   };
   settings: {
     get(): Promise<Settings>;
@@ -206,6 +226,10 @@ export interface Api {
     stats(): Promise<{ file: string; sizeKb: number; counts: Record<keyof Omit<Database, 'version' | 'settings'>, number> }>;
     seedDemo(): Promise<void>;
     wipeDemo(): Promise<void>;
+  };
+  updates: {
+    check(): Promise<UpdateCheckResult>;
+    apply(): Promise<UpdateApplyResult>;
   };
   /** Événements poussés par le processus principal (scan de dossier, alertes…). */
   on(event: 'documents-changed' | 'scan-progress' | 'toast', handler: (payload: any) => void): () => void;

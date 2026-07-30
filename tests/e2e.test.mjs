@@ -601,6 +601,24 @@ test('refus d’un envoi sans destinataire', async () => {
   assert.match(error, /destinataire/i);
 });
 
+test('vérification des mises à jour depuis l’application réelle', async () => {
+  const result = await page.evaluate(() => window.api.updates.check());
+  // Cette session tourne depuis le dépôt cloné réel : la fonctionnalité doit
+  // se reconnaître comme utilisable et lire la branche courante.
+  assert.equal(result.supported, true, JSON.stringify(result));
+  assert.ok(result.branch, 'branche non détectée');
+  assert.ok(result.currentCommit, 'commit courant non détecté');
+  assert.equal(typeof result.available, 'boolean');
+  assert.equal(typeof result.behind, 'number');
+
+  await page.click('.navitem:has-text("Réglages")');
+  await page.waitForSelector('button:has-text("Rechercher les mises à jour")');
+  await page.click('button:has-text("Rechercher les mises à jour")');
+  await page.waitForTimeout(1500);
+  const bodyText = await page.textContent('.content');
+  assert.match(bodyText, /derni[eè]re version|amélioration.*disponible/i);
+});
+
 test('les fenêtres de saisie s’ouvrent et se ferment sans erreur', async () => {
   const errors = [];
   page.on('pageerror', (err) => errors.push(err.message));

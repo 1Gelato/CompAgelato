@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Address, Attachment, Settings as SettingsType, Vehicle } from '@shared/types';
-import type { AppInfo } from '@shared/api';
+import type { AppInfo, UpdateCheckResult } from '@shared/api';
 import { AddressInput } from '../components/AddressInput';
 import {
   Badge,
@@ -42,6 +42,10 @@ export function Settings({
   const [fetchingFuel, setFetchingFuel] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [applyingUpdate, setApplyingUpdate] = useState(false);
+  const [updateDone, setUpdateDone] = useState(false);
   // Le dépôt n'est enregistré qu'à la sélection d'une proposition : sans cela,
   // chaque frappe déclencherait une écriture puis un rechargement de l'écran.
   const [depotDraft, setDepotDraft] = useState<Address | null>(null);
@@ -50,6 +54,36 @@ export function Settings({
     window.api.app.info().then(setInfo).catch(() => {});
     window.api.db.stats().then(setDbStats).catch(() => {});
   }, [loading]);
+
+  const checkUpdate = async () => {
+    setCheckingUpdate(true);
+    setUpdateDone(false);
+    try {
+      const result = await window.api.updates.check();
+      setUpdateCheck(result);
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Vérification impossible', text: errorMessage(err) });
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
+  const applyUpdateNow = async () => {
+    setApplyingUpdate(true);
+    try {
+      const result = await window.api.updates.apply();
+      if (result.success) {
+        setUpdateDone(true);
+        toast.push({ tone: 'success', title: 'Mise à jour installée', text: result.message });
+      } else {
+        toast.push({ tone: 'error', title: 'Échec de la mise à jour', text: result.message });
+      }
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Échec de la mise à jour', text: errorMessage(err) });
+    } finally {
+      setApplyingUpdate(false);
+    }
+  };
 
   if (loading || !settings) {
     return (
@@ -472,6 +506,63 @@ export function Settings({
                 </>
               )}
             </div>
+          </div>
+        </Card>
+
+        <Card title="Mises à jour" subtitle="Vérifie et installe les dernières améliorations du logiciel">
+          <div className="col" style={{ gap: 12 }}>
+            {updateDone ? (
+              <>
+                <div className="infobox" style={{ background: 'var(--green-soft)', color: 'var(--green)' }}>
+                  Mise à jour installée. Redémarrez CompaGelato pour l’utiliser.
+                </div>
+                <Button
+                  variant="primary"
+                  icon={<Icons.refresh size={14} />}
+                  onClick={() => window.api.app.relaunch()}
+                >
+                  Redémarrer maintenant
+                </Button>
+              </>
+            ) : (
+              <>
+                <div className="row">
+                  <Button icon={<Icons.refresh size={14} />} onClick={checkUpdate} loading={checkingUpdate}>
+                    Rechercher les mises à jour
+                  </Button>
+                  {updateCheck?.available && (
+                    <Button variant="primary" onClick={applyUpdateNow} loading={applyingUpdate}>
+                      Installer la mise à jour
+                    </Button>
+                  )}
+                </div>
+
+                {updateCheck && !updateCheck.supported && (
+                  <div className="warnbox">{updateCheck.reason}</div>
+                )}
+                {updateCheck?.supported && updateCheck.reason && (
+                  <div className="warnbox">{updateCheck.reason}</div>
+                )}
+                {updateCheck?.supported && !updateCheck.reason && !updateCheck.available && (
+                  <div className="infobox">Vous avez déjà la dernière version de CompaGelato.</div>
+                )}
+                {updateCheck?.available && (
+                  <div className="infobox">
+                    <strong>
+                      {updateCheck.behind} amélioration{updateCheck.behind > 1 ? 's' : ''} disponible
+                      {updateCheck.behind > 1 ? 's' : ''}
+                    </strong>
+                    {updateCheck.changes.length > 0 && (
+                      <ul style={{ margin: '6px 0 0 16px' }}>
+                        {updateCheck.changes.map((c, i) => (
+                          <li key={i}>{c}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </Card>
 

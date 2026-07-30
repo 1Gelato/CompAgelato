@@ -8,3 +8,4 @@ export * from '../electron/services/optimize';
 export * from '../electron/services/routing';
 export * from '../electron/services/mapLinks';
 export * from '../electron/services/mail';
+export * from '../electron/services/updater';

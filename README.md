@@ -95,6 +95,20 @@ Pour lancer sans installer :
 npm start
 ```
 
+### Lancement quotidien sans terminal (Windows)
+
+Une fois `npm install` fait une première fois :
+
+1. Double-cliquez sur **`Creer-Raccourci.bat`** — une seule fois. Il crée un
+   raccourci « CompaGelato » sur le Bureau.
+2. Ensuite, utilisez uniquement ce raccourci pour lancer le logiciel : aucune
+   fenêtre noire, aucune commande à taper, aucun souci de politique
+   d'exécution PowerShell (le raccourci passe par `cmd`/`wscript`, non
+   soumis à cette restriction).
+
+En cas d'échec au démarrage, un journal s'ouvre automatiquement dans le
+Bloc-notes pour pouvoir le transmettre facilement.
+
 ### Développer
 
 ```bash
@@ -134,6 +148,15 @@ Sur un serveur sans écran, préfixez les tests de bout en bout par
 
 Le bouton **Charger la démonstration** (Réglages → Données) remplit le logiciel
 avec un jeu d'essai complet, retirable d'un clic.
+
+**Réglages → Mises à jour → Rechercher les mises à jour.** Le logiciel
+compare sa version au dépôt en ligne ; s'il existe une nouveauté, un résumé
+s'affiche et un bouton « Installer la mise à jour » récupère les derniers
+changements, réinstalle les dépendances si besoin et reconstruit le
+logiciel automatiquement. Il ne reste qu'à cliquer sur « Redémarrer
+maintenant ». Cette fonctionnalité nécessite que le logiciel tourne depuis le
+dossier cloné du dépôt (c'est le cas avec le lancement par raccourci
+ci-dessus) — elle ne s'applique pas à un installateur `.exe` publié.
 
 ---
 
@@ -184,6 +207,7 @@ electron/                 Processus principal (Node)
     mail.ts               Brouillons .eml multipart avec pièces jointes
     printing.ts           Impression via la boîte de dialogue du système
     attachments.ts        Bibliothèque de flyers réutilisables
+    updater.ts            Mise à jour par git (vérifier / appliquer)
     pdf.ts                Extraction PDF, reconstruction lignes et colonnes
     parseInvoice.ts       Lecture des factures/devis français
     facturx.ts            Factur-X (CII) et UBL 2.1
@@ -216,15 +240,17 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **36 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **41 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
   liens Google Maps / Waze / Plans, lecture des réponses OSRM et Valhalla,
   construction des messages MIME avec pièces jointes accentuées, gabarit de
   facture à deux colonnes (vendeur/client sur les mêmes lignes, tableau
-  récapitulatif de TVA confondu avec un total).
-- **25 tests de bout en bout** — l'application réelle est lancée, pilotée et
+  récapitulatif de TVA confondu avec un total), et le mécanisme de mise à
+  jour git (détection, application, refus prudent si des fichiers locaux ont
+  été modifiés) validé sur un vrai dépôt temporaire.
+- **26 tests de bout en bout** — l'application réelle est lancée, pilotée et
   vérifiée : import d'une liste clients en Windows-1252, import du catalogue,
   analyse d'un dossier de PDF, rattachement automatique aux clients, association
   des lignes au stock, déduction puis annulation, idempotence, absence de
