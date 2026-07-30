@@ -68,13 +68,8 @@ test.before(async () => {
   page = await app.firstWindow();
   await page.waitForSelector('.sidebar__name', { timeout: 30000 });
 
-  // Redirige le dossier surveillé vers l'espace de test, puis analyse.
-  await app.evaluate(async (_electronApi, folder) => {
-    const { ipcMain } = require('electron');
-    void ipcMain;
-    return folder;
-  }, watchFolder).catch(() => {});
-
+  // Redirige le dossier surveillé vers l'espace de test. La surveillance
+  // continue est activée plus tard, par le test qui la vérifie.
   await page.evaluate(async (folder) => {
     await window.api.settings.update({ watchFolder: folder, autoScan: false, autoCreateClients: true });
   }, watchFolder);
@@ -393,4 +388,35 @@ test('aucune erreur console pendant la session', async () => {
   await page.click('.navitem:has-text("Tableau de bord")');
   await page.waitForTimeout(400);
   assert.deepEqual(errors, []);
+});
+
+test('la surveillance du dossier importe un fichier déposé sans intervention', async () => {
+  // Active la surveillance en continu sur le dossier de test.
+  await page.evaluate(async (folder) => {
+    await window.api.settings.update({ watchFolder: folder, autoScan: true });
+  }, watchFolder);
+
+  const before = (await page.evaluate(() => window.api.documents.list())).length;
+
+  // Nouveau fichier déposé par le logiciel de comptabilité.
+  const dropped = path.join(watchFolder, 'Factures', 'FA-2026-0199.pdf');
+  fs.copyFileSync(path.join(pdfDir, 'FA-2026-0143.pdf'), dropped);
+
+  // La surveillance attend la fin d'écriture puis regroupe les événements.
+  const deadline = Date.now() + 30000;
+  let documents = [];
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(700);
+    documents = await page.evaluate(() => window.api.documents.list());
+    if (documents.some((d) => d.sourceFile === dropped)) break;
+  }
+
+  const imported = documents.find((d) => d.sourceFile === dropped);
+  assert.ok(imported, `fichier non repris automatiquement (${documents.length} document(s) en base)`);
+  assert.equal(imported.totalHT, 143.7);
+  // Même contenu qu'une facture déjà connue : le numéro lu est identique,
+  // la pièce est donc mise à jour plutôt que dupliquée.
+  assert.equal(documents.length, before);
+
+  await page.evaluate(() => window.api.settings.update({ autoScan: false }));
 });
