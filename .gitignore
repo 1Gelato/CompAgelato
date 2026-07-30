@@ -1,0 +1,10 @@
+node_modules/
+dist/
+release/
+tests/build/
+tests/tmp/
+tests/fixtures/pdf/
+*.log
+.DS_Store
+Thumbs.db
+.vite/

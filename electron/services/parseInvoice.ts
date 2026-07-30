@@ -1,0 +1,459 @@
+import path from 'node:path';
+import type { DocumentKind } from '@shared/types';
+import type { PdfExtract, PdfLine, PdfTextItem } from './pdf';
+import { parseDate, parseNumber, normalize, round2 } from './text';
+
+export interface ParsedLine {
+  ref?: string;
+  label: string;
+  qty: number;
+  unit?: string;
+  unitPriceHT?: number;
+  totalHT?: number;
+  vatRate?: number;
+}
+
+export interface ParsedDocument {
+  kind: DocumentKind;
+  number: string;
+  date: string | null;
+  dueDate: string | null;
+  clientName: string | null;
+  clientAddress: string | null;
+  clientSiret: string | null;
+  currency: string;
+  totalHT: number | null;
+  totalVAT: number | null;
+  totalTTC: number | null;
+  lines: ParsedLine[];
+  confidence: number;
+  warnings: string[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Détection du type de document                                        */
+/* ------------------------------------------------------------------ */
+
+export function detectKind(text: string, fileName = ''): DocumentKind {
+  const head = normalize(`${fileName} ${text.slice(0, 1200)}`);
+  if (/\bavoir\b|note de credit|credit note/.test(head)) return 'credit';
+  if (/\bdevis\b|proforma|pro forma|quotation|estimate/.test(head)) return 'quote';
+  if (/\bfacture\b|invoice|\bfa\b/.test(head)) return 'invoice';
+  // Repli sur le nom de fichier / dossier.
+  if (/devis|dev[-_]?\d/.test(normalize(fileName))) return 'quote';
+  return 'invoice';
+}
+
+/* ------------------------------------------------------------------ */
+/* Numéro de pièce                                                      */
+/* ------------------------------------------------------------------ */
+
+const NUMBER_PATTERNS: RegExp[] = [
+  /(?:facture|devis|avoir)\s*(?:n\s*[°ºo]|num(?:[ée]ro)?|#|:)\s*[:.]?\s*([A-Z0-9][A-Z0-9\-_/.]{2,30})/i,
+  /\bn\s*[°ºo]\s*[:.]?\s*([A-Z0-9][A-Z0-9\-_/.]{2,30})/i,
+  /(?:invoice|quote)\s*(?:no\.?|number|#|:)\s*([A-Z0-9][A-Z0-9\-_/.]{2,30})/i,
+  /\br[ée]f(?:[ée]rence)?\s*[:.]?\s*([A-Z0-9][A-Z0-9\-_/.]{3,30})/i,
+];
+
+export function extractNumber(text: string, fileName = ''): { value: string; sure: boolean } {
+  for (const re of NUMBER_PATTERNS) {
+    const m = text.match(re);
+    if (m) {
+      const v = m[1].replace(/[.,;:]$/, '').trim();
+      if (v && !/^(du|le|de)$/i.test(v)) return { value: v, sure: true };
+    }
+  }
+  // Repli : un identifiant reconnaissable dans le nom de fichier.
+  const base = path.basename(fileName).replace(/\.[a-z0-9]+$/i, '');
+  const m = base.match(/([A-Z]{0,4}[-_]?\d{2,4}[-_]\d{2,6})/i) ?? base.match(/(\d{4,})/);
+  if (m) return { value: m[1], sure: false };
+  return { value: base || 'SANS-NUMERO', sure: false };
+}
+
+/* ------------------------------------------------------------------ */
+/* Dates                                                                */
+/* ------------------------------------------------------------------ */
+
+export function extractDates(lines: string[]): { date: string | null; dueDate: string | null } {
+  let date: string | null = null;
+  let dueDate: string | null = null;
+
+  for (const line of lines) {
+    const n = normalize(line);
+    if (!dueDate && /(echeance|date limite|payable|due date|a regler avant|reglement au plus tard)/.test(n)) {
+      dueDate = parseDate(line);
+    }
+    if (!date && /^(date|date de facture|date facture|date du devis|date d emission|emis le|le)\b/.test(n)) {
+      const d = parseDate(line);
+      if (d) date = d;
+    }
+  }
+
+  if (!date) {
+    // Première date plausible du document, hors ligne d'échéance.
+    for (const line of lines) {
+      if (/echeance|due date/i.test(line)) continue;
+      const d = parseDate(line);
+      if (d) {
+        date = d;
+        break;
+      }
+    }
+  }
+  return { date, dueDate };
+}
+
+/* ------------------------------------------------------------------ */
+/* Totaux                                                               */
+/* ------------------------------------------------------------------ */
+
+/** Dernier nombre de la ligne — les tableaux de totaux mettent la valeur à droite. */
+function lastNumber(line: string): number | null {
+  const matches = line.match(/-?[\d][\d\s  .,]*/g);
+  if (!matches) return null;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const n = parseNumber(matches[i]);
+    if (n !== null) return n;
+  }
+  return null;
+}
+
+/**
+ * Lignes d'identification (SIRET, TVA intracommunautaire, IBAN…) : elles
+ * contiennent de longs nombres qu'il ne faut jamais confondre avec un montant.
+ */
+const IDENTITY_LINE =
+  /(siret|siren|\brcs\b|\bnaf\b|\bape\b|iban|\bbic\b|swift|capital social|tva\s*(intra\w*)?\s*:?\s*[a-z]{2}\s*\d{6,})/i;
+
+/** Un montant de facture reste dans des ordres de grandeur raisonnables. */
+function plausibleAmount(v: number | null): v is number {
+  return v !== null && Number.isFinite(v) && Math.abs(v) < 100_000_000;
+}
+
+export function extractTotals(lines: string[]): {
+  totalHT: number | null;
+  totalVAT: number | null;
+  totalTTC: number | null;
+  warnings: string[];
+} {
+  let totalHT: number | null = null;
+  let totalVAT: number | null = null;
+  let totalTTC: number | null = null;
+  const warnings: string[] = [];
+
+  // On parcourt tout le document et on retient la DERNIÈRE occurrence de chaque
+  // total : le bloc récapitulatif se trouve en bas de la dernière page.
+  for (const line of lines) {
+    if (IDENTITY_LINE.test(line)) continue;
+    const n = normalize(line);
+    const value = lastNumber(line);
+    if (!plausibleAmount(value)) continue;
+
+    if (/(total\s*t\s*t\s*c|montant\s*ttc|total\s*ttc|net\s*a\s*payer|total\s*a\s*payer|montant\s*du|total\s*general)/.test(n)) {
+      totalTTC = value;
+      continue;
+    }
+    if (/(total\s*h\s*t|montant\s*ht|total\s*hors\s*taxe|sous\s*total|base\s*ht)/.test(n)) {
+      totalHT = value;
+      continue;
+    }
+    if (/(^|\s)(tva|t\s*v\s*a|taxe)/.test(n)) {
+      totalVAT = value;
+      continue;
+    }
+  }
+
+  // La TVA lue doit rester cohérente avec HT et TTC ; sinon on la recalcule.
+  if (totalHT !== null && totalTTC !== null) {
+    const expected = round2(totalTTC - totalHT);
+    if (totalVAT === null || Math.abs(totalVAT - expected) > 0.05) totalVAT = expected;
+  }
+
+  // Complétion et contrôle de cohérence.
+  if (totalHT !== null && totalVAT !== null && totalTTC === null) totalTTC = round2(totalHT + totalVAT);
+  if (totalHT !== null && totalTTC !== null && totalVAT === null) totalVAT = round2(totalTTC - totalHT);
+  if (totalVAT !== null && totalTTC !== null && totalHT === null) totalHT = round2(totalTTC - totalVAT);
+
+  if (totalHT !== null && totalVAT !== null && totalTTC !== null) {
+    if (Math.abs(totalHT + totalVAT - totalTTC) > 0.05) {
+      warnings.push('Totaux incohérents (HT + TVA ≠ TTC) — à vérifier.');
+    }
+  }
+  return { totalHT, totalVAT, totalTTC, warnings };
+}
+
+/* ------------------------------------------------------------------ */
+/* Client                                                               */
+/* ------------------------------------------------------------------ */
+
+const CLIENT_MARKERS = /(client|factur[ée]\s*(?:à|a)|adress[ée]\s*(?:à|a)|destinataire|livr[ée]\s*(?:à|a)|bill\s*to|customer)/i;
+const SELLER_MARKERS = /(emetteur|vendeur|fournisseur|expediteur|siret|siren|ape|naf|rcs|iban|bic|tva\s*intra)/i;
+
+export function extractClient(lines: string[]): {
+  name: string | null;
+  address: string | null;
+  siret: string | null;
+} {
+  let name: string | null = null;
+  const addressParts: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!CLIENT_MARKERS.test(line)) continue;
+    // Le nom peut suivre le marqueur sur la même ligne (« Client : Dupont SARL »).
+    const inline = line.split(/:/).slice(1).join(':').trim();
+    const candidates: string[] = [];
+    if (inline.length > 2) candidates.push(inline);
+    for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
+      const l = lines[j].trim();
+      if (!l) continue;
+      if (SELLER_MARKERS.test(l) && !/\d{2,}/.test(l)) break;
+      candidates.push(l);
+      if (candidates.length >= 4) break;
+    }
+    if (!candidates.length) continue;
+
+    name = candidates[0].replace(/\s{2,}/g, ' ').trim();
+    for (const c of candidates.slice(1)) {
+      // On s'arrête au premier bloc qui ressemble à un tableau ou à un total.
+      if (/(total|qt[ée]|d[ée]signation|r[ée]f\.)/i.test(c)) break;
+      addressParts.push(c.replace(/\s{2,}/g, ' ').trim());
+      if (/\b\d{5}\b/.test(c)) break; // code postal atteint → fin d'adresse
+    }
+    break;
+  }
+
+  let siret: string | null = null;
+  const joined = lines.join('\n');
+  const all = [...joined.matchAll(/siret\s*:?\s*((?:\d[\s.]?){14})/gi)].map((m) => m[1].replace(/\D/g, ''));
+  // Le SIRET du client est en général le second du document (le premier est l'émetteur).
+  if (all.length > 1) siret = all[1];
+
+  return {
+    name: name && name.length >= 2 ? name : null,
+    address: addressParts.length ? addressParts.join(', ') : null,
+    siret,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Lignes de détail                                                     */
+/* ------------------------------------------------------------------ */
+
+type ColumnRole = 'ref' | 'label' | 'qty' | 'unit' | 'unitPrice' | 'total' | 'vat' | 'ignore';
+
+function roleOf(header: string): ColumnRole {
+  const n = normalize(header);
+  if (!n) return 'ignore';
+  if (/^(ref|reference|code|article|art|sku)/.test(n)) return 'ref';
+  if (/(designation|description|libelle|produit|intitule|prestation|article)/.test(n)) return 'label';
+  if (/^(qte|qty|quantite|nb|nbre|nombre)/.test(n)) return 'qty';
+  if (/^(unite|un|u|conditionnement|cond)/.test(n)) return 'unit';
+  if (/(p\s*u|prix\s*unitaire|prix\s*u|pu\s*ht|prix)/.test(n)) return 'unitPrice';
+  if (/(montant|total|mt)/.test(n)) return 'total';
+  if (/(tva|taxe|vat)/.test(n)) return 'vat';
+  return 'ignore';
+}
+
+interface Column {
+  role: ColumnRole;
+  x: number;
+  end: number;
+}
+
+function findHeader(lines: PdfLine[]): { index: number; columns: Column[] } | null {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const cells = groupCells(line.items);
+    if (cells.length < 3) continue;
+    const roles = cells.map((c) => roleOf(c.text));
+    const known = roles.filter((r) => r !== 'ignore');
+    const hasLabel = roles.includes('label') || roles.includes('ref');
+    const hasNumeric = roles.includes('qty') || roles.includes('unitPrice') || roles.includes('total');
+    if (known.length >= 3 && hasLabel && hasNumeric) {
+      const columns: Column[] = cells.map((c, idx) => ({
+        role: roles[idx],
+        x: c.x,
+        end: idx + 1 < cells.length ? cells[idx + 1].x : Number.POSITIVE_INFINITY,
+      }));
+      return { index: i, columns };
+    }
+  }
+  return null;
+}
+
+interface Cell {
+  text: string;
+  x: number;
+  end: number;
+}
+
+/** Regroupe les fragments d'une ligne en cellules à partir des écarts horizontaux. */
+function groupCells(items: PdfTextItem[]): Cell[] {
+  if (!items.length) return [];
+  const sorted = [...items].sort((a, b) => a.x - b.x);
+  const medianH = sorted.map((i) => i.height).sort((a, b) => a - b)[Math.floor(sorted.length / 2)] || 10;
+  const gapThreshold = medianH * 1.1;
+
+  const cells: Cell[] = [];
+  let current: PdfTextItem[] = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = current[current.length - 1];
+    const gap = sorted[i].x - (prev.x + prev.width);
+    if (gap > gapThreshold) {
+      cells.push(toCell(current));
+      current = [sorted[i]];
+    } else {
+      current.push(sorted[i]);
+    }
+  }
+  cells.push(toCell(current));
+  return cells.filter((c) => c.text.trim().length > 0);
+}
+
+function toCell(items: PdfTextItem[]): Cell {
+  let text = '';
+  let prevEnd: number | null = null;
+  for (const it of items) {
+    if (prevEnd !== null && it.x - prevEnd > 0.6 && !text.endsWith(' ')) text += ' ';
+    text += it.str;
+    prevEnd = it.x + it.width;
+  }
+  const last = items[items.length - 1];
+  return { text: text.trim(), x: items[0].x, end: last.x + last.width };
+}
+
+const STOP_ROW = /^(total|sous[-\s]?total|montant\s*(ht|ttc)|tva|net\s*[àa]\s*payer|conditions?|mode\s*de\s*r|arr[êe]t[ée]e?\s*la|escompte|acompte|p[ée]nalit)/i;
+
+export function extractLinesFromPdf(extract: PdfExtract): { lines: ParsedLine[]; warnings: string[] } {
+  const warnings: string[] = [];
+  const header = findHeader(extract.lines);
+  if (!header) {
+    return { lines: [], warnings: ['Aucun tableau de lignes détecté dans le PDF.'] };
+  }
+
+  const out: ParsedLine[] = [];
+  let pending: ParsedLine | null = null;
+
+  for (let i = header.index + 1; i < extract.lines.length; i++) {
+    const line = extract.lines[i];
+    const text = line.text.trim();
+    if (!text) continue;
+    if (STOP_ROW.test(text)) break;
+
+    const cells = groupCells(line.items);
+    if (!cells.length) continue;
+
+    // Rattache chaque cellule à la colonne dont le centre est le plus proche.
+    const values: Partial<Record<ColumnRole, string>> = {};
+    for (const cell of cells) {
+      const center = (cell.x + cell.end) / 2;
+      let best: Column | null = null;
+      let bestDist = Number.POSITIVE_INFINITY;
+      for (const col of header.columns) {
+        const colCenter = Number.isFinite(col.end) ? (col.x + col.end) / 2 : col.x + 20;
+        const dist = Math.abs(center - colCenter);
+        // Une cellule qui démarre dans l'intervalle de la colonne gagne d'office.
+        const inside = cell.x >= col.x - 6 && cell.x < col.end;
+        const score = inside ? dist - 1000 : dist;
+        if (score < bestDist) {
+          bestDist = score;
+          best = col;
+        }
+      }
+      if (!best || best.role === 'ignore') continue;
+      values[best.role] = values[best.role] ? `${values[best.role]} ${cell.text}` : cell.text;
+    }
+
+    const qty = parseNumber(values.qty ?? '');
+    const unitPrice = parseNumber(values.unitPrice ?? '');
+    const total = parseNumber(values.total ?? '');
+    const label = (values.label ?? '').trim();
+    const ref = (values.ref ?? '').trim();
+
+    const hasMoney = unitPrice !== null || total !== null;
+    const hasText = Boolean(label || ref);
+
+    if (!hasText && !hasMoney) continue;
+
+    // Ligne de continuation : uniquement du texte, sans montant → suite du libellé précédent.
+    if (hasText && !hasMoney && qty === null && pending) {
+      pending.label = `${pending.label} ${label || ref}`.trim();
+      continue;
+    }
+    if (!hasText && hasMoney && !pending) continue;
+
+    const parsed: ParsedLine = {
+      ref: ref || undefined,
+      label: label || ref || 'Ligne sans libellé',
+      qty: qty ?? 1,
+      unit: (values.unit ?? '').trim() || undefined,
+      unitPriceHT: unitPrice ?? undefined,
+      totalHT: total ?? (unitPrice !== null && qty !== null ? round2(unitPrice * qty) : undefined),
+      vatRate: parseNumber(values.vat ?? '') ?? undefined,
+    };
+    out.push(parsed);
+    pending = parsed;
+  }
+
+  if (!out.length) warnings.push('Tableau détecté mais aucune ligne exploitable.');
+  return { lines: out, warnings };
+}
+
+/* ------------------------------------------------------------------ */
+/* Assemblage                                                           */
+/* ------------------------------------------------------------------ */
+
+export function parsePdfDocument(extract: PdfExtract, filePath: string): ParsedDocument {
+  const textLines = extract.lines.map((l) => l.text);
+  const fullText = textLines.join('\n');
+  const fileName = path.basename(filePath);
+
+  const kind = detectKind(fullText, fileName);
+  const number = extractNumber(fullText, filePath);
+  const { date, dueDate } = extractDates(textLines);
+  const totals = extractTotals(textLines);
+  const client = extractClient(textLines);
+  const { lines, warnings: lineWarnings } = extractLinesFromPdf(extract);
+
+  const warnings = [...totals.warnings, ...lineWarnings];
+  if (!number.sure) warnings.push('Numéro de pièce déduit du nom de fichier.');
+  if (!date) warnings.push('Date introuvable — date du fichier utilisée.');
+  if (!client.name) warnings.push('Client non identifié sur le document.');
+  if (totals.totalTTC === null && totals.totalHT === null) warnings.push('Aucun total détecté.');
+
+  // Contrôle : la somme des lignes doit approcher le total HT.
+  const sumLines = round2(lines.reduce((s, l) => s + (l.totalHT ?? 0), 0));
+  if (lines.length && totals.totalHT !== null && Math.abs(sumLines - totals.totalHT) > 0.05) {
+    warnings.push(
+      `Somme des lignes (${sumLines.toFixed(2)} €) différente du total HT (${totals.totalHT.toFixed(2)} €).`,
+    );
+  }
+
+  let confidence = 1;
+  if (!number.sure) confidence -= 0.2;
+  if (!date) confidence -= 0.15;
+  if (!client.name) confidence -= 0.2;
+  if (!lines.length) confidence -= 0.25;
+  if (totals.totalTTC === null) confidence -= 0.2;
+  if (warnings.some((w) => w.startsWith('Somme des lignes'))) confidence -= 0.1;
+
+  const currency = /(\$|USD)/.test(fullText) && !/€|EUR/.test(fullText) ? 'USD' : 'EUR';
+
+  return {
+    kind,
+    number: number.value,
+    date,
+    dueDate,
+    clientName: client.name,
+    clientAddress: client.address,
+    clientSiret: client.siret,
+    currency,
+    totalHT: totals.totalHT,
+    totalVAT: totals.totalVAT,
+    totalTTC: totals.totalTTC,
+    lines,
+    confidence: Math.max(0.05, round2(confidence)),
+    warnings,
+  };
+}
