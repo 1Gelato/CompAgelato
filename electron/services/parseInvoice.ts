@@ -28,6 +28,12 @@ export interface ParsedDocument {
   lines: ParsedLine[];
   confidence: number;
   warnings: string[];
+  /**
+   * Texte brut du document (début), conservé le temps de l'import pour
+   * chercher un client connu quand aucun libellé « Client : » n'est présent.
+   * Non enregistré en base.
+   */
+  sourceText?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -455,5 +461,6 @@ export function parsePdfDocument(extract: PdfExtract, filePath: string): ParsedD
     lines,
     confidence: Math.max(0.05, round2(confidence)),
     warnings,
+    sourceText: fullText.slice(0, 6000),
   };
 }

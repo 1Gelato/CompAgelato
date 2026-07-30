@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import type {
   AccountingDocument,
+  Client,
   DocumentKind,
   DocumentLine,
   ID,
@@ -145,6 +146,31 @@ function toLines(parsed: ParsedLine[]): DocumentLine[] {
   }));
 }
 
+/**
+ * Cherche, dans le texte d'un document, le nom d'un client déjà enregistré.
+ * On retient la correspondance la plus longue : « Camping Les Ajoncs » l'emporte
+ * sur « Camping ». Les noms trop courts sont écartés (risque de faux positif).
+ */
+function findClientInText(text: string): Client | null {
+  const haystack = normalize(text);
+  if (!haystack) return null;
+  let best: { client: Client; length: number } | null = null;
+
+  for (const client of store.db.clients) {
+    if (client.archived) continue;
+    const candidates = [client.name, client.legalName, ...client.aliases].filter(
+      (c): c is string => Boolean(c),
+    );
+    for (const candidate of candidates) {
+      const needle = normalize(candidate);
+      if (needle.length < 6) continue;
+      if (!haystack.includes(needle)) continue;
+      if (!best || needle.length > best.length) best = { client, length: needle.length };
+    }
+  }
+  return best?.client ?? null;
+}
+
 interface IngestContext {
   filePath?: string;
   sourceFormat: AccountingDocument['sourceFormat'];
@@ -180,10 +206,20 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
         rememberClientAlias(match.client.id, parsed.clientName);
         warnings.push(`Client rapproché par ressemblance (${Math.round(match.score * 100)} %) — à confirmer.`);
       }
-    } else if (parsed.clientName && settings.autoCreateClients) {
-      clientId = createClientFromDocument(parsed.clientName, parsed.clientAddress, parsed.clientSiret).id;
-      warnings.push('Nouvelle fiche client créée automatiquement.');
     }
+  }
+  // Beaucoup de factures n'écrivent pas « Client : » : le nom figure seul dans
+  // un bloc d'adresse. On cherche alors un client connu dans le texte du document.
+  if (!clientId && parsed.sourceText) {
+    const found = findClientInText(parsed.sourceText);
+    if (found) {
+      clientId = found.id;
+      warnings.push('Client reconnu à partir de son nom présent sur le document.');
+    }
+  }
+  if (!clientId && parsed.clientName && settings.autoCreateClients) {
+    clientId = createClientFromDocument(parsed.clientName, parsed.clientAddress, parsed.clientSiret).id;
+    warnings.push('Nouvelle fiche client créée automatiquement.');
   }
 
   const totalHT = parsed.totalHT ?? 0;

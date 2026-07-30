@@ -194,10 +194,11 @@ npm run test:all
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
   liens Google Maps / Waze / Plans, lecture des réponses OSRM et Valhalla.
-- **15 tests de bout en bout** — l'application réelle est lancée, pilotée et
+- **17 tests de bout en bout** — l'application réelle est lancée, pilotée et
   vérifiée : import d'une liste clients en Windows-1252, import du catalogue,
   analyse d'un dossier de PDF, rattachement automatique aux clients, association
   des lignes au stock, déduction puis annulation, idempotence, absence de
   doublons, optimisation avec arrêt épinglé, génération des liens et QR codes,
   exports, navigation dans chaque écran, et reprise automatique d'un fichier
-  déposé pendant que le logiciel tourne.
+  déposé pendant que le logiciel tourne, rattachement d'une facture dépourvue
+  de libellé « Client : », ouverture de chaque fenêtre de saisie.

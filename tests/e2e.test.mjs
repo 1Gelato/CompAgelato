@@ -420,3 +420,101 @@ test('la surveillance du dossier importe un fichier déposé sans intervention',
 
   await page.evaluate(() => window.api.settings.update({ autoScan: false }));
 });
+
+test('une facture sans libellé « Client : » est quand même rattachée', async () => {
+  // Le nom du client figure seul dans le bloc d'adresse, sans mot-clé :
+  // le rapprochement doit se faire sur le nom connu présent dans le texte.
+  const target = path.join(watchFolder, 'Factures', 'FA-2026-0210.pdf');
+  fs.copyFileSync(path.join(pdfDir, 'FA-2026-0210.pdf'), target);
+
+  const report = await page.evaluate(() => window.api.documents.scan({}));
+  assert.equal(report.failed, 0, JSON.stringify(report.errors));
+
+  const documents = await page.evaluate(() => window.api.documents.list());
+  const facture = documents.find((d) => d.number === 'FA-2026-0210');
+  assert.ok(facture, 'facture non importée');
+  assert.equal(facture.totalHT, 79.2);
+
+  const clients = await page.evaluate(() => window.api.clients.list());
+  const dune = clients.find((c) => c.name === 'Restaurant La Dune');
+  assert.ok(dune, 'client de référence absent');
+  assert.equal(facture.clientId, dune.id, 'client non reconnu dans le texte du document');
+
+  // Aucune fiche en double n'a été créée au passage.
+  assert.equal(clients.filter((c) => c.name.toLowerCase().includes('dune')).length, 1);
+});
+
+test('les fenêtres de saisie s’ouvrent et se ferment sans erreur', async () => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+
+  const closeModal = async () => {
+    await page.click('.modal__header .iconbtn');
+    await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+  };
+
+  /* Fiche client ---------------------------------------------------- */
+  await page.click('.navitem:has-text("Clients")');
+  await page.waitForSelector('table.data tbody tr');
+  await page.click('button:has-text("Nouveau client")');
+  await page.waitForSelector('.modal:has-text("Nouveau client")');
+  assert.ok(await page.isVisible('text=Adresse'));
+  await closeModal();
+
+  await page.click('table.data tbody tr');
+  await page.waitForSelector('.modal');
+  assert.match(await page.textContent('.modal__title'), /COMPTOIR|Dune|Pornichet/i);
+  await closeModal();
+
+  /* Fiche consommable ----------------------------------------------- */
+  await page.click('.navitem:has-text("Stock")');
+  await page.waitForSelector('table.data tbody tr');
+  await page.click('table.data tbody tr');
+  await page.waitForSelector('.modal');
+  assert.ok(await page.isVisible('text=Seuil d’alerte'));
+  await closeModal();
+
+  /* Historique des mouvements --------------------------------------- */
+  await page.click('table.data tbody tr button[title="Historique des mouvements"]');
+  await page.waitForSelector('.modal:has-text("Mouvements")');
+  await closeModal();
+
+  /* Détail d'un document et association d'une ligne ------------------ */
+  await page.click('.navitem:has-text("Documents")');
+  await page.waitForSelector('table.data tbody tr');
+  await page.click('table.data tbody tr');
+  await page.waitForSelector('.modal');
+  assert.ok(await page.isVisible('text=Lignes du document'));
+
+  const linkButton = page.locator('.modal table.data tbody tr td:last-child button').first();
+  await linkButton.click();
+  await page.waitForSelector('.modal:has-text("Associer au stock")');
+  // Le champ de recherche est identifié par son texte indicatif.
+  assert.ok(await page.isVisible('input[placeholder*="consommable"]'));
+  // Ferme la fenêtre d'association (la plus récente), puis le détail.
+  await page.locator('.modal:has-text("Associer au stock") .modal__header .iconbtn').click();
+  await page.waitForTimeout(300);
+  await page.locator('.modal .modal__header .iconbtn').last().click();
+  await page.waitForTimeout(300);
+
+  /* Tournée : ajout d'un arrêt --------------------------------------- */
+  await page.click('.navitem:has-text("Tournées")');
+  await page.waitForSelector('button:has-text("Ajouter un arrêt")');
+  await page.click('button:has-text("Ajouter un arrêt")');
+  await page.waitForSelector('.modal:has-text("Ajouter un arrêt")');
+  assert.ok(await page.isVisible('text=Carnet de clients'));
+  await page.click('.segmented button:has-text("Recherche d’adresse")');
+  await page.waitForTimeout(250);
+  assert.ok(await page.isVisible('text=Nom de l’arrêt'));
+  await closeModal();
+
+  /* Réglages : véhicule ---------------------------------------------- */
+  await page.click('.navitem:has-text("Réglages")');
+  await page.waitForSelector('button:has-text("Ajouter")');
+  await page.click('.card:has-text("Véhicules") button:has-text("Ajouter")');
+  await page.waitForSelector('.modal:has-text("Nouveau véhicule")');
+  assert.ok(await page.isVisible('text=Consommation'));
+  await closeModal();
+
+  assert.deepEqual(errors, [], `erreurs React : ${errors.join(' | ')}`);
+});

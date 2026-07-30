@@ -23,7 +23,7 @@ def euro(v):
 
 
 def build(filename, *, kind, number, date, client_name, client_addr, lines,
-          vat=20.0, due=None, seller="GLACES DU LITTORAL"):
+          vat=20.0, due=None, seller="GLACES DU LITTORAL", client_label=True):
     path = os.path.join(OUT, filename)
     doc = SimpleDocTemplate(path, pagesize=A4,
                             leftMargin=18 * mm, rightMargin=18 * mm,
@@ -40,7 +40,8 @@ def build(filename, *, kind, number, date, client_name, client_addr, lines,
     if due:
         story.append(Paragraph(f"Date d'échéance : {due}", styles["Normal"]))
     story.append(Spacer(1, 5 * mm))
-    story.append(Paragraph("<b>Client :</b>", styles["Normal"]))
+    if client_label:
+        story.append(Paragraph("<b>Client :</b>", styles["Normal"]))
     story.append(Paragraph(f"{client_name}<br/>{client_addr}", styles["Normal"]))
     story.append(Spacer(1, 8 * mm))
 
@@ -103,6 +104,15 @@ if __name__ == "__main__":
           lines=[
               ("CUP-100", "Coupelle carton 100 ml (x50)", 5, "carton", 8.90),
               ("CON-STD", "Cornet gaufré standard (x120)", 8, "carton", 12.40),
+          ])
+
+    build("FA-2026-0210.pdf", kind="invoice", number="FA-2026-0210",
+          date="18/05/2026", client_label=False,
+          client_name="Restaurant La Dune",
+          client_addr="3 boulevard Océan — 44420 Piriac-sur-Mer",
+          lines=[
+              ("CON-STD", "Cornet gaufré standard (x120)", 4, "carton", 12.40),
+              ("SER-BLA", "Serviette blanche 30x30 (x500)", 2, "carton", 14.80),
           ])
 
     build("DE-2026-0031.pdf", kind="quote", number="DE-2026-0031",
