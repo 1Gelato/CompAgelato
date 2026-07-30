@@ -110,13 +110,15 @@ export function Stock() {
           ]}
         />
         <div className="spacer" />
-        <Button icon={<Icons.download size={14} />} onClick={exportCsv} title="Exporter en CSV" />
-        <Button icon={<Icons.upload size={14} />} onClick={runImport} loading={importing}>
-          Importer
-        </Button>
-        <Button variant="primary" icon={<Icons.plus size={14} />} onClick={() => setEditing('new')}>
-          Nouveau consommable
-        </Button>
+        <div className="row">
+          <Button icon={<Icons.download size={14} />} onClick={exportCsv} title="Exporter en CSV" />
+          <Button icon={<Icons.upload size={14} />} onClick={runImport} loading={importing}>
+            Importer
+          </Button>
+          <Button variant="primary" icon={<Icons.plus size={14} />} onClick={() => setEditing('new')}>
+            Nouveau consommable
+          </Button>
+        </div>
       </div>
 
       {loading && !products.length ? (

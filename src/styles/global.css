@@ -662,6 +662,7 @@ textarea,
 
 .segmented {
   display: inline-flex;
+  align-self: flex-start;
   background: var(--bg-inset);
   border-radius: var(--radius-sm);
   padding: 2px;

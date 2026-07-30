@@ -128,23 +128,25 @@ export function Clients() {
           style={{ width: 270 }}
         />
         <div className="spacer" />
-        {missingCoords > 0 && (
-          <Button
-            icon={<Icons.route size={14} />}
-            onClick={geocodeMissing}
-            loading={geocoding}
-            title="Rechercher les coordonnées GPS des adresses importées"
-          >
-            Géolocaliser {missingCoords}
+        <div className="row">
+          {missingCoords > 0 && (
+            <Button
+              icon={<Icons.route size={14} />}
+              onClick={geocodeMissing}
+              loading={geocoding}
+              title="Rechercher les coordonnées GPS des adresses importées"
+            >
+              Géolocaliser {missingCoords}
+            </Button>
+          )}
+          <Button icon={<Icons.download size={14} />} onClick={exportCsv} title="Exporter en CSV" />
+          <Button icon={<Icons.upload size={14} />} onClick={runImport} loading={importing}>
+            Importer une liste
           </Button>
-        )}
-        <Button icon={<Icons.download size={14} />} onClick={exportCsv} title="Exporter en CSV" />
-        <Button icon={<Icons.upload size={14} />} onClick={runImport} loading={importing}>
-          Importer une liste
-        </Button>
-        <Button variant="primary" icon={<Icons.plus size={14} />} onClick={() => setEditing('new')}>
-          Nouveau client
-        </Button>
+          <Button variant="primary" icon={<Icons.plus size={14} />} onClick={() => setEditing('new')}>
+            Nouveau client
+          </Button>
+        </div>
       </div>
 
       {loading && !clients.length ? (

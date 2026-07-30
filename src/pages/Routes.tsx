@@ -202,29 +202,31 @@ export function Routes() {
           Nouvelle
         </Button>
         <div className="spacer" />
-        {isSaved && (
-          <Button
-            icon={<Icons.download size={14} />}
-            title="Exporter la feuille de route en CSV"
-            onClick={async () => {
-              try {
-                const file = await window.api.routes.exportCsv(route.id);
-                if (file) {
-                  toast.push({ tone: 'success', title: 'Feuille de route exportée', text: file });
-                  await window.api.app.revealFile(file);
+        <div className="row">
+          {isSaved && (
+            <Button
+              icon={<Icons.download size={14} />}
+              title="Exporter la feuille de route en CSV"
+              onClick={async () => {
+                try {
+                  const file = await window.api.routes.exportCsv(route.id);
+                  if (file) {
+                    toast.push({ tone: 'success', title: 'Feuille de route exportée', text: file });
+                    await window.api.app.revealFile(file);
+                  }
+                } catch (err) {
+                  toast.push({ tone: 'error', title: 'Échec', text: errorMessage(err) });
                 }
-              } catch (err) {
-                toast.push({ tone: 'error', title: 'Échec', text: errorMessage(err) });
-              }
-            }}
-          />
-        )}
-        {isSaved && (
-          <Button variant="danger" icon={<Icons.trash size={14} />} onClick={() => setConfirmDelete(true)} />
-        )}
-        <Button variant={dirty ? 'primary' : 'default'} onClick={save} disabled={!dirty && isSaved}>
-          {isSaved ? 'Enregistrer' : 'Enregistrer la tournée'}
-        </Button>
+              }}
+            />
+          )}
+          {isSaved && (
+            <Button variant="danger" icon={<Icons.trash size={14} />} onClick={() => setConfirmDelete(true)} />
+          )}
+          <Button variant={dirty ? 'primary' : 'default'} onClick={save} disabled={!dirty && isSaved}>
+            {isSaved ? 'Enregistrer' : 'Enregistrer la tournée'}
+          </Button>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 330px', gap: 14, alignItems: 'start' }}>

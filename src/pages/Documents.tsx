@@ -131,20 +131,23 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
           ]}
         />
         <div className="spacer" />
-        {pendingCount > 0 && (
-          <Button icon={<Icons.stock size={14} />} onClick={applyAll} loading={busy}>
-            Déduire {pendingCount} document{pendingCount > 1 ? 's' : ''}
+        {/* Les actions restent groupées quand la barre passe à la ligne. */}
+        <div className="row">
+          {pendingCount > 0 && (
+            <Button icon={<Icons.stock size={14} />} onClick={applyAll} loading={busy}>
+              Déduire {pendingCount} document{pendingCount > 1 ? 's' : ''}
+            </Button>
+          )}
+          <Button icon={<Icons.download size={14} />} onClick={exportCsv} title="Exporter en CSV" />
+          <Button
+            variant="primary"
+            icon={<Icons.refresh size={14} />}
+            onClick={() => onScan(false)}
+            loading={scanning}
+          >
+            Analyser le dossier
           </Button>
-        )}
-        <Button icon={<Icons.download size={14} />} onClick={exportCsv} title="Exporter en CSV" />
-        <Button
-          variant="primary"
-          icon={<Icons.refresh size={14} />}
-          onClick={() => onScan(false)}
-          loading={scanning}
-        >
-          Analyser le dossier
-        </Button>
+        </div>
       </div>
 
       {loading && !documents.length ? (
