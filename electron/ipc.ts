@@ -1,12 +1,21 @@
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { AppInfo, ProductSuggestion, RouteQr } from '@shared/api';
+import type {
+  AppInfo,
+  EmailOutcome,
+  EmailPreparation,
+  PrintOutcome,
+  ProductSuggestion,
+  RouteQr,
+} from '@shared/api';
 import { CHANNELS } from '@shared/api';
 import type {
   AccountingDocument,
+  Attachment,
   Client,
   DeliveryRoute,
+  EmailDraft,
   ID,
   Product,
   Settings,
@@ -51,6 +60,17 @@ import {
 } from './services/exports';
 import { seedDemoData, wipeDemoData } from './services/demo';
 import { round2 } from './services/text';
+import {
+  addAttachment,
+  attachmentExists,
+  attachmentsFolder,
+  listAttachments,
+  removeAttachment,
+  syncAttachmentsFolder,
+  updateAttachment,
+} from './services/attachments';
+import { printFile } from './services/printing';
+import { applyTemplate, buildEml, buildMailto, safeFileName } from './services/mail';
 
 type Handler = (...args: any[]) => unknown;
 type Registry = Record<string, Record<string, Handler>>;
@@ -68,6 +88,37 @@ function send(channel: string, payload: unknown): void {
 /* ------------------------------------------------------------------ */
 /* Génération de QR codes                                              */
 /* ------------------------------------------------------------------ */
+
+const KIND_LABEL: Record<string, string> = {
+  invoice: 'Facture',
+  quote: 'Devis',
+  credit: 'Avoir',
+};
+
+/** Le type précédé de son article, pour écrire « ci-joint la facture … ». */
+const KIND_WITH_ARTICLE: Record<string, string> = {
+  invoice: 'la facture',
+  quote: 'le devis',
+  credit: 'l’avoir',
+};
+
+const euroFormatter = new Intl.NumberFormat('fr-FR', {
+  style: 'currency',
+  currency: 'EUR',
+  minimumFractionDigits: 2,
+});
+
+function requireDocument(documentId: ID): AccountingDocument {
+  const doc = store.db.documents.find((d) => d.id === documentId);
+  if (!doc) throw new Error('Document introuvable.');
+  return doc;
+}
+
+function formatFrenchDate(iso?: string): string {
+  if (!iso) return '';
+  const [y, m, d] = iso.slice(0, 10).split('-');
+  return y && m && d ? `${d}/${m}/${y}` : iso;
+}
 
 /** Chaîne d'adresse la plus complète possible pour interroger le géocodeur. */
 function addressQuery(client: Client): string {
@@ -333,6 +384,208 @@ const handlers: Registry = {
     },
     async exportCsv() {
       return exportDocumentsCsv();
+    },
+
+    /* -- Fichier d'origine, impression, e-mail -------------------- */
+
+    async openFile(documentId: ID) {
+      const doc = requireDocument(documentId);
+      if (!doc.sourceFile) throw new Error("Ce document n'a pas de fichier d'origine (saisie manuelle).");
+      if (!fs.existsSync(doc.sourceFile)) {
+        throw new Error(`Le fichier n'est plus à son emplacement :\n${doc.sourceFile}`);
+      }
+      const error = await shell.openPath(doc.sourceFile);
+      if (error) throw new Error(error);
+    },
+
+    async print(documentId: ID): Promise<PrintOutcome> {
+      const doc = requireDocument(documentId);
+      if (!doc.sourceFile) throw new Error("Ce document n'a pas de fichier d'origine à imprimer.");
+      const result = await printFile(doc.sourceFile);
+      if (result.printed) {
+        store.mutate(() => {
+          doc.printedAt = nowIso();
+          doc.updatedAt = nowIso();
+        });
+        store.flushSync();
+      }
+      return result;
+    },
+
+    async setPrinted(documentId: ID, printed: boolean) {
+      const doc = requireDocument(documentId);
+      store.mutate(() => {
+        doc.printedAt = printed ? nowIso() : undefined;
+        doc.updatedAt = nowIso();
+      });
+      store.flushSync();
+      return doc;
+    },
+
+    async prepareEmail(documentId: ID): Promise<EmailPreparation> {
+      const doc = requireDocument(documentId);
+      const settings = store.settings;
+      const client = doc.clientId ? store.db.clients.find((c) => c.id === doc.clientId) : undefined;
+
+      // Reprend les fichiers déposés à la main dans le dossier des pièces jointes.
+      syncAttachmentsFolder();
+
+      const values = {
+        type: KIND_LABEL[doc.kind],
+        type_minuscule: KIND_LABEL[doc.kind].toLowerCase(),
+        le_type: KIND_WITH_ARTICLE[doc.kind],
+        numero: doc.number,
+        date: formatFrenchDate(doc.date),
+        client: client?.name ?? doc.clientNameRaw ?? '',
+        societe: settings.companyName ?? '',
+        montant: euroFormatter.format(doc.totalTTC),
+      };
+
+      const subject = applyTemplate(settings.emailSubjectTemplate ?? '{type} {numero}', values);
+      const bodyBase = applyTemplate(settings.emailBodyTemplate ?? 'Bonjour,', values);
+      const signature = settings.emailSignature?.trim();
+      const body = signature ? `${bodyBase}\n\n${signature}` : bodyBase;
+
+      const attachments = listAttachments().map((a) => ({ ...a, exists: attachmentExists(a) }));
+      const documentAttachable = Boolean(doc.sourceFile && fs.existsSync(doc.sourceFile));
+
+      return {
+        draft: {
+          to: client?.email ?? '',
+          subject,
+          body,
+          includeDocument: documentAttachable,
+          // Les pièces cochées par défaut sont pré-sélectionnées.
+          attachmentIds: attachments.filter((a) => a.defaultSelected && a.exists).map((a) => a.id),
+        },
+        attachments,
+        documentAttachable,
+        documentFileName: doc.sourceFile ? path.basename(doc.sourceFile) : undefined,
+        clientName: client?.name ?? doc.clientNameRaw,
+        warning: !client?.email
+          ? "Ce client n'a pas d'adresse e-mail enregistrée : saisissez-la ci-dessous ou complétez sa fiche."
+          : undefined,
+      };
+    },
+
+    async sendEmail(documentId: ID, draft: EmailDraft): Promise<EmailOutcome> {
+      const doc = requireDocument(documentId);
+      if (!draft.to?.trim()) throw new Error('Renseignez au moins un destinataire.');
+
+      const files: { filePath: string; fileName?: string }[] = [];
+      if (draft.includeDocument && doc.sourceFile && fs.existsSync(doc.sourceFile)) {
+        files.push({ filePath: doc.sourceFile });
+      }
+      for (const id of draft.attachmentIds ?? []) {
+        const attachment = store.db.attachments.find((a) => a.id === id);
+        if (!attachment) continue;
+        if (!fs.existsSync(attachment.filePath)) continue;
+        files.push({
+          filePath: attachment.filePath,
+          fileName: `${attachment.name}${path.extname(attachment.filePath)}`,
+        });
+      }
+
+      const built = buildEml({
+        to: draft.to.trim(),
+        cc: draft.cc?.trim() || undefined,
+        from: store.settings.senderEmail?.trim() || undefined,
+        subject: draft.subject,
+        body: draft.body,
+        attachments: files,
+      });
+
+      const markSent = () => {
+        store.mutate(() => {
+          doc.emailedAt = nowIso();
+          doc.updatedAt = nowIso();
+        });
+        store.flushSync();
+      };
+
+      const attachmentMb = round2(built.attachmentBytes / (1024 * 1024));
+
+      try {
+        const folder = path.join(app.getPath('temp'), 'CompaGelato');
+        fs.mkdirSync(folder, { recursive: true });
+        const file = path.join(
+          folder,
+          `${safeFileName(`${KIND_LABEL[doc.kind]} ${doc.number}`)}.eml`,
+        );
+        fs.writeFileSync(file, built.content, 'utf8');
+
+        const error = await shell.openPath(file);
+        if (error) throw new Error(error);
+
+        markSent();
+        const missing = built.missing.length
+          ? ` ${built.missing.length} pièce(s) jointe(s) introuvable(s) : ${built.missing.join(', ')}.`
+          : '';
+        return {
+          sent: true,
+          method: 'eml',
+          attachmentMb,
+          message: `Brouillon ouvert dans votre messagerie avec ${files.length} pièce(s) jointe(s).${missing} Relisez-le puis envoyez-le.`,
+        };
+      } catch (err) {
+        // Repli sans pièce jointe : au moins le message part.
+        const mailto = buildMailto({ to: draft.to, cc: draft.cc, subject: draft.subject, body: draft.body });
+        await shell.openExternal(mailto);
+        markSent();
+        return {
+          sent: true,
+          method: 'mailto',
+          attachmentMb: 0,
+          message: `Votre messagerie n'a pas accepté le brouillon avec pièces jointes (${(err as Error).message}). Un message vide a été ouvert : ajoutez les fichiers à la main.`,
+        };
+      }
+    },
+  },
+
+  attachments: {
+    async list() {
+      syncAttachmentsFolder();
+      store.flushSync();
+      return listAttachments().map((a) => ({ ...a, exists: attachmentExists(a) }));
+    },
+    async pickAndAdd() {
+      const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+        title: 'Ajouter des pièces jointes (flyers, plaquettes…)',
+        defaultPath: attachmentsFolder(),
+        filters: [
+          { name: 'Documents et images', extensions: ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'docx', 'xlsx', 'pptx'] },
+          { name: 'Tous les fichiers', extensions: ['*'] },
+        ],
+        properties: ['openFile', 'multiSelections'],
+      });
+      if (result.canceled || !result.filePaths.length) return null;
+      const added = result.filePaths.map((file) => addAttachment(file));
+      store.flushSync();
+      return added;
+    },
+    async update(id: ID, patch: Partial<Attachment>) {
+      const attachment = updateAttachment(id, patch);
+      store.flushSync();
+      return attachment;
+    },
+    async remove(id: ID) {
+      removeAttachment(id);
+      store.flushSync();
+    },
+    async open(id: ID) {
+      const attachment = store.db.attachments.find((a) => a.id === id);
+      if (!attachment) throw new Error('Pièce jointe introuvable.');
+      if (!fs.existsSync(attachment.filePath)) throw new Error('Le fichier a été déplacé ou supprimé.');
+      const error = await shell.openPath(attachment.filePath);
+      if (error) throw new Error(error);
+    },
+    async sync() {
+      const report = syncAttachmentsFolder();
+      store.flushSync();
+      return report;
+    },
+    async openFolder() {
+      await shell.openPath(attachmentsFolder());
     },
   },
 

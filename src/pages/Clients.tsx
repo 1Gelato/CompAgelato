@@ -211,7 +211,7 @@ export function Clients() {
                     <td>
                       <div className="row" style={{ gap: 5 }}>
                         {located && (
-                          <span title="Adresse géolocalisée — utilisable pour les tournées" style={{ color: 'var(--green)' }}>
+                          <span title="Position GPS connue — ce client peut être ajouté à une tournée" style={{ color: 'var(--green)' }}>
                             <Icons.route size={12} />
                           </span>
                         )}
@@ -253,8 +253,9 @@ export function Clients() {
           <div className="spacer" />
           {missingCoords > 0 && (
             <span>
-              {missingCoords} fiche(s) sans coordonnées GPS — le bouton « Géolocaliser » les rend
-              utilisables dans le calculateur de tournée.
+              {missingCoords} fiche(s) dont la position GPS est inconnue : elles ne peuvent pas
+              encore entrer dans une tournée. Le bouton « Géolocaliser » cherche leur position à
+              partir de l’adresse enregistrée.
             </span>
           )}
         </div>

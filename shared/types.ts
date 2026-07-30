@@ -87,6 +87,10 @@ export interface AccountingDocument {
   /** Le stock a-t-il déjà été décrémenté pour ce document ? */
   stockApplied: boolean;
   stockAppliedAt?: string;
+  /** Date de la dernière impression — sert de repère visuel dans le tableau. */
+  printedAt?: string;
+  /** Date du dernier envoi par e-mail. */
+  emailedAt?: string;
   /** Fiabilité de l'extraction automatique, 0 → 1. */
   confidence: number;
   /** Champs que l'extraction n'a pas su lire de façon sûre. */
@@ -127,6 +131,33 @@ export interface StockMove {
   /** Stock après application du mouvement (pour l'historique). */
   balanceAfter: number;
   createdAt: string;
+}
+
+/**
+ * Pièce jointe réutilisable (flyer, plaquette, conditions générales…) que l'on
+ * coche pour l'ajouter à un envoi par e-mail.
+ */
+export interface Attachment {
+  id: ID;
+  name: string;
+  filePath: string;
+  /** Taille en octets, pour prévenir des envois trop lourds. */
+  size: number;
+  category?: string;
+  /** Proposé coché par défaut à chaque nouvel envoi. */
+  defaultSelected: boolean;
+  archived: boolean;
+  createdAt: string;
+}
+
+export interface EmailDraft {
+  to: string;
+  cc?: string;
+  subject: string;
+  body: string;
+  /** Joindre le document comptable lui-même. */
+  includeDocument: boolean;
+  attachmentIds: ID[];
 }
 
 export interface Vehicle {
@@ -217,6 +248,14 @@ export interface Settings {
   theme: 'system' | 'light' | 'dark';
   companyName?: string;
   lowStockAlert: boolean;
+  /** Adresse e-mail d'expédition, reprise dans les brouillons générés. */
+  senderEmail?: string;
+  /** Signature ajoutée en fin de message. */
+  emailSignature?: string;
+  /** Objet type des e-mails ; {type} et {numero} sont remplacés. */
+  emailSubjectTemplate?: string;
+  /** Corps type des e-mails ; {client}, {type}, {numero}, {date} sont remplacés. */
+  emailBodyTemplate?: string;
 }
 
 export interface Database {
@@ -227,6 +266,7 @@ export interface Database {
   stockMoves: StockMove[];
   routes: DeliveryRoute[];
   vehicles: Vehicle[];
+  attachments: Attachment[];
   settings: Settings;
 }
 

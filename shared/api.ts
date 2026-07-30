@@ -2,10 +2,12 @@ import type {
   AccountingDocument,
   Address,
   AddressSuggestion,
+  Attachment,
   Client,
   DashboardStats,
   Database,
   DeliveryRoute,
+  EmailDraft,
   ID,
   ImportClientsReport,
   OptimizeOptions,
@@ -29,7 +31,11 @@ export const CHANNELS = {
   app: ['info', 'openPath', 'openExternal', 'chooseFolder', 'chooseFile', 'revealFile', 'quit'],
   settings: ['get', 'update', 'resetFolder'],
   clients: ['list', 'save', 'remove', 'importFrom', 'pickAndImport', 'exportCsv', 'merge', 'geocodeMissing'],
-  documents: ['list', 'get', 'save', 'remove', 'scan', 'rescanFile', 'setClient', 'setStatus', 'exportCsv'],
+  documents: [
+    'list', 'get', 'save', 'remove', 'scan', 'rescanFile', 'setClient', 'setStatus', 'exportCsv',
+    'openFile', 'print', 'setPrinted', 'prepareEmail', 'sendEmail',
+  ],
+  attachments: ['list', 'pickAndAdd', 'update', 'remove', 'open', 'sync', 'openFolder'],
   products: ['list', 'save', 'remove', 'importFrom', 'pickAndImport', 'exportCsv', 'adjust'],
   stock: ['moves', 'apply', 'revert', 'applyAll', 'linkLine', 'suggestions'],
   routes: ['list', 'save', 'remove', 'compute', 'optimize', 'link', 'qr', 'exportCsv'],
@@ -60,6 +66,32 @@ export interface RouteQr {
   /** Découpage en plusieurs liens si la tournée dépasse la limite du fournisseur. */
   segments: { url: string; qrDataUrl: string; from: string; to: string; stops: number }[];
   warning?: string;
+}
+
+export interface PrintOutcome {
+  printed: boolean;
+  method: 'dialog' | 'viewer';
+  message: string;
+}
+
+/** Brouillon pré-rempli proposé à l'utilisateur avant envoi. */
+export interface EmailPreparation {
+  draft: EmailDraft;
+  /** Pièces jointes disponibles, celles cochées par défaut en premier. */
+  attachments: (Attachment & { exists: boolean })[];
+  /** Le document lui-même peut-il être joint ? */
+  documentAttachable: boolean;
+  documentFileName?: string;
+  clientName?: string;
+  warning?: string;
+}
+
+export interface EmailOutcome {
+  sent: boolean;
+  method: 'eml' | 'mailto';
+  message: string;
+  /** Taille totale des pièces jointes, en Mo. */
+  attachmentMb: number;
 }
 
 export interface ProductSuggestion {
@@ -104,6 +136,22 @@ export interface Api {
     setClient(documentId: ID, clientId: ID | null): Promise<AccountingDocument>;
     setStatus(documentId: ID, status: AccountingDocument['status']): Promise<AccountingDocument>;
     exportCsv(): Promise<string | null>;
+    /** Ouvre le fichier d'origine dans l'application par défaut. */
+    openFile(documentId: ID): Promise<void>;
+    print(documentId: ID): Promise<PrintOutcome>;
+    /** Coche ou décoche manuellement le repère « imprimé ». */
+    setPrinted(documentId: ID, printed: boolean): Promise<AccountingDocument>;
+    prepareEmail(documentId: ID): Promise<EmailPreparation>;
+    sendEmail(documentId: ID, draft: EmailDraft): Promise<EmailOutcome>;
+  };
+  attachments: {
+    list(): Promise<(Attachment & { exists: boolean })[]>;
+    pickAndAdd(): Promise<Attachment[] | null>;
+    update(id: ID, patch: Partial<Attachment>): Promise<Attachment>;
+    remove(id: ID): Promise<void>;
+    open(id: ID): Promise<void>;
+    sync(): Promise<{ added: number; missing: number }>;
+    openFolder(): Promise<void>;
   };
   products: {
     list(): Promise<Product[]>;

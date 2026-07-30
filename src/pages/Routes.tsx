@@ -330,9 +330,15 @@ export function Routes() {
                 Plans (Apple)
               </Button>
               {!canCompute && (
+                <div className="warnbox">
+                  {typeof route.start.address.lat !== 'number'
+                    ? 'Le point de départ n’a pas de position GPS. Choisissez une proposition dans le champ « Point de départ », ou rétablissez le dépôt depuis les Réglages.'
+                    : 'Aucun arrêt n’a de position GPS. Utilisez le bouton de localisation (icône repère) sur chaque arrêt, ou ouvrez-le pour choisir une adresse dans la liste.'}
+                </div>
+              )}
+              {canCompute && route.stops.length < 2 && (
                 <div className="field__hint">
-                  Renseignez une adresse de départ géolocalisée et au moins un arrêt pour activer le
-                  calcul.
+                  L’optimisation demande au moins deux arrêts localisés.
                 </div>
               )}
             </div>
@@ -380,10 +386,63 @@ function StopList({
   clients: Client[];
   onChange: (stops: RouteStop[]) => void;
 }) {
+  const toast = useToast();
   const [adding, setAdding] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const [editingStop, setEditingStop] = useState<RouteStop | null>(null);
+  const [locating, setLocating] = useState<string | null>(null);
+
+  /**
+   * Cherche la position d'un arrêt à partir de son adresse écrite.
+   * Sans coordonnées, l'arrêt ne peut entrer ni dans le calcul de distance ni
+   * dans l'optimisation.
+   */
+  const locate = async (stop: RouteStop) => {
+    const query = [stop.address.street, stop.address.postcode, stop.address.city]
+      .filter(Boolean)
+      .join(' ')
+      .trim() || stop.address.label;
+    if (!query) {
+      toast.push({ tone: 'warn', title: 'Adresse vide', text: 'Renseignez d’abord une adresse.' });
+      return;
+    }
+    setLocating(stop.id);
+    try {
+      const [hit] = await window.api.geo.autocomplete(query, undefined);
+      if (!hit) {
+        toast.push({
+          tone: 'warn',
+          title: 'Adresse non reconnue',
+          text: `« ${query} » n’a pas été trouvée. Modifiez l’arrêt et choisissez une proposition.`,
+        });
+        return;
+      }
+      onChange(
+        route.stops.map((s) =>
+          s.id === stop.id
+            ? {
+                ...s,
+                address: {
+                  label: hit.label,
+                  street: hit.street,
+                  postcode: hit.postcode,
+                  city: hit.city,
+                  country: 'France',
+                  lat: hit.lat,
+                  lon: hit.lon,
+                },
+              }
+            : s,
+        ),
+      );
+      toast.push({ tone: 'success', title: 'Arrêt localisé', text: hit.label });
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Localisation impossible', text: errorMessage(err) });
+    } finally {
+      setLocating(null);
+    }
+  };
 
   const move = (from: number, to: number) => {
     if (from === to) return;
@@ -405,20 +464,84 @@ function StopList({
   };
 
   const pinnedCount = route.stops.filter((s) => s.pinned).length;
+  const unlocated = route.stops.filter((s) => typeof s.address.lat !== 'number');
+
+  /** Localise en une fois tous les arrêts dont la position est inconnue. */
+  const locateAll = async () => {
+    setLocating('all');
+    let found = 0;
+    const updated = [...route.stops];
+    try {
+      for (const stop of unlocated) {
+        const query =
+          [stop.address.street, stop.address.postcode, stop.address.city].filter(Boolean).join(' ').trim() ||
+          stop.address.label;
+        if (!query) continue;
+        try {
+          const [hit] = await window.api.geo.autocomplete(query, undefined);
+          if (!hit) continue;
+          const index = updated.findIndex((s) => s.id === stop.id);
+          if (index < 0) continue;
+          updated[index] = {
+            ...updated[index],
+            address: {
+              label: hit.label,
+              street: hit.street,
+              postcode: hit.postcode,
+              city: hit.city,
+              country: 'France',
+              lat: hit.lat,
+              lon: hit.lon,
+            },
+          };
+          found++;
+        } catch {
+          /* on continue avec les arrêts suivants */
+        }
+        // Rythme volontairement modéré : le service d'adresses est public.
+        await new Promise((resolve) => setTimeout(resolve, 140));
+      }
+      if (found) onChange(updated);
+      toast.push({
+        tone: found ? 'success' : 'warn',
+        title: found ? `${found} arrêt(s) localisé(s)` : 'Aucun arrêt localisé',
+        text: found
+          ? 'Le calcul de coût et l’optimisation sont maintenant possibles.'
+          : 'Ouvrez les arrêts concernés et choisissez une adresse dans la liste de propositions.',
+      });
+    } finally {
+      setLocating(null);
+    }
+  };
 
   return (
     <>
       <Card
         title={`Arrêts (${route.stops.length})`}
         subtitle={
-          pinnedCount
-            ? `${pinnedCount} arrêt(s) épinglé(s) : leur position ne bougera pas lors de l’optimisation`
-            : 'Glissez pour réordonner, épinglez pour figer une position'
+          unlocated.length
+            ? `${unlocated.length} arrêt(s) sans position GPS — ils sont exclus du calcul`
+            : pinnedCount
+              ? `${pinnedCount} arrêt(s) épinglé(s) : leur position ne bougera pas lors de l’optimisation`
+              : 'Glissez pour réordonner, épinglez pour figer une position'
         }
         actions={
-          <Button size="sm" variant="primary" icon={<Icons.plus size={12} />} onClick={() => setAdding(true)}>
-            Ajouter un arrêt
-          </Button>
+          <>
+            {unlocated.length > 0 && (
+              <Button
+                size="sm"
+                icon={<Icons.route size={12} />}
+                loading={locating === 'all'}
+                onClick={locateAll}
+                title="Rechercher la position de tous les arrêts qui n’en ont pas"
+              >
+                Localiser {unlocated.length}
+              </Button>
+            )}
+            <Button size="sm" variant="primary" icon={<Icons.plus size={12} />} onClick={() => setAdding(true)}>
+              Ajouter un arrêt
+            </Button>
+          </>
         }
       >
         {route.stops.length === 0 ? (
@@ -483,8 +606,11 @@ function StopList({
                     <div className="stop__title">
                       {stop.label || 'Arrêt sans nom'}
                       {!located && (
-                        <span style={{ color: 'var(--orange)', marginLeft: 6, fontSize: 11 }}>
-                          non géolocalisé
+                        <span
+                          style={{ color: 'var(--orange)', marginLeft: 6, fontSize: 11 }}
+                          title="La position GPS de cette adresse est inconnue : l’arrêt est ignoré dans le calcul de distance et d’optimisation."
+                        >
+                          position inconnue
                         </span>
                       )}
                     </div>
@@ -504,6 +630,23 @@ function StopList({
                   </div>
 
                   <div className="stop__actions">
+                    {!located && (
+                      <IconButton
+                        title="Rechercher la position de cette adresse"
+                        disabled={locating === stop.id}
+                        onClick={() => locate(stop)}
+                      >
+                        {locating === stop.id ? (
+                          <span className="spin">
+                            <Icons.refresh size={14} />
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--orange)' }}>
+                            <Icons.route size={14} />
+                          </span>
+                        )}
+                      </IconButton>
+                    )}
                     <IconButton
                       title={stop.pinned ? 'Libérer la position' : 'Épingler à cette position'}
                       active={stop.pinned}
@@ -726,7 +869,7 @@ function AddStopDialog({
                           <td style={{ width: 130 }}>
                             <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
                               {alreadyIn.has(client.id) && <Badge>déjà dans la tournée</Badge>}
-                              {!located && <Badge tone="badge--orange">non localisé</Badge>}
+                              {!located && <Badge tone="badge--orange">position inconnue</Badge>}
                             </div>
                           </td>
                         </tr>
@@ -737,8 +880,10 @@ function AddStopDialog({
               )}
             </div>
             <div className="field__hint">
-              Un client « non localisé » n’a pas de coordonnées GPS : ouvrez sa fiche et choisissez
-              une proposition d’adresse pour qu’il entre dans le calcul.
+              « Position inconnue » signifie que l’adresse du client n’a pas encore été rapprochée
+              d’un point sur la carte. Vous pouvez tout de même l’ajouter : le bouton de
+              localisation, sur la ligne de l’arrêt, cherchera sa position. L’onglet Clients permet
+              aussi de traiter toutes les fiches d’un coup.
             </div>
           </>
         ) : (

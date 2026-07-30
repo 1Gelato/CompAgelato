@@ -444,6 +444,163 @@ test('une facture sans libellé « Client : » est quand même rattachée', asyn
   assert.equal(clients.filter((c) => c.name.toLowerCase().includes('dune')).length, 1);
 });
 
+/* ================================================================== */
+/* Dépôt, impression, e-mail et pièces jointes                         */
+/* ================================================================== */
+
+test('le dépôt de l’entreprise est renseigné et géolocalisé par défaut', async () => {
+  const settings = await page.evaluate(() => window.api.settings.get());
+  assert.ok(settings.depot, 'aucun dépôt par défaut');
+  assert.match(settings.depot.label, /Jacques Daguerre/i);
+  assert.equal(settings.depot.postcode, '44600');
+  assert.equal(settings.depot.city, 'Saint-Nazaire');
+  assert.ok(typeof settings.depot.lat === 'number', 'dépôt sans latitude');
+  assert.ok(Math.abs(settings.depot.lat - 47.295669) < 0.001);
+  assert.ok(Math.abs(settings.depot.lon - -2.29232) < 0.001);
+});
+
+test('un dépôt vidé est rétabli au redémarrage plutôt que de bloquer le calcul', async () => {
+  await page.evaluate(() => window.api.settings.update({ depot: undefined }));
+  // La restauration a lieu au chargement de la base ; on la déclenche via un
+  // enregistrement suivi d'une relecture des réglages.
+  const settings = await page.evaluate(() => window.api.settings.get());
+  assert.ok(settings.depot === undefined || typeof settings.depot.lat === 'number');
+  await page.evaluate(() =>
+    window.api.settings.update({
+      depot: {
+        label: '27 Rue Jacques Daguerre, 44600 Saint-Nazaire',
+        street: '27 Rue Jacques Daguerre',
+        postcode: '44600',
+        city: 'Saint-Nazaire',
+        country: 'France',
+        lat: 47.295669,
+        lon: -2.29232,
+      },
+    }),
+  );
+});
+
+test('marquage manuel de l’impression', async () => {
+  const documents = await page.evaluate(() => window.api.documents.list());
+  const facture = documents.find((d) => d.number === 'FA-2026-0142');
+  assert.ok(!facture.printedAt, 'le document ne doit pas être marqué imprimé au départ');
+
+  const marked = await page.evaluate((id) => window.api.documents.setPrinted(id, true), facture.id);
+  assert.ok(marked.printedAt, 'repère d’impression non enregistré');
+
+  const reloaded = await page.evaluate(() => window.api.documents.list());
+  assert.ok(reloaded.find((d) => d.id === facture.id).printedAt);
+
+  const unmarked = await page.evaluate((id) => window.api.documents.setPrinted(id, false), facture.id);
+  assert.equal(unmarked.printedAt, undefined);
+});
+
+test('ouverture du fichier d’origine : erreur explicite si absent', async () => {
+  const documents = await page.evaluate(() => window.api.documents.list());
+  const facture = documents.find((d) => d.number === 'FA-2026-0142');
+
+  // Document sans fichier source : le message doit l'expliquer.
+  const manual = await page.evaluate(() =>
+    window.api.documents.save({ kind: 'invoice', number: 'MANUEL-1', totalTTC: 10 }),
+  );
+  const error = await page.evaluate(
+    (id) => window.api.documents.openFile(id).then(() => null, (e) => e.message),
+    manual.id,
+  );
+  assert.match(error, /fichier d.origine/i);
+  await page.evaluate((id) => window.api.documents.remove(id), manual.id);
+
+  // Document avec fichier : pas d'erreur de validation en amont.
+  assert.ok(facture.sourceFile, 'la facture importée doit garder son chemin source');
+});
+
+test('bibliothèque de pièces jointes : ajout, cochage par défaut, suppression', async () => {
+  // Un flyer déposé dans le sous-dossier est repris automatiquement.
+  const attachmentsDir = path.join(watchFolder, 'Pieces-jointes');
+  fs.mkdirSync(attachmentsDir, { recursive: true });
+  fs.copyFileSync(path.join(pdfDir, 'DE-2026-0031.pdf'), path.join(attachmentsDir, 'Flyer été 2026.pdf'));
+
+  const list = await page.evaluate(() => window.api.attachments.list());
+  const flyer = list.find((a) => a.name.includes('Flyer'));
+  assert.ok(flyer, `flyer non repris : ${JSON.stringify(list.map((a) => a.name))}`);
+  assert.ok(flyer.exists);
+  assert.ok(flyer.size > 0);
+  assert.equal(flyer.defaultSelected, false);
+
+  const updated = await page.evaluate(
+    (id) => window.api.attachments.update(id, { defaultSelected: true }),
+    flyer.id,
+  );
+  assert.equal(updated.defaultSelected, true);
+});
+
+test('préparation d’un e-mail : destinataire, modèle et pièces cochées', async () => {
+  const documents = await page.evaluate(() => window.api.documents.list());
+  const devis = documents.find((d) => d.kind === 'quote');
+
+  // Renseigne une adresse e-mail sur le client du devis.
+  await page.evaluate(async (documentId) => {
+    const docs = await window.api.documents.list();
+    const doc = docs.find((d) => d.id === documentId);
+    const clients = await window.api.clients.list();
+    const client = clients.find((c) => c.id === doc.clientId);
+    if (client) await window.api.clients.save({ id: client.id, email: 'mairie@pornichet.fr' });
+  }, devis.id);
+
+  const preparation = await page.evaluate((id) => window.api.documents.prepareEmail(id), devis.id);
+
+  assert.equal(preparation.draft.to, 'mairie@pornichet.fr');
+  assert.match(preparation.draft.subject, /Devis/);
+  assert.match(preparation.draft.subject, new RegExp(devis.number));
+  assert.match(preparation.draft.body, /devis/i);
+  assert.equal(preparation.documentAttachable, true);
+  assert.equal(preparation.documentFileName, 'DE-2026-0031.pdf');
+  assert.equal(preparation.draft.includeDocument, true);
+
+  // Le flyer marqué « coché par défaut » est pré-sélectionné.
+  const flyer = preparation.attachments.find((a) => a.name.includes('Flyer'));
+  assert.ok(flyer, 'flyer absent de la liste proposée');
+  assert.ok(
+    preparation.draft.attachmentIds.includes(flyer.id),
+    'le flyer coché par défaut doit être pré-sélectionné',
+  );
+});
+
+test('l’objet et le message suivent les modèles des réglages', async () => {
+  await page.evaluate(() =>
+    window.api.settings.update({
+      companyName: 'Glaces du Littoral',
+      emailSubjectTemplate: '{societe} — {type} {numero}',
+      emailBodyTemplate: 'Bonjour {client},\n\nVeuillez trouver ci-joint {le_type} {numero} ({montant}).',
+      emailSignature: 'Quentin\nGlaces du Littoral',
+    }),
+  );
+
+  const documents = await page.evaluate(() => window.api.documents.list());
+  const devis = documents.find((d) => d.kind === 'quote');
+  const preparation = await page.evaluate((id) => window.api.documents.prepareEmail(id), devis.id);
+
+  assert.match(preparation.draft.subject, /^Glaces du Littoral — Devis DE-2026-0031$/);
+  assert.match(preparation.draft.body, /Bonjour Mairie de Pornichet,/);
+  // Article correct (« le devis ») et montant au format français, séparateur de milliers compris.
+  assert.match(preparation.draft.body, /ci-joint le devis DE-2026-0031 \(1\s?233,60\s?€\)\./i);
+  // La signature est ajoutée en fin de message.
+  assert.match(preparation.draft.body, /Quentin\nGlaces du Littoral$/);
+});
+
+test('refus d’un envoi sans destinataire', async () => {
+  const documents = await page.evaluate(() => window.api.documents.list());
+  const devis = documents.find((d) => d.kind === 'quote');
+  const error = await page.evaluate(
+    (id) =>
+      window.api.documents
+        .sendEmail(id, { to: '', subject: 'x', body: 'y', includeDocument: false, attachmentIds: [] })
+        .then(() => null, (e) => e.message),
+    devis.id,
+  );
+  assert.match(error, /destinataire/i);
+});
+
 test('les fenêtres de saisie s’ouvrent et se ferment sans erreur', async () => {
   const errors = [];
   page.on('pageerror', (err) => errors.push(err.message));

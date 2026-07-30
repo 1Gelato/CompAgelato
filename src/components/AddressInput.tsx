@@ -11,6 +11,7 @@ import { Icons, useDebounced } from './ui';
 export function AddressInput({
   value,
   onChange,
+  onSelect,
   placeholder = 'Commencez à taper une adresse…',
   autoFocus,
   near,
@@ -18,6 +19,12 @@ export function AddressInput({
 }: {
   value: Address;
   onChange: (address: Address) => void;
+  /**
+   * Appelé uniquement quand une proposition est retenue — donc avec des
+   * coordonnées GPS. Permet de n'enregistrer qu'à ce moment-là, plutôt qu'à
+   * chaque frappe.
+   */
+  onSelect?: (address: Address) => void;
   placeholder?: string;
   autoFocus?: boolean;
   near?: { lat: number; lon: number };
@@ -86,6 +93,7 @@ export function AddressInput({
     setOpen(false);
     setSuggestions([]);
     onChange(address);
+    onSelect?.(address);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -158,14 +166,15 @@ export function AddressInput({
 
       {!open && touched && !loading && debounced.trim().length >= 3 && suggestions.length === 0 && (
         <div className="field__hint" style={{ marginTop: 4 }}>
-          Aucune adresse trouvée. Vérifiez votre connexion — l’adresse saisie reste utilisable
-          mais ne sera pas géolocalisée.
+          Aucune adresse trouvée pour cette saisie. Essayez « numéro rue ville » (par exemple
+          « 27 rue Jacques Daguerre Saint-Nazaire »).
         </div>
       )}
 
       {noCoords && !open && (
         <div className="field__hint" style={{ marginTop: 4, color: 'var(--orange)' }}>
-          Adresse non géolocalisée : choisissez une proposition pour l’inclure au calcul de trajet.
+          Adresse saisie mais non retenue dans la liste : cliquez sur une proposition pour
+          enregistrer sa position et l’utiliser dans le calcul de trajet.
         </div>
       )}
     </div>

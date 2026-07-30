@@ -27,7 +27,7 @@ import { applyDocumentToStock, resolveDocumentLines } from './stock';
 /* Dossier surveillé                                                    */
 /* ------------------------------------------------------------------ */
 
-export const SUBFOLDERS = ['Factures', 'Devis', 'Avoirs', 'Clients', 'Exports'] as const;
+export const SUBFOLDERS = ['Factures', 'Devis', 'Avoirs', 'Clients', 'Pieces-jointes', 'Exports'] as const;
 
 /** Crée le dossier de travail et ses sous-dossiers s'ils n'existent pas. */
 export function ensureWatchFolder(folder: string): string {
@@ -48,6 +48,7 @@ export function ensureWatchFolder(folder: string): string {
         '  Devis\\      vos devis',
         '  Avoirs\\     vos avoirs',
         '  Clients\\    votre liste clients à importer (CSV ou Excel)',
+        '  Pieces-jointes\\  flyers et plaquettes à joindre à vos envois par e-mail',
         '  Exports\\    les fichiers exportés depuis CompaGelato',
         '',
         'Le logiciel surveille ce dossier en permanence : tout nouveau fichier est',
@@ -65,7 +66,9 @@ export function ensureWatchFolder(folder: string): string {
 }
 
 const DOC_EXTENSIONS = new Set(['.pdf', '.xml', '.csv', '.xlsx', '.xls', '.xlsm']);
-const IGNORED_DIRS = new Set(['clients', 'exports', 'archive', 'corbeille', '.git', 'node_modules']);
+const IGNORED_DIRS = new Set([
+  'clients', 'exports', 'archive', 'corbeille', 'pieces jointes', '.git', 'node modules',
+]);
 
 interface FoundFile {
   filePath: string;

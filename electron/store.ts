@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import type { Database, Settings, Vehicle } from '@shared/types';
+import type { Address, Attachment, Database, Settings, Vehicle } from '@shared/types';
 
 const DB_VERSION = 1;
 
@@ -31,6 +31,21 @@ export function defaultWatchFolder(): string {
   return path.join(documents, 'CompaGelato');
 }
 
+/**
+ * Dépôt de l'entreprise. Il n'y en a qu'un : ses coordonnées sont figées ici
+ * pour que le calcul de tournée fonctionne dès la première ouverture, même
+ * sans connexion au service d'adresses.
+ */
+export const DEFAULT_DEPOT: Address = {
+  label: '27 Rue Jacques Daguerre, 44600 Saint-Nazaire',
+  street: '27 Rue Jacques Daguerre',
+  postcode: '44600',
+  city: 'Saint-Nazaire',
+  country: 'France',
+  lat: 47.295669,
+  lon: -2.29232,
+};
+
 export function defaultSettings(): Settings {
   return {
     watchFolder: defaultWatchFolder(),
@@ -40,10 +55,15 @@ export function defaultSettings(): Settings {
     currency: 'EUR',
     vatDefault: 20,
     fuelPricePerLiter: 1.75,
-    fuelPricePostcode: '',
+    fuelPricePostcode: '44600',
+    depot: { ...DEFAULT_DEPOT },
     mapProvider: 'google',
     theme: 'system',
     lowStockAlert: true,
+    emailSubjectTemplate: '{type} {numero}',
+    emailBodyTemplate:
+      'Bonjour,\n\nVeuillez trouver ci-joint {le_type} {numero} du {date}.\n\n' +
+      'Restant à votre disposition,',
   };
 }
 
@@ -69,6 +89,7 @@ function emptyDatabase(): Database {
     stockMoves: [],
     routes: [],
     vehicles: [vehicle],
+    attachments: [],
     settings: { ...defaultSettings(), defaultVehicleId: vehicle.id },
   };
 }
@@ -126,6 +147,7 @@ class Store {
       stockMoves: parsed.stockMoves ?? [],
       routes: parsed.routes ?? [],
       vehicles: parsed.vehicles?.length ? parsed.vehicles : base.vehicles,
+      attachments: (parsed.attachments as Attachment[] | undefined) ?? [],
       settings: { ...base.settings, ...(parsed.settings ?? {}) },
     };
     if (!db.settings.defaultVehicleId && db.vehicles[0]) {
@@ -133,6 +155,11 @@ class Store {
     }
     // Le dossier surveillé doit toujours pointer quelque part de valide.
     if (!db.settings.watchFolder) db.settings.watchFolder = defaultWatchFolder();
+    // Un dépôt sans coordonnées empêche tout calcul de tournée : on rétablit
+    // celui de l'entreprise s'il a été vidé ou saisi sans géolocalisation.
+    if (!db.settings.depot?.lat || !db.settings.depot?.lon) {
+      db.settings.depot = { ...DEFAULT_DEPOT };
+    }
     return db;
   }
 

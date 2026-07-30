@@ -7,3 +7,4 @@ export * from '../electron/services/tabular';
 export * from '../electron/services/optimize';
 export * from '../electron/services/routing';
 export * from '../electron/services/mapLinks';
+export * from '../electron/services/mail';

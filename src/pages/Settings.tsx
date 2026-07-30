@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Address, Settings as SettingsType, Vehicle } from '@shared/types';
+import type { Address, Attachment, Settings as SettingsType, Vehicle } from '@shared/types';
 import type { AppInfo } from '@shared/api';
 import { AddressInput } from '../components/AddressInput';
 import {
@@ -17,9 +17,10 @@ import {
   Select,
   Spinner,
   Switch,
+  Textarea,
   useToast,
 } from '../components/ui';
-import { errorMessage, refreshAll, useSettings, useVehicles } from '../lib/data';
+import { errorMessage, refreshAll, useAttachments, useSettings, useVehicles } from '../lib/data';
 import { euro, FUEL_LABEL, num } from '../lib/format';
 
 export function Settings({
@@ -41,6 +42,9 @@ export function Settings({
   const [fetchingFuel, setFetchingFuel] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Le dépôt n'est enregistré qu'à la sélection d'une proposition : sans cela,
+  // chaque frappe déclencherait une écriture puis un rechargement de l'écran.
+  const [depotDraft, setDepotDraft] = useState<Address | null>(null);
 
   useEffect(() => {
     window.api.app.info().then(setInfo).catch(() => {});
@@ -201,12 +205,42 @@ export function Settings({
               </div>
             )}
 
-            <Field label="Adresse du dépôt" hint="Point de départ proposé par défaut pour vos tournées">
+            <Field
+              label="Adresse du dépôt"
+              hint="Point de départ de toutes vos tournées. Choisissez une proposition dans la liste pour enregistrer sa position."
+            >
               <AddressInput
-                value={settings.depot ?? { label: '', country: 'France' }}
-                onChange={(depot: Address) => patch({ depot })}
+                value={depotDraft ?? settings.depot ?? { label: '', country: 'France' }}
+                onChange={setDepotDraft}
+                onSelect={(depot) => {
+                  setDepotDraft(depot);
+                  patch({ depot }, 'Dépôt enregistré');
+                }}
                 placeholder="Adresse de votre dépôt…"
               />
+              <div className="row" style={{ marginTop: 6 }}>
+                {typeof (depotDraft ?? settings.depot)?.lat === 'number' ? (
+                  <span className="tiny" style={{ color: 'var(--green)' }}>
+                    Position enregistrée — le calcul de tournée est opérationnel.
+                  </span>
+                ) : (
+                  <span className="tiny" style={{ color: 'var(--orange)' }}>
+                    Aucune position enregistrée : le calcul de tournée restera indisponible.
+                  </span>
+                )}
+                <div className="spacer" />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setDepotDraft(null);
+                    patch({ depot: undefined }, 'Dépôt rétabli');
+                  }}
+                  title="Revenir au 27 rue Jacques Daguerre, 44600 Saint-Nazaire"
+                >
+                  Rétablir le dépôt de l’entreprise
+                </Button>
+              </div>
             </Field>
 
             <Field label="Application de navigation par défaut">
@@ -270,6 +304,72 @@ export function Settings({
             ))}
           </div>
         </Card>
+
+        <Card
+          title="Envoi par e-mail"
+          subtitle="Modèle des messages générés depuis la fiche d’un document"
+        >
+          <div className="col" style={{ gap: 13 }}>
+            <div className="formgrid">
+              <Field label="Nom de votre entreprise">
+                <Input
+                  defaultValue={settings.companyName ?? ''}
+                  placeholder="Glaces du Littoral"
+                  onBlur={(e) => e.target.value !== (settings.companyName ?? '') && patch({ companyName: e.target.value })}
+                />
+              </Field>
+              <Field label="Votre adresse e-mail" hint="Figure comme expéditeur du brouillon">
+                <Input
+                  type="email"
+                  defaultValue={settings.senderEmail ?? ''}
+                  placeholder="contact@monentreprise.fr"
+                  onBlur={(e) => e.target.value !== (settings.senderEmail ?? '') && patch({ senderEmail: e.target.value })}
+                />
+              </Field>
+            </div>
+
+            <Field label="Objet type" hint="Repères : {type} {le_type} {numero} {date} {client} {montant} {societe}">
+              <Input
+                defaultValue={settings.emailSubjectTemplate ?? ''}
+                placeholder="{type} {numero}"
+                onBlur={(e) =>
+                  e.target.value !== (settings.emailSubjectTemplate ?? '') &&
+                  patch({ emailSubjectTemplate: e.target.value })
+                }
+              />
+            </Field>
+
+            <Field label="Message type">
+              <Textarea
+                defaultValue={settings.emailBodyTemplate ?? ''}
+                rows={4}
+                onBlur={(e) =>
+                  e.target.value !== (settings.emailBodyTemplate ?? '') &&
+                  patch({ emailBodyTemplate: e.target.value })
+                }
+              />
+            </Field>
+
+            <Field label="Signature">
+              <Textarea
+                defaultValue={settings.emailSignature ?? ''}
+                rows={3}
+                placeholder={'Prénom Nom\nGlaces du Littoral\n02 40 00 00 00'}
+                onBlur={(e) =>
+                  e.target.value !== (settings.emailSignature ?? '') &&
+                  patch({ emailSignature: e.target.value })
+                }
+              />
+            </Field>
+
+            <div className="infobox">
+              CompaGelato prépare un brouillon complet, pièces jointes comprises, et l’ouvre dans
+              votre messagerie habituelle. Rien n’est envoyé sans votre relecture.
+            </div>
+          </div>
+        </Card>
+
+        <AttachmentLibrary />
 
         <Card title="Apparence">
           <Field label="Thème">
@@ -416,6 +516,115 @@ export function Settings({
         }}
       />
     </>
+  );
+}
+
+/* ================================================================== */
+/* Bibliothèque de pièces jointes (flyers, plaquettes…)                */
+/* ================================================================== */
+
+function AttachmentLibrary() {
+  const { data: attachments, loading } = useAttachments();
+  const toast = useToast();
+  const [adding, setAdding] = useState(false);
+
+  const add = async () => {
+    setAdding(true);
+    try {
+      const added = await window.api.attachments.pickAndAdd();
+      if (added?.length) {
+        refreshAll();
+        toast.push({
+          tone: 'success',
+          title: `${added.length} pièce(s) jointe(s) ajoutée(s)`,
+          text: 'Elles apparaîtront cochables lors de vos envois par e-mail.',
+        });
+      }
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Ajout impossible', text: errorMessage(err) });
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  return (
+    <Card
+      title="Pièces jointes réutilisables"
+      subtitle="Flyers, plaquettes, conditions générales — à cocher au moment d’envoyer un devis"
+      padded={false}
+      actions={
+        <>
+          <Button size="sm" onClick={() => window.api.attachments.openFolder()}>
+            Ouvrir le dossier
+          </Button>
+          <Button size="sm" variant="primary" icon={<Icons.plus size={12} />} onClick={add} loading={adding}>
+            Ajouter
+          </Button>
+        </>
+      }
+    >
+      {loading ? (
+        <div className="row" style={{ justifyContent: 'center', padding: 24 }}>
+          <Spinner />
+        </div>
+      ) : attachments.length === 0 ? (
+        <div className="card__body">
+          <p className="muted" style={{ fontSize: 13, lineHeight: 1.55 }}>
+            Aucune pièce jointe enregistrée. Ajoutez vos flyers une bonne fois pour toutes : ils
+            seront ensuite proposés à cocher pour chaque devis ou facture que vous envoyez.
+            <br />
+            Vous pouvez aussi déposer directement des fichiers dans le sous-dossier{' '}
+            <strong>Pieces-jointes</strong> du dossier surveillé : ils sont repris automatiquement.
+          </p>
+        </div>
+      ) : (
+        <div className="list">
+          {attachments.map((attachment) => (
+            <div className="list__item" key={attachment.id}>
+              <Switch
+                checked={attachment.defaultSelected}
+                onChange={async (v) => {
+                  await window.api.attachments.update(attachment.id, { defaultSelected: v });
+                  refreshAll();
+                }}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="row" style={{ gap: 6 }}>
+                  <span className="truncate">{attachment.name}</span>
+                  {!attachment.exists && <Badge tone="badge--red">fichier introuvable</Badge>}
+                  {attachment.defaultSelected && <Badge tone="badge--blue">cochée par défaut</Badge>}
+                </div>
+                <div className="tiny muted">
+                  {(attachment.size / 1024).toFixed(0)} Ko · {attachment.filePath.split(/[\\/]/).pop()}
+                </div>
+              </div>
+              <IconButton
+                title="Ouvrir le fichier"
+                disabled={!attachment.exists}
+                onClick={() => window.api.attachments.open(attachment.id)}
+              >
+                <Icons.documents size={14} />
+              </IconButton>
+              <IconButton
+                title="Retirer de la bibliothèque"
+                danger
+                onClick={async () => {
+                  await window.api.attachments.remove(attachment.id);
+                  refreshAll();
+                  toast.push({
+                    tone: 'success',
+                    title: 'Pièce jointe retirée',
+                    text: 'Le fichier reste présent sur le disque.',
+                  });
+                }}
+              >
+                <Icons.trash size={14} />
+              </IconButton>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AccountingDocument, Client, DocumentLine, Product } from '@shared/types';
-import type { ProductSuggestion } from '@shared/api';
+import type { AccountingDocument, Client, DocumentLine, EmailDraft, Product } from '@shared/types';
+import type { EmailPreparation, ProductSuggestion } from '@shared/api';
 import {
   Badge,
   Button,
@@ -9,11 +9,14 @@ import {
   Field,
   Icons,
   IconButton,
+  Input,
   Modal,
   SearchInput,
   Segmented,
   Select,
   Spinner,
+  Switch,
+  Textarea,
   useToast,
 } from '../components/ui';
 import {
@@ -25,7 +28,7 @@ import {
   useProductIndex,
   useProducts,
 } from '../lib/data';
-import { dateFr, euro, KIND_LABEL, matches, num, percent, STATUS_LABEL, STATUS_TONE } from '../lib/format';
+import { dateFr, dateTimeFr, euro, KIND_LABEL, matches, num, percent, STATUS_LABEL, STATUS_TONE } from '../lib/format';
 
 type KindFilter = 'all' | 'invoice' | 'quote' | 'credit';
 type StockFilter = 'all' | 'todo' | 'done';
@@ -42,6 +45,7 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
   const [kind, setKind] = useState<KindFilter>('all');
   const [stockFilter, setStockFilter] = useState<StockFilter>('all');
   const [selected, setSelected] = useState<AccountingDocument | null>(null);
+  const [emailing, setEmailing] = useState<AccountingDocument | null>(null);
   const [busy, setBusy] = useState(false);
 
   // La fiche ouverte doit refléter les données rechargées après chaque écriture.
@@ -102,6 +106,42 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
       }
     } catch (err) {
       toast.push({ tone: 'error', title: 'Échec de l’export', text: errorMessage(err) });
+    }
+  };
+
+  /* Actions de la colonne de droite ------------------------------- */
+
+  const openSource = async (doc: AccountingDocument) => {
+    try {
+      await window.api.documents.openFile(doc.id);
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Ouverture impossible', text: errorMessage(err) });
+    }
+  };
+
+  const printDocument = async (doc: AccountingDocument) => {
+    setBusy(true);
+    try {
+      const result = await window.api.documents.print(doc.id);
+      refreshAll();
+      toast.push({
+        tone: result.printed ? 'success' : 'warn',
+        title: result.printed ? 'Document imprimé' : 'Impression non confirmée',
+        text: result.message,
+      });
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Impression impossible', text: errorMessage(err) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const togglePrinted = async (doc: AccountingDocument) => {
+    try {
+      await window.api.documents.setPrinted(doc.id, !doc.printedAt);
+      refreshAll();
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Échec', text: errorMessage(err) });
     }
   };
 
@@ -187,6 +227,7 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
                   <th className="num">Total TTC</th>
                   <th>Statut</th>
                   <th>Stock</th>
+                  <th style={{ textAlign: 'center' }}>Actions</th>
                   <th />
                 </tr>
               </thead>
@@ -236,6 +277,51 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
                           <Badge tone="badge--orange">À déduire</Badge>
                         )}
                       </td>
+                      <td
+                        style={{ width: 118 }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="row" style={{ gap: 2, justifyContent: 'center' }}>
+                          <IconButton
+                            title={
+                              doc.sourceFile
+                                ? 'Ouvrir le fichier d’origine'
+                                : 'Aucun fichier d’origine (saisie manuelle)'
+                            }
+                            disabled={!doc.sourceFile}
+                            onClick={() => openSource(doc)}
+                          >
+                            <Icons.documents size={15} />
+                          </IconButton>
+                          <IconButton
+                            title={
+                              !doc.sourceFile
+                                ? 'Aucun fichier à imprimer'
+                                : doc.printedAt
+                                  ? `Imprimé le ${dateTimeFr(doc.printedAt)} — cliquer pour réimprimer`
+                                  : 'Imprimer'
+                            }
+                            disabled={!doc.sourceFile || busy}
+                            onClick={() => printDocument(doc)}
+                          >
+                            <span style={{ color: doc.printedAt ? 'var(--green)' : undefined }}>
+                              <Icons.print size={15} />
+                            </span>
+                          </IconButton>
+                          <IconButton
+                            title={
+                              doc.emailedAt
+                                ? `Dernier envoi le ${dateTimeFr(doc.emailedAt)} — cliquer pour renvoyer`
+                                : 'Envoyer par e-mail'
+                            }
+                            onClick={() => setEmailing(doc)}
+                          >
+                            <span style={{ color: doc.emailedAt ? 'var(--accent)' : undefined }}>
+                              <Icons.mail size={15} />
+                            </span>
+                          </IconButton>
+                        </div>
+                      </td>
                       <td style={{ width: 34 }}>
                         {hasWarnings && (
                           <span title={doc.warnings.join('\n') || 'Lecture incertaine'} style={{ color: 'var(--orange)' }}>
@@ -269,8 +355,14 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
           products={products}
           productIndex={productIndex}
           onClose={() => setSelected(null)}
+          onOpenSource={openSource}
+          onPrint={printDocument}
+          onTogglePrinted={togglePrinted}
+          onEmail={setEmailing}
         />
       )}
+
+      {emailing && <EmailDialog document={emailing} onClose={() => setEmailing(null)} />}
     </>
   );
 }
@@ -285,12 +377,20 @@ function DocumentDetail({
   products,
   productIndex,
   onClose,
+  onOpenSource,
+  onPrint,
+  onTogglePrinted,
+  onEmail,
 }: {
   document: AccountingDocument;
   clients: Client[];
   products: Product[];
   productIndex: Map<string, Product>;
   onClose: () => void;
+  onOpenSource: (doc: AccountingDocument) => void;
+  onPrint: (doc: AccountingDocument) => void;
+  onTogglePrinted: (doc: AccountingDocument) => void;
+  onEmail: (doc: AccountingDocument) => void;
 }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -329,23 +429,29 @@ function DocumentDetail({
             <div className="spacer" />
             {doc.sourceFile && (
               <>
+                <Button icon={<Icons.documents size={14} />} onClick={() => onOpenSource(doc)}>
+                  Ouvrir le fichier
+                </Button>
                 <Button
-                  icon={<Icons.folder size={14} />}
-                  onClick={() => window.api.app.revealFile(doc.sourceFile as string)}
+                  icon={<Icons.print size={14} />}
+                  onClick={() => onPrint(doc)}
+                  title={doc.printedAt ? `Imprimé le ${dateTimeFr(doc.printedAt)}` : 'Imprimer le document'}
                 >
-                  Voir le fichier
+                  Imprimer
                 </Button>
                 <Button
                   icon={<Icons.refresh size={14} />}
                   loading={busy}
+                  title="Relire le fichier d’origine et rafraîchir les données"
                   onClick={() =>
                     run(() => window.api.documents.rescanFile(doc.sourceFile as string), 'Document relu')
                   }
-                >
-                  Relire
-                </Button>
+                />
               </>
             )}
+            <Button icon={<Icons.mail size={14} />} onClick={() => onEmail(doc)}>
+              Envoyer
+            </Button>
             {doc.kind !== 'quote' &&
               (doc.stockApplied ? (
                 <Button
@@ -383,6 +489,36 @@ function DocumentDetail({
         }
       >
         <div className="col" style={{ gap: 15 }}>
+          <div className="row row--wrap" style={{ gap: 10 }}>
+            <div className="row" style={{ gap: 7 }}>
+              <span style={{ color: doc.printedAt ? 'var(--green)' : 'var(--text-tertiary)' }}>
+                <Icons.print size={15} />
+              </span>
+              {doc.printedAt ? (
+                <span className="tiny">Imprimé le {dateTimeFr(doc.printedAt)}</span>
+              ) : (
+                <span className="tiny muted">Pas encore imprimé</span>
+              )}
+              <button
+                className="btn btn--ghost btn--sm"
+                onClick={() => onTogglePrinted(doc)}
+                title="Corriger le repère si vous avez imprimé le document autrement"
+              >
+                {doc.printedAt ? 'Marquer non imprimé' : 'Marquer imprimé'}
+              </button>
+            </div>
+            <div className="row" style={{ gap: 7 }}>
+              <span style={{ color: doc.emailedAt ? 'var(--accent)' : 'var(--text-tertiary)' }}>
+                <Icons.mail size={15} />
+              </span>
+              {doc.emailedAt ? (
+                <span className="tiny">Envoyé le {dateTimeFr(doc.emailedAt)}</span>
+              ) : (
+                <span className="tiny muted">Pas encore envoyé</span>
+              )}
+            </div>
+          </div>
+
           {doc.warnings.length > 0 && (
             <div className="warnbox">
               <strong>Points à vérifier</strong>
@@ -747,6 +883,217 @@ function LinkProductDialog({
           </div>
         )}
       </div>
+    </Modal>
+  );
+}
+
+/* ================================================================== */
+/* Envoi par e-mail                                                    */
+/* ================================================================== */
+
+function EmailDialog({
+  document: doc,
+  onClose,
+}: {
+  document: AccountingDocument;
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const [preparation, setPreparation] = useState<EmailPreparation | null>(null);
+  const [draft, setDraft] = useState<EmailDraft | null>(null);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    window.api.documents
+      .prepareEmail(doc.id)
+      .then((result) => {
+        setPreparation(result);
+        setDraft(result.draft);
+      })
+      .catch((err) => setError(errorMessage(err)));
+  }, [doc.id]);
+
+  const toggleAttachment = (id: string) => {
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            attachmentIds: d.attachmentIds.includes(id)
+              ? d.attachmentIds.filter((a) => a !== id)
+              : [...d.attachmentIds, id],
+          }
+        : d,
+    );
+  };
+
+  const send = async () => {
+    if (!draft) return;
+    setSending(true);
+    try {
+      const result = await window.api.documents.sendEmail(doc.id, draft);
+      refreshAll();
+      toast.push({
+        tone: result.method === 'eml' ? 'success' : 'warn',
+        title: 'Brouillon ouvert dans votre messagerie',
+        text: result.message,
+      });
+      onClose();
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Envoi impossible', text: errorMessage(err) });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Poids total, pour prévenir avant que le serveur de messagerie ne refuse.
+  const selectedSize =
+    preparation?.attachments
+      .filter((a) => draft?.attachmentIds.includes(a.id))
+      .reduce((sum, a) => sum + a.size, 0) ?? 0;
+  const sizeMb = selectedSize / (1024 * 1024);
+
+  return (
+    <Modal
+      open
+      wide
+      title={`Envoyer ${KIND_LABEL[doc.kind].toLowerCase()} ${doc.number}`}
+      subtitle={preparation?.clientName ? `À ${preparation.clientName}` : undefined}
+      onClose={onClose}
+      footer={
+        <>
+          <div className="spacer" />
+          <Button onClick={onClose}>Annuler</Button>
+          <Button
+            variant="primary"
+            icon={<Icons.mail size={14} />}
+            onClick={send}
+            loading={sending}
+            disabled={!draft?.to.trim()}
+          >
+            Préparer le message
+          </Button>
+        </>
+      }
+    >
+      {error ? (
+        <div className="warnbox">{error}</div>
+      ) : !preparation || !draft ? (
+        <div className="row" style={{ justifyContent: 'center', padding: 30 }}>
+          <Spinner />
+        </div>
+      ) : (
+        <div className="col" style={{ gap: 14 }}>
+          {preparation.warning && <div className="warnbox">{preparation.warning}</div>}
+
+          <div className="formgrid">
+            <Field label="Destinataire">
+              <Input
+                type="email"
+                value={draft.to}
+                autoFocus={!draft.to}
+                placeholder="client@exemple.fr"
+                onChange={(e) => setDraft({ ...draft, to: e.target.value })}
+              />
+            </Field>
+            <Field label="Copie à" hint="Facultatif">
+              <Input
+                type="email"
+                value={draft.cc ?? ''}
+                onChange={(e) => setDraft({ ...draft, cc: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          <Field label="Objet">
+            <Input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} />
+          </Field>
+
+          <Field label="Message">
+            <Textarea
+              rows={7}
+              value={draft.body}
+              onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+            />
+          </Field>
+
+          <div>
+            <div className="row row--between" style={{ marginBottom: 7 }}>
+              <div className="card__title">
+                <Icons.paperclip size={13} /> Pièces jointes
+              </div>
+              <span className="tiny muted">
+                {(draft.includeDocument ? 1 : 0) + draft.attachmentIds.length} fichier(s) ·{' '}
+                {sizeMb < 0.1 ? '< 0,1' : sizeMb.toFixed(1)} Mo
+              </span>
+            </div>
+
+            <div className="tablewrap">
+              <div className="list">
+                <div className="list__item">
+                  <Switch
+                    checked={draft.includeDocument}
+                    onChange={(v) => setDraft({ ...draft, includeDocument: v })}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="row" style={{ gap: 6 }}>
+                      <strong>{KIND_LABEL[doc.kind]} {doc.number}</strong>
+                      <Badge tone="badge--blue">le document</Badge>
+                    </div>
+                    <div className="tiny muted truncate">
+                      {preparation.documentFileName ?? 'Aucun fichier d’origine disponible'}
+                    </div>
+                  </div>
+                </div>
+
+                {preparation.attachments.map((attachment) => (
+                  <div className="list__item" key={attachment.id}>
+                    <Switch
+                      checked={draft.attachmentIds.includes(attachment.id)}
+                      onChange={() => toggleAttachment(attachment.id)}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="row" style={{ gap: 6 }}>
+                        <span className="truncate">{attachment.name}</span>
+                        {!attachment.exists && <Badge tone="badge--red">introuvable</Badge>}
+                      </div>
+                      <div className="tiny muted">{(attachment.size / 1024).toFixed(0)} Ko</div>
+                    </div>
+                    <IconButton
+                      title="Ouvrir pour vérifier"
+                      disabled={!attachment.exists}
+                      onClick={() => window.api.attachments.open(attachment.id)}
+                    >
+                      <Icons.documents size={14} />
+                    </IconButton>
+                  </div>
+                ))}
+
+                {preparation.attachments.length === 0 && (
+                  <div className="list__item">
+                    <span className="muted tiny">
+                      Aucun flyer enregistré. Ajoutez-les une fois dans Réglages → Pièces jointes
+                      réutilisables : ils seront ensuite proposés ici à cocher.
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {sizeMb > 8 && (
+              <div className="warnbox" style={{ marginTop: 8 }}>
+                Les pièces jointes dépassent 8 Mo : certaines messageries refusent ce poids.
+                Décochez-en ou utilisez un lien de téléchargement.
+              </div>
+            )}
+          </div>
+
+          <div className="infobox">
+            Le message est préparé puis ouvert dans votre logiciel de messagerie habituel. Rien
+            n’est envoyé tant que vous ne cliquez pas sur « Envoyer » dans celui-ci.
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

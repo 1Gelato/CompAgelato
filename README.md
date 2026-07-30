@@ -22,6 +22,10 @@ surveille ce dossier en permanence et lit :
 | XML Factur-X (CII) et UBL 2.1 (Chorus Pro, Peppol) | Idem |
 | CSV / Excel | Journaux de ventes, une ligne par pièce ou une ligne par article |
 
+Un document dont le nom du client n'est précédé d'aucun libellé (« Client : »,
+« Facturé à »…) est tout de même rattaché : le texte de la pièce est comparé aux
+clients déjà connus.
+
 Les fichiers d'origine ne sont **jamais** modifiés ni déplacés. Un fichier déjà
 importé et inchangé est ignoré : rescanner ne crée pas de doublon.
 
@@ -39,6 +43,14 @@ libellé déjà connu, puis par ressemblance — et les quantités sont sorties 
 stock. L'opération est réversible et jamais appliquée deux fois. Chaque
 mouvement est daté et traçable. Un devis n'impacte pas le stock ; un avoir
 réintègre la marchandise.
+
+**Impression et envoi**
+Depuis le tableau des documents, en un clic : ouvrir le fichier d'origine,
+l'imprimer (l'icône passe au vert une fois l'impression faite, pour savoir d'un
+coup d'œil ce qui reste à sortir), ou préparer un e-mail. Le message est
+pré-rempli d'après vos modèles, avec le document en pièce jointe et vos flyers
+à cocher ou décocher. Il s'ouvre en brouillon dans votre messagerie : rien n'est
+envoyé sans votre relecture.
 
 **Calculateur de tournées de livraison**
 
@@ -97,15 +109,18 @@ Sur un serveur sans écran, préfixez les tests de bout en bout par
    comptabilité (CSV ou Excel). Le récapitulatif indique quelles colonnes ont
    été reconnues.
 3. **Clients → Géolocaliser.** Ce bouton apparaît tant que des fiches n'ont pas
-   de coordonnées GPS ; il les recherche en lot pour les rendre utilisables dans
-   les tournées.
+   de position GPS connue ; il la recherche en lot pour les rendre utilisables
+   dans les tournées.
 4. **Stock → Nouveau consommable** (ou Importer). Renseignez la référence, la
    quantité et le seuil d'alerte.
 5. **Déposez vos factures** dans `Documents\CompaGelato\Factures`. Elles
    apparaissent en quelques secondes.
 6. **Documents.** Vérifiez l'association des lignes au stock, puis
    « Déduire du stock ».
-7. **Tournées.** Ajoutez vos arrêts, épinglez ceux qui doivent rester en place,
+7. **Réglages → Pièces jointes réutilisables.** Ajoutez vos flyers une fois pour
+   toutes ; ils seront ensuite proposés à cocher à chaque envoi.
+8. **Tournées.** Le dépôt (27 rue Jacques Daguerre, Saint-Nazaire) est déjà
+   renseigné. Ajoutez vos arrêts, épinglez ceux qui doivent rester en place,
    optimisez, puis envoyez sur le téléphone.
 
 Le bouton **Charger la démonstration** (Réglages → Données) remplit le logiciel
@@ -157,6 +172,9 @@ electron/                 Processus principal (Node)
   ipc.ts                  Tous les gestionnaires d'appels
   watcher.ts              Surveillance du dossier
   services/
+    mail.ts               Brouillons .eml multipart avec pièces jointes
+    printing.ts           Impression via la boîte de dialogue du système
+    attachments.ts        Bibliothèque de flyers réutilisables
     pdf.ts                Extraction PDF, reconstruction lignes et colonnes
     parseInvoice.ts       Lecture des factures/devis français
     facturx.ts            Factur-X (CII) et UBL 2.1
@@ -189,16 +207,19 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **26 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **33 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
-  liens Google Maps / Waze / Plans, lecture des réponses OSRM et Valhalla.
-- **17 tests de bout en bout** — l'application réelle est lancée, pilotée et
+  liens Google Maps / Waze / Plans, lecture des réponses OSRM et Valhalla,
+  construction des messages MIME avec pièces jointes accentuées.
+- **25 tests de bout en bout** — l'application réelle est lancée, pilotée et
   vérifiée : import d'une liste clients en Windows-1252, import du catalogue,
   analyse d'un dossier de PDF, rattachement automatique aux clients, association
   des lignes au stock, déduction puis annulation, idempotence, absence de
   doublons, optimisation avec arrêt épinglé, génération des liens et QR codes,
   exports, navigation dans chaque écran, et reprise automatique d'un fichier
   déposé pendant que le logiciel tourne, rattachement d'une facture dépourvue
-  de libellé « Client : », ouverture de chaque fenêtre de saisie.
+  de libellé « Client : », ouverture de chaque fenêtre de saisie, dépôt par
+  défaut géolocalisé, repère d'impression, bibliothèque de pièces jointes et
+  préparation d'un e-mail depuis les modèles.

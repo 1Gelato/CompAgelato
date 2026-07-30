@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   AccountingDocument,
+  Attachment,
   Client,
   DashboardStats,
   DeliveryRoute,
@@ -26,9 +27,14 @@ export function useResource<T>(
   loader: () => Promise<T>,
   initial: T,
   deps: unknown[] = [],
-): { data: T; loading: boolean; error: string | null; reload: () => void } {
+): { data: T; loading: boolean; refreshing: boolean; error: string | null; reload: () => void } {
   const [data, setData] = useState<T>(initial);
-  const [loading, setLoading] = useState(true);
+  // `loading` ne vaut true que tant que rien n'a encore été chargé. Un
+  // rechargement ultérieur laisse les données affichées : sans cela, l'écran
+  // serait remplacé par un indicateur d'attente et les champs en cours de
+  // saisie (auto-complétion d'adresse notamment) perdraient leur état.
+  const [loaded, setLoaded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
 
@@ -43,19 +49,20 @@ export function useResource<T>(
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    setRefreshing(true);
     loader()
       .then((result) => {
         if (!cancelled) {
           setData(result);
           setError(null);
+          setLoaded(true);
         }
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setRefreshing(false);
       });
     return () => {
       cancelled = true;
@@ -63,7 +70,7 @@ export function useResource<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, ...deps]);
 
-  return { data, loading, error, reload };
+  return { data, loading: !loaded, refreshing, error, reload };
 }
 
 export const useClients = () => useResource<Client[]>(() => window.api.clients.list(), []);
@@ -71,6 +78,8 @@ export const useDocuments = () => useResource<AccountingDocument[]>(() => window
 export const useProducts = () => useResource<Product[]>(() => window.api.products.list(), []);
 export const useRoutes = () => useResource<DeliveryRoute[]>(() => window.api.routes.list(), []);
 export const useVehicles = () => useResource<Vehicle[]>(() => window.api.vehicles.list(), []);
+export const useAttachments = () =>
+  useResource<(Attachment & { exists: boolean })[]>(() => window.api.attachments.list(), []);
 export const useStockMoves = (productId?: string) =>
   useResource<StockMove[]>(() => window.api.stock.moves(productId), [], [productId]);
 export const useDashboard = () =>
