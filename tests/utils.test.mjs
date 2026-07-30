@@ -166,3 +166,98 @@ test('adresse en clair acceptée quand les coordonnées manquent', () => {
   const url = new URL(segment.url);
   assert.equal(url.searchParams.get('origin'), '12 rue des Sables, 44600 Saint-Nazaire');
 });
+
+/* ------------------------------------------------------------------ */
+/* Lecture des réponses des services d'itinéraires                      */
+/* ------------------------------------------------------------------ */
+
+test('OSRM : conversion mètres/secondes → km/minutes', async () => {
+  const { parseOsrmTable, parseOsrmRoute } = await import('./build/services.mjs');
+  const fallback = {
+    distanceKm: [
+      [0, 99],
+      [99, 0],
+    ],
+    durationMin: [
+      [0, 99],
+      [99, 0],
+    ],
+    engine: 'haversine',
+  };
+  const matrix = parseOsrmTable(
+    {
+      code: 'Ok',
+      distances: [
+        [0, 18500],
+        [18400, 0],
+      ],
+      durations: [
+        [0, 1200],
+        [1180, 0],
+      ],
+    },
+    fallback,
+  );
+  assert.equal(matrix.engine, 'osrm');
+  assert.equal(matrix.distanceKm[0][1], 18.5);
+  assert.equal(matrix.durationMin[0][1], 20);
+  assert.equal(matrix.distanceKm[0][0], 0);
+
+  // Une case nulle (point non raccordé au réseau) reprend l'estimation.
+  const partial = parseOsrmTable(
+    { code: 'Ok', distances: [[0, null], [18400, 0]], durations: [[0, null], [1180, 0]] },
+    fallback,
+  );
+  assert.equal(partial.distanceKm[0][1], 99);
+
+  const legs = parseOsrmRoute({
+    code: 'Ok',
+    routes: [{ legs: [{ distance: 12300, duration: 900 }, { distance: 4100, duration: 400 }] }],
+  });
+  assert.deepEqual(legs, [
+    { distanceKm: 12.3, durationMin: 15 },
+    { distanceKm: 4.1, durationMin: 7 },
+  ]);
+
+  assert.throws(() => parseOsrmRoute({ code: 'NoRoute' }));
+});
+
+test('Valhalla : conversion km/secondes (service de repli)', async () => {
+  const { parseValhallaMatrix, parseValhallaRoute } = await import('./build/services.mjs');
+  const fallback = {
+    distanceKm: [
+      [0, 77],
+      [77, 0],
+    ],
+    durationMin: [
+      [0, 77],
+      [77, 0],
+    ],
+    engine: 'haversine',
+  };
+  const matrix = parseValhallaMatrix(
+    {
+      sources_to_targets: [
+        [
+          { distance: 0, time: 0 },
+          { distance: 18.5, time: 1200 },
+        ],
+        [
+          { distance: 18.4, time: 1180 },
+          { distance: 0, time: 0 },
+        ],
+      ],
+    },
+    fallback,
+  );
+  assert.equal(matrix.distanceKm[0][1], 18.5);
+  assert.equal(matrix.durationMin[0][1], 20);
+
+  const legs = parseValhallaRoute({
+    trip: { legs: [{ summary: { length: 12.34, time: 900 } }] },
+  });
+  assert.deepEqual(legs, [{ distanceKm: 12.34, durationMin: 15 }]);
+
+  assert.throws(() => parseValhallaRoute({ trip: {} }));
+  assert.throws(() => parseValhallaMatrix({}, fallback));
+});

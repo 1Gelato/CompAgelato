@@ -28,7 +28,7 @@ import type {
 export const CHANNELS = {
   app: ['info', 'openPath', 'openExternal', 'chooseFolder', 'chooseFile', 'revealFile', 'quit'],
   settings: ['get', 'update', 'resetFolder'],
-  clients: ['list', 'save', 'remove', 'importFrom', 'pickAndImport', 'exportCsv', 'merge'],
+  clients: ['list', 'save', 'remove', 'importFrom', 'pickAndImport', 'exportCsv', 'merge', 'geocodeMissing'],
   documents: ['list', 'get', 'save', 'remove', 'scan', 'rescanFile', 'setClient', 'setStatus', 'exportCsv'],
   products: ['list', 'save', 'remove', 'importFrom', 'pickAndImport', 'exportCsv', 'adjust'],
   stock: ['moves', 'apply', 'revert', 'applyAll', 'linkLine', 'suggestions'],
@@ -91,6 +91,8 @@ export interface Api {
     pickAndImport(): Promise<ImportClientsReport | null>;
     exportCsv(): Promise<string | null>;
     merge(keepId: ID, mergeId: ID): Promise<Client>;
+    /** Recherche les coordonnées GPS des fiches qui n'en ont pas encore. */
+    geocodeMissing(): Promise<{ processed: number; located: number; failed: number }>;
   };
   documents: {
     list(): Promise<AccountingDocument[]>;

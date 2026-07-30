@@ -4,6 +4,7 @@
  */
 import esbuild from 'esbuild';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
@@ -11,9 +12,14 @@ const root = path.dirname(fileURLToPath(new URL('../package.json', import.meta.u
 const alias = {
   name: 'alias-shared',
   setup(build) {
-    build.onResolve({ filter: /^@shared\// }, (args) => ({
-      path: path.join(root, 'shared', args.path.replace(/^@shared\//, '')),
-    }));
+    build.onResolve({ filter: /^@shared\// }, (args) => {
+      const base = path.join(root, 'shared', args.path.replace(/^@shared\//, ''));
+      // esbuild ne complète pas l'extension pour un chemin renvoyé tel quel.
+      for (const candidate of [base, `${base}.ts`, `${base}.tsx`, path.join(base, 'index.ts')]) {
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return { path: candidate };
+      }
+      return { errors: [{ text: `Module introuvable : ${args.path}` }] };
+    });
   },
 };
 

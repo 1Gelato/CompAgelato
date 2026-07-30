@@ -151,7 +151,7 @@ export function parseCsv(text: string, delimiter: string): string[][] {
 function dedupeHeaders(raw: string[]): string[] {
   const seen = new Map<string, number>();
   return raw.map((h, idx) => {
-    let name = h.trim().replace(/^﻿/, '');
+    let name = h.trim().replace(/^\uFEFF/, '');
     if (!name) name = `colonne_${idx + 1}`;
     const count = seen.get(name) ?? 0;
     seen.set(name, count + 1);
@@ -265,4 +265,23 @@ export const PRODUCT_FIELDS: FieldDictionary = {
   unitCost: ['prix achat', 'cout', 'prix unitaire', 'pu', 'prix', 'cout unitaire', 'pa'],
   supplier: ['fournisseur', 'supplier', 'marque'],
   aliases: ['alias', 'synonymes', 'autres libelles', 'libelles factures'],
+};
+
+export const DOCUMENT_FIELDS: FieldDictionary = {
+  number: ['numero', 'n facture', 'numero facture', 'numero piece', 'num piece', 'piece', 'reference', 'n document', 'numero document', 'no'],
+  kind: ['type', 'type piece', 'nature', 'type document'],
+  date: ['date', 'date facture', 'date piece', 'date emission'],
+  dueDate: ['echeance', 'date echeance', 'date limite'],
+  clientName: ['client', 'nom client', 'tiers', 'raison sociale', 'compte tiers', 'destinataire'],
+  clientCode: ['code client', 'code tiers', 'compte'],
+  totalHT: ['total ht', 'montant ht', 'ht', 'base ht'],
+  totalVAT: ['tva', 'montant tva', 'total tva'],
+  totalTTC: ['total ttc', 'montant ttc', 'ttc', 'net a payer', 'total'],
+  status: ['statut', 'etat', 'regle', 'paye'],
+  lineRef: ['reference article', 'ref article', 'code article', 'ref produit', 'article'],
+  lineLabel: ['designation', 'libelle', 'description', 'produit', 'intitule ligne'],
+  lineQty: ['quantite', 'qte', 'qty', 'nombre'],
+  lineUnit: ['unite', 'conditionnement'],
+  lineUnitPrice: ['prix unitaire', 'pu ht', 'pu', 'prix'],
+  lineTotal: ['montant ligne', 'total ligne', 'montant', 'total ht ligne'],
 };

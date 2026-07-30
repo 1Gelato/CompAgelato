@@ -16,6 +16,17 @@ async function getJson<T>(url: string, timeoutMs = 8000): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function postJson<T>(url: string, body: unknown, timeoutMs = 12000): Promise<T> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} sur ${new URL(url).host}`);
+  return (await res.json()) as T;
+}
+
 /* ------------------------------------------------------------------ */
 /* Géométrie                                                            */
 /* ------------------------------------------------------------------ */
@@ -189,9 +200,88 @@ export interface Matrix {
 }
 
 const OSRM_BASE = 'https://router.project-osrm.org';
+const VALHALLA_BASE = 'https://valhalla1.openstreetmap.de';
 
 function coordsParam(points: Point[]): string {
   return points.map((p) => `${p.lon.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
+}
+
+/* --- Lecture des réponses (fonctions pures, testées unitairement) --- */
+
+export interface OsrmTableResponse {
+  code?: string;
+  distances?: (number | null)[][];
+  durations?: (number | null)[][];
+}
+
+/** Convertit une réponse OSRM /table (mètres, secondes) en matrice km / minutes. */
+export function parseOsrmTable(data: OsrmTableResponse, fallback: Matrix): Matrix {
+  if (data.code !== 'Ok' || !data.distances || !data.durations) throw new Error('OSRM : réponse invalide');
+  const n = fallback.distanceKm.length;
+  const distanceKm = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  const durationMin = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      const d = data.distances[i]?.[j];
+      const t = data.durations[i]?.[j];
+      // Une case nulle (point non raccordé au réseau) reprend l'estimation.
+      distanceKm[i][j] = d === null || d === undefined ? fallback.distanceKm[i][j] : round2(d / 1000);
+      durationMin[i][j] = t === null || t === undefined ? fallback.durationMin[i][j] : Math.round(t / 60);
+    }
+  }
+  return { distanceKm, durationMin, engine: 'osrm' };
+}
+
+export interface OsrmRouteResponse {
+  code?: string;
+  routes?: { legs: { distance: number; duration: number }[] }[];
+}
+
+export function parseOsrmRoute(data: OsrmRouteResponse): LegResult[] {
+  const route = data.routes?.[0];
+  if (data.code !== 'Ok' || !route) throw new Error('OSRM : itinéraire indisponible');
+  return route.legs.map((l) => ({
+    distanceKm: round2(l.distance / 1000),
+    durationMin: Math.round(l.duration / 60),
+  }));
+}
+
+export interface ValhallaMatrixResponse {
+  sources_to_targets?: ({ distance?: number | null; time?: number | null } | null)[][];
+}
+
+/** Convertit une réponse Valhalla /sources_to_targets (km, secondes) en matrice. */
+export function parseValhallaMatrix(data: ValhallaMatrixResponse, fallback: Matrix): Matrix {
+  const rows = data.sources_to_targets;
+  if (!Array.isArray(rows) || !rows.length) throw new Error('Valhalla : réponse invalide');
+  const n = fallback.distanceKm.length;
+  const distanceKm = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  const durationMin = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      const cell = rows[i]?.[j];
+      const d = cell?.distance;
+      const t = cell?.time;
+      distanceKm[i][j] = d === null || d === undefined ? fallback.distanceKm[i][j] : round2(d);
+      durationMin[i][j] = t === null || t === undefined ? fallback.durationMin[i][j] : Math.round(t / 60);
+    }
+  }
+  return { distanceKm, durationMin, engine: 'osrm' };
+}
+
+export interface ValhallaRouteResponse {
+  trip?: { legs?: { summary?: { length?: number; time?: number } }[] };
+}
+
+export function parseValhallaRoute(data: ValhallaRouteResponse): LegResult[] {
+  const legs = data.trip?.legs;
+  if (!Array.isArray(legs) || !legs.length) throw new Error('Valhalla : itinéraire indisponible');
+  return legs.map((l) => ({
+    distanceKm: round2(l.summary?.length ?? 0),
+    durationMin: Math.round((l.summary?.time ?? 0) / 60),
+  }));
 }
 
 function haversineMatrix(points: Point[]): Matrix {
@@ -209,47 +299,42 @@ function haversineMatrix(points: Point[]): Matrix {
   return { distanceKm, durationMin, engine: 'haversine' };
 }
 
-/**
- * Matrice des distances routières entre tous les points.
- * OSRM public si disponible, sinon estimation hors-ligne (aucune coupure de service).
- */
-export async function distanceMatrix(points: Point[]): Promise<Matrix> {
-  if (points.length < 2) return haversineMatrix(points);
-  // Au-delà de ~100 points la matrice publique refuse la requête.
-  if (points.length > 90) return haversineMatrix(points);
-
-  try {
-    const url = `${OSRM_BASE}/table/v1/driving/${coordsParam(points)}?annotations=distance,duration`;
-    const data = await getJson<{
-      code: string;
-      distances?: (number | null)[][];
-      durations?: (number | null)[][];
-    }>(url, 12000);
-    if (data.code !== 'Ok' || !data.distances || !data.durations) throw new Error('OSRM: réponse invalide');
-
-    const fallback = haversineMatrix(points);
-    const n = points.length;
-    const distanceKm = Array.from({ length: n }, () => new Array<number>(n).fill(0));
-    const durationMin = Array.from({ length: n }, () => new Array<number>(n).fill(0));
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
-        if (i === j) continue;
-        const d = data.distances[i]?.[j];
-        const t = data.durations[i]?.[j];
-        // Une case nulle (point non raccordé au réseau) reprend l'estimation.
-        distanceKm[i][j] = d === null || d === undefined ? fallback.distanceKm[i][j] : round2(d / 1000);
-        durationMin[i][j] = t === null || t === undefined ? fallback.durationMin[i][j] : Math.round(t / 60);
-      }
-    }
-    return { distanceKm, durationMin, engine: 'osrm' };
-  } catch {
-    return haversineMatrix(points);
-  }
-}
-
 export interface LegResult {
   distanceKm: number;
   durationMin: number;
+}
+
+/**
+ * Matrice des distances routières entre tous les points.
+ * Deux services publics sans clé d'API sont tentés successivement (OSRM puis
+ * Valhalla) ; en dernier recours, estimation hors-ligne — le calcul n'est
+ * jamais bloqué par une panne de réseau.
+ */
+export async function distanceMatrix(points: Point[]): Promise<Matrix> {
+  const fallback = haversineMatrix(points);
+  if (points.length < 2) return fallback;
+  // Au-delà de ~90 points, les services publics refusent la requête.
+  if (points.length > 90) return fallback;
+
+  try {
+    const url = `${OSRM_BASE}/table/v1/driving/${coordsParam(points)}?annotations=distance,duration`;
+    return parseOsrmTable(await getJson<OsrmTableResponse>(url, 12000), fallback);
+  } catch {
+    /* on tente le service suivant */
+  }
+
+  try {
+    const locations = points.map((p) => ({ lat: p.lat, lon: p.lon }));
+    const data = await postJson<ValhallaMatrixResponse>(`${VALHALLA_BASE}/sources_to_targets`, {
+      sources: locations,
+      targets: locations,
+      costing: 'auto',
+      units: 'kilometers',
+    });
+    return parseValhallaMatrix(data, fallback);
+  } catch {
+    return fallback;
+  }
 }
 
 /** Itinéraire réel passant par les points dans l'ordre donné. */
@@ -258,19 +343,19 @@ export async function routeLegs(points: Point[]): Promise<{ legs: LegResult[]; e
 
   try {
     const url = `${OSRM_BASE}/route/v1/driving/${coordsParam(points)}?overview=false&steps=false`;
-    const data = await getJson<{
-      code: string;
-      routes?: { legs: { distance: number; duration: number }[] }[];
-    }>(url, 12000);
-    const route = data.routes?.[0];
-    if (data.code !== 'Ok' || !route) throw new Error('OSRM: itinéraire indisponible');
-    return {
-      legs: route.legs.map((l) => ({
-        distanceKm: round2(l.distance / 1000),
-        durationMin: Math.round(l.duration / 60),
-      })),
-      engine: 'osrm',
-    };
+    return { legs: parseOsrmRoute(await getJson<OsrmRouteResponse>(url, 12000)), engine: 'osrm' };
+  } catch {
+    /* on tente le service suivant */
+  }
+
+  try {
+    const data = await postJson<ValhallaRouteResponse>(`${VALHALLA_BASE}/route`, {
+      locations: points.map((p) => ({ lat: p.lat, lon: p.lon })),
+      costing: 'auto',
+      units: 'kilometers',
+      directions_type: 'none',
+    });
+    return { legs: parseValhallaRoute(data), engine: 'osrm' };
   } catch {
     const legs: LegResult[] = [];
     for (let i = 0; i + 1 < points.length; i++) legs.push(estimateLeg(points[i], points[i + 1]));

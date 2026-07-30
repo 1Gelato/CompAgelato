@@ -1,0 +1,703 @@
+import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
+import type { AppInfo, ProductSuggestion, RouteQr } from '@shared/api';
+import { CHANNELS } from '@shared/api';
+import type {
+  AccountingDocument,
+  Client,
+  DeliveryRoute,
+  ID,
+  Product,
+  Settings,
+  Vehicle,
+} from '@shared/types';
+import { defaultWatchFolder, newId, nowIso, store } from './store';
+import { folderWatcher } from './watcher';
+import {
+  ensureWatchFolder,
+  removeDocument,
+  rescanFile,
+  scanFolder,
+  upsertDocument,
+} from './services/documents';
+import {
+  importClientsFile,
+  importProductsFile,
+  mergeClients,
+  nextProductSku,
+  removeClient,
+  upsertClient,
+} from './services/clients';
+import {
+  adjustStock,
+  applyAllPending,
+  applyDocumentToStock,
+  linkLineToProduct,
+  resolveDocumentLines,
+  revertDocumentFromStock,
+  suggestProducts,
+} from './services/stock';
+import { computeRoute, optimizeRoute, removeRoute, upsertRoute } from './services/routes';
+import { autocompleteAddress, fetchFuelPrice, geocodeOne, reverseGeocode } from './services/routing';
+import { buildMapUrls, providerLabel, providerLimit, type MapPoint } from './services/mapLinks';
+import { buildDashboard } from './services/dashboard';
+import {
+  exportClientsCsv,
+  exportDatabaseJson,
+  exportDocumentsCsv,
+  exportProductsCsv,
+  exportRouteCsv,
+} from './services/exports';
+import { seedDemoData, wipeDemoData } from './services/demo';
+import { round2 } from './services/text';
+
+type Handler = (...args: any[]) => unknown;
+type Registry = Record<string, Record<string, Handler>>;
+
+let mainWindow: BrowserWindow | null = null;
+
+export function setMainWindow(window: BrowserWindow): void {
+  mainWindow = window;
+}
+
+function send(channel: string, payload: unknown): void {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+}
+
+/* ------------------------------------------------------------------ */
+/* Génération de QR codes                                              */
+/* ------------------------------------------------------------------ */
+
+/** Chaîne d'adresse la plus complète possible pour interroger le géocodeur. */
+function addressQuery(client: Client): string {
+  const { address } = client;
+  const parts = [address.street, address.postcode, address.city].filter(Boolean);
+  const composed = parts.join(' ').trim();
+  return composed || (address.label ?? '').trim();
+}
+
+async function makeQr(text: string): Promise<string> {
+  const QRCode = await import('qrcode');
+  return QRCode.toDataURL(text, {
+    errorCorrectionLevel: 'M',
+    margin: 1,
+    width: 512,
+    color: { dark: '#111114ff', light: '#ffffffff' },
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Handlers                                                            */
+/* ------------------------------------------------------------------ */
+
+const handlers: Registry = {
+  app: {
+    async info(): Promise<AppInfo> {
+      return {
+        version: app.getVersion(),
+        electron: process.versions.electron,
+        node: process.versions.node,
+        platform: process.platform,
+        userDataPath: app.getPath('userData'),
+        watchFolder: store.settings.watchFolder,
+        documentsPath: (() => {
+          try {
+            return app.getPath('documents');
+          } catch {
+            return app.getPath('home');
+          }
+        })(),
+        isPackaged: app.isPackaged,
+      };
+    },
+    async openPath(target: string) {
+      if (!target) return 'Chemin vide.';
+      if (!fs.existsSync(target)) {
+        // Le dossier de travail est recréé à la demande s'il a été supprimé.
+        if (target === store.settings.watchFolder) ensureWatchFolder(target);
+        else return "Ce chemin n'existe plus.";
+      }
+      return shell.openPath(target);
+    },
+    async openExternal(url: string) {
+      if (!/^https?:\/\//i.test(url)) throw new Error('Lien non autorisé.');
+      await shell.openExternal(url);
+    },
+    async chooseFolder(current?: string) {
+      const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+        title: 'Choisir le dossier surveillé',
+        defaultPath: current || store.settings.watchFolder,
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      return result.canceled || !result.filePaths[0] ? null : result.filePaths[0];
+    },
+    async chooseFile(filters?: { name: string; extensions: string[] }[]) {
+      const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+        title: 'Choisir un fichier',
+        defaultPath: store.settings.watchFolder,
+        filters: filters ?? [
+          { name: 'Tableaux et documents', extensions: ['csv', 'xlsx', 'xls', 'pdf', 'xml'] },
+          { name: 'Tous les fichiers', extensions: ['*'] },
+        ],
+        properties: ['openFile'],
+      });
+      return result.canceled || !result.filePaths[0] ? null : result.filePaths[0];
+    },
+    async revealFile(target: string) {
+      if (target && fs.existsSync(target)) shell.showItemInFolder(target);
+    },
+    async quit() {
+      store.flushSync();
+      app.quit();
+    },
+  },
+
+  settings: {
+    async get(): Promise<Settings> {
+      return store.settings;
+    },
+    async update(patch: Partial<Settings>): Promise<Settings> {
+      const previousFolder = store.settings.watchFolder;
+      const previousAutoScan = store.settings.autoScan;
+      const settings = store.mutate((db) => {
+        Object.assign(db.settings, patch);
+        return db.settings;
+      });
+      store.flushSync();
+
+      if (patch.watchFolder && patch.watchFolder !== previousFolder) {
+        ensureWatchFolder(patch.watchFolder);
+        await folderWatcher.start(patch.watchFolder);
+      } else if (patch.autoScan !== undefined && patch.autoScan !== previousAutoScan) {
+        if (patch.autoScan) await folderWatcher.start(settings.watchFolder);
+        else await folderWatcher.stop();
+      }
+      return settings;
+    },
+    async resetFolder(): Promise<Settings> {
+      const folder = defaultWatchFolder();
+      ensureWatchFolder(folder);
+      const settings = store.mutate((db) => {
+        db.settings.watchFolder = folder;
+        return db.settings;
+      });
+      await folderWatcher.start(folder);
+      return settings;
+    },
+  },
+
+  clients: {
+    async list(): Promise<Client[]> {
+      return [...store.db.clients].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    },
+    async save(input: Partial<Client> & { id?: ID }) {
+      const client = upsertClient(input);
+      store.flushSync();
+      return client;
+    },
+    async remove(id: ID) {
+      removeClient(id);
+      store.flushSync();
+    },
+    async importFrom(filePath: string, mapping?: Record<string, string>) {
+      const report = await importClientsFile(filePath, mapping);
+      store.flushSync();
+      return report;
+    },
+    async pickAndImport() {
+      const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+        title: 'Importer la liste clients',
+        defaultPath: path.join(store.settings.watchFolder, 'Clients'),
+        filters: [
+          { name: 'Fichiers clients', extensions: ['csv', 'xlsx', 'xls', 'txt'] },
+          { name: 'Tous les fichiers', extensions: ['*'] },
+        ],
+        properties: ['openFile'],
+      });
+      if (result.canceled || !result.filePaths[0]) return null;
+      const report = await importClientsFile(result.filePaths[0]);
+      store.flushSync();
+      return report;
+    },
+    async exportCsv() {
+      return exportClientsCsv();
+    },
+    async merge(keepId: ID, mergeId: ID) {
+      const client = mergeClients(keepId, mergeId);
+      store.flushSync();
+      return client;
+    },
+    /**
+     * Complète les coordonnées GPS des fiches importées, pour qu'elles
+     * deviennent utilisables dans le calculateur de tournée.
+     */
+    async geocodeMissing() {
+      const targets = store.db.clients.filter(
+        (c) => !c.archived && typeof c.address.lat !== 'number' && addressQuery(c),
+      );
+      let located = 0;
+      let failed = 0;
+      // Traitement séquentiel et espacé : on reste courtois avec le service public.
+      for (const client of targets.slice(0, 400)) {
+        const query = addressQuery(client);
+        try {
+          const hit = await geocodeOne(query);
+          if (hit) {
+            store.mutate(() => {
+              client.address = {
+                ...client.address,
+                label: client.address.label || hit.label,
+                postcode: client.address.postcode ?? hit.postcode,
+                city: client.address.city ?? hit.city,
+                lat: hit.lat,
+                lon: hit.lon,
+              };
+              client.updatedAt = nowIso();
+            });
+            located++;
+          } else {
+            failed++;
+          }
+        } catch {
+          failed++;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 120));
+      }
+      store.flushSync();
+      return { processed: targets.length, located, failed };
+    },
+  },
+
+  documents: {
+    async list(): Promise<AccountingDocument[]> {
+      return [...store.db.documents].sort(
+        (a, b) => (b.date ?? '').localeCompare(a.date ?? '') || b.importedAt.localeCompare(a.importedAt),
+      );
+    },
+    async get(id: ID) {
+      return store.db.documents.find((d) => d.id === id) ?? null;
+    },
+    async save(input: Partial<AccountingDocument> & { id?: ID }) {
+      const doc = upsertDocument(input);
+      store.flushSync();
+      return doc;
+    },
+    async remove(id: ID) {
+      removeDocument(id);
+      store.flushSync();
+    },
+    async scan(options?: { force?: boolean }) {
+      const report = await scanFolder({
+        force: options?.force,
+        onProgress: (payload) => send('scan-progress', payload),
+      });
+      return report;
+    },
+    async rescanFile(filePath: string) {
+      return rescanFile(filePath);
+    },
+    async setClient(documentId: ID, clientId: ID | null) {
+      const doc = store.mutate((db) => {
+        const target = db.documents.find((d) => d.id === documentId);
+        if (!target) throw new Error('Document introuvable.');
+        target.clientId = clientId ?? undefined;
+        target.warnings = target.warnings.filter((w) => !w.startsWith('Client'));
+        target.updatedAt = nowIso();
+        return target;
+      });
+      // Le nom lu sur la pièce devient un alias : les prochains imports seront directs.
+      if (clientId && doc.clientNameRaw) {
+        const client = store.db.clients.find((c) => c.id === clientId);
+        if (client && !client.aliases.includes(doc.clientNameRaw) && client.name !== doc.clientNameRaw) {
+          store.mutate(() => {
+            client.aliases.push(doc.clientNameRaw as string);
+          });
+        }
+      }
+      store.flushSync();
+      return doc;
+    },
+    async setStatus(documentId: ID, status: AccountingDocument['status']) {
+      const doc = store.mutate((db) => {
+        const target = db.documents.find((d) => d.id === documentId);
+        if (!target) throw new Error('Document introuvable.');
+        target.status = status;
+        target.updatedAt = nowIso();
+        return target;
+      });
+      // Une pièce annulée ne doit plus peser sur le stock.
+      if (status === 'cancelled' && doc.stockApplied) revertDocumentFromStock(doc.id);
+      store.flushSync();
+      return doc;
+    },
+    async exportCsv() {
+      return exportDocumentsCsv();
+    },
+  },
+
+  products: {
+    async list(): Promise<Product[]> {
+      return [...store.db.products].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    },
+    async save(input: Partial<Product> & { id?: ID }) {
+      const product = store.mutate((db) => {
+        const existing = input.id ? db.products.find((p) => p.id === input.id) : undefined;
+        if (existing) {
+          const nextQty = input.qtyOnHand ?? existing.qtyOnHand;
+          Object.assign(existing, {
+            ...input,
+            qtyOnHand: existing.qtyOnHand,
+            aliases: input.aliases ?? existing.aliases,
+            updatedAt: nowIso(),
+          });
+          // Une modification de quantité passe par un mouvement de stock tracé.
+          if (round2(nextQty) !== round2(existing.qtyOnHand)) {
+            adjustStock(existing.id, round2(nextQty), 'Correction depuis la fiche produit');
+          }
+          return existing;
+        }
+        const product: Product = {
+          id: newId('prd'),
+          sku: input.sku?.trim() || nextProductSku(),
+          name: input.name?.trim() || 'Nouveau consommable',
+          category: input.category,
+          unit: input.unit || 'pièce',
+          qtyOnHand: round2(input.qtyOnHand ?? 0),
+          minQty: round2(input.minQty ?? 0),
+          unitCost: input.unitCost,
+          supplier: input.supplier,
+          aliases: input.aliases ?? [],
+          archived: input.archived ?? false,
+          createdAt: nowIso(),
+          updatedAt: nowIso(),
+        };
+        db.products.push(product);
+        return product;
+      });
+
+      // Le nouveau produit peut concerner des documents déjà importés.
+      store.mutate((db) => {
+        for (const doc of db.documents) if (!doc.stockApplied) resolveDocumentLines(doc);
+      });
+      store.flushSync();
+      return product;
+    },
+    async remove(id: ID) {
+      store.mutate((db) => {
+        db.products = db.products.filter((p) => p.id !== id);
+        db.stockMoves = db.stockMoves.filter((m) => m.productId !== id);
+        for (const doc of db.documents) {
+          for (const line of doc.lines) {
+            if (line.productId === id) {
+              line.productId = undefined;
+              line.matchMethod = 'none';
+            }
+          }
+        }
+      });
+      store.flushSync();
+    },
+    async importFrom(filePath: string) {
+      const report = await importProductsFile(filePath);
+      store.mutate((db) => {
+        for (const doc of db.documents) if (!doc.stockApplied) resolveDocumentLines(doc);
+      });
+      store.flushSync();
+      return report;
+    },
+    async pickAndImport() {
+      const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+        title: 'Importer le stock de consommables',
+        defaultPath: store.settings.watchFolder,
+        filters: [
+          { name: 'Fichiers stock', extensions: ['csv', 'xlsx', 'xls', 'txt'] },
+          { name: 'Tous les fichiers', extensions: ['*'] },
+        ],
+        properties: ['openFile'],
+      });
+      if (result.canceled || !result.filePaths[0]) return null;
+      const report = await importProductsFile(result.filePaths[0]);
+      store.mutate((db) => {
+        for (const doc of db.documents) if (!doc.stockApplied) resolveDocumentLines(doc);
+      });
+      store.flushSync();
+      return report;
+    },
+    async exportCsv() {
+      return exportProductsCsv();
+    },
+    async adjust(productId: ID, qty: number, note?: string) {
+      const product = adjustStock(productId, qty, note);
+      store.flushSync();
+      return product;
+    },
+  },
+
+  stock: {
+    async moves(productId?: ID) {
+      const moves = productId
+        ? store.db.stockMoves.filter((m) => m.productId === productId)
+        : store.db.stockMoves;
+      return moves.slice(0, 500);
+    },
+    async apply(documentId: ID) {
+      const report = applyDocumentToStock(documentId);
+      store.flushSync();
+      return report;
+    },
+    async revert(documentId: ID) {
+      const report = revertDocumentFromStock(documentId);
+      store.flushSync();
+      return report;
+    },
+    async applyAll() {
+      const result = applyAllPending();
+      store.flushSync();
+      return result;
+    },
+    async linkLine(documentId: ID, lineId: ID, productId: ID | null) {
+      const doc = linkLineToProduct(documentId, lineId, productId);
+      store.flushSync();
+      return doc;
+    },
+    async suggestions(label: string, ref?: string): Promise<ProductSuggestion[]> {
+      return suggestProducts(store.db.products, label, ref);
+    },
+  },
+
+  routes: {
+    async list(): Promise<DeliveryRoute[]> {
+      return [...store.db.routes].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
+    },
+    async save(input: Partial<DeliveryRoute> & { id?: ID }) {
+      const route = upsertRoute(input);
+      store.flushSync();
+      return route;
+    },
+    async remove(id: ID) {
+      removeRoute(id);
+      store.flushSync();
+    },
+    async compute(route: DeliveryRoute) {
+      const result = await computeRoute(route);
+      // Le résultat est mémorisé si la tournée est déjà enregistrée.
+      if (store.db.routes.some((r) => r.id === route.id)) {
+        upsertRoute({ ...result.route, id: route.id });
+        store.flushSync();
+      }
+      return result;
+    },
+    async optimize(route: DeliveryRoute, options?: { returnToStart: boolean; maxIterations?: number }) {
+      const result = await optimizeRoute(route, options ?? { returnToStart: route.returnToStart });
+      if (store.db.routes.some((r) => r.id === route.id)) {
+        upsertRoute({ ...result.route, id: route.id });
+        store.flushSync();
+      }
+      return result;
+    },
+    async link(route: DeliveryRoute, provider: 'google' | 'waze' | 'apple'): Promise<RouteQr> {
+      const points: MapPoint[] = [];
+      const push = (label: string, address: { label: string; lat?: number; lon?: number }) => {
+        if (typeof address.lat === 'number' && typeof address.lon === 'number') {
+          points.push({ label, lat: address.lat, lon: address.lon, address: address.label });
+        } else if (address.label) {
+          points.push({ label, address: address.label });
+        }
+      };
+
+      push(route.start.label || 'Départ', route.start.address);
+      for (const stop of route.stops) push(stop.label || 'Arrêt', stop.address);
+      if (route.returnToStart) push(`${route.start.label || 'Départ'} (retour)`, route.start.address);
+      else if (route.end) push(route.end.label || 'Arrivée', route.end.address);
+
+      const segments = buildMapUrls(provider, points);
+      if (!segments.length) {
+        throw new Error('Il faut au moins un départ et un arrêt géolocalisés pour créer un itinéraire.');
+      }
+
+      const withQr = await Promise.all(
+        segments.map(async (s) => ({ ...s, qrDataUrl: await makeQr(s.url) })),
+      );
+
+      const warning =
+        segments.length > 1
+          ? `${providerLabel(provider)} accepte ${providerLimit(provider)} points par lien : la tournée est découpée en ${segments.length} liens à ouvrir l’un après l’autre.`
+          : undefined;
+
+      return {
+        provider,
+        url: withQr[0].url,
+        qrDataUrl: withQr[0].qrDataUrl,
+        segments: withQr,
+        warning,
+      };
+    },
+    async qr(text: string) {
+      return makeQr(text);
+    },
+    async exportCsv(routeId: ID) {
+      return exportRouteCsv(routeId);
+    },
+  },
+
+  vehicles: {
+    async list(): Promise<Vehicle[]> {
+      return store.db.vehicles;
+    },
+    async save(input: Partial<Vehicle> & { id?: ID }) {
+      const vehicle = store.mutate((db) => {
+        const existing = input.id ? db.vehicles.find((v) => v.id === input.id) : undefined;
+        if (existing) {
+          Object.assign(existing, input);
+          if (input.isDefault) {
+            for (const v of db.vehicles) v.isDefault = v.id === existing.id;
+            db.settings.defaultVehicleId = existing.id;
+          }
+          return existing;
+        }
+        const created: Vehicle = {
+          id: newId('veh'),
+          name: input.name?.trim() || 'Nouveau véhicule',
+          consumption: input.consumption ?? 9,
+          fuelType: input.fuelType ?? 'gazole',
+          maintenancePerKm: input.maintenancePerKm ?? 0.08,
+          driverCostPerHour: input.driverCostPerHour ?? 0,
+          isDefault: input.isDefault ?? db.vehicles.length === 0,
+        };
+        if (created.isDefault) {
+          for (const v of db.vehicles) v.isDefault = false;
+          db.settings.defaultVehicleId = created.id;
+        }
+        db.vehicles.push(created);
+        return created;
+      });
+      store.flushSync();
+      return vehicle;
+    },
+    async remove(id: ID) {
+      store.mutate((db) => {
+        if (db.vehicles.length <= 1) throw new Error('Au moins un véhicule doit rester enregistré.');
+        db.vehicles = db.vehicles.filter((v) => v.id !== id);
+        if (db.settings.defaultVehicleId === id) {
+          db.settings.defaultVehicleId = db.vehicles[0]?.id;
+          if (db.vehicles[0]) db.vehicles[0].isDefault = true;
+        }
+      });
+      store.flushSync();
+    },
+  },
+
+  geo: {
+    async autocomplete(query: string, options?: { near?: { lat: number; lon: number } }) {
+      return autocompleteAddress(query, { near: options?.near });
+    },
+    async reverse(lat: number, lon: number) {
+      return reverseGeocode(lat, lon);
+    },
+    async fuelPrice(fuelType: Vehicle['fuelType'], postcode?: string) {
+      const result = await fetchFuelPrice(fuelType, postcode ?? store.settings.fuelPricePostcode);
+      if (result) {
+        store.mutate((db) => {
+          db.settings.fuelPricePerLiter = result.price;
+          db.settings.fuelPriceUpdatedAt = result.updatedAt;
+          db.settings.fuelPriceSource = result.source;
+        });
+        store.flushSync();
+      }
+      return result;
+    },
+  },
+
+  stats: {
+    async dashboard() {
+      return buildDashboard();
+    },
+  },
+
+  db: {
+    async backup() {
+      return store.backup();
+    },
+    async restore(filePath?: string) {
+      let target = filePath;
+      if (!target) {
+        const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+          title: 'Restaurer une sauvegarde',
+          defaultPath: store.backupFolder,
+          filters: [{ name: 'Sauvegarde CompaGelato', extensions: ['json'] }],
+          properties: ['openFile'],
+        });
+        if (result.canceled || !result.filePaths[0]) return false;
+        target = result.filePaths[0];
+      }
+      const ok = await store.restore(target);
+      if (ok) send('documents-changed', { restored: true });
+      return ok;
+    },
+    async exportAll() {
+      return exportDatabaseJson();
+    },
+    async stats() {
+      store.flushSync();
+      let sizeKb = 0;
+      try {
+        sizeKb = Math.round(fs.statSync(store.dbFile).size / 1024);
+      } catch {
+        /* fichier pas encore écrit */
+      }
+      return {
+        file: store.dbFile,
+        sizeKb,
+        counts: {
+          clients: store.db.clients.length,
+          documents: store.db.documents.length,
+          products: store.db.products.length,
+          stockMoves: store.db.stockMoves.length,
+          routes: store.db.routes.length,
+          vehicles: store.db.vehicles.length,
+        },
+      };
+    },
+    async seedDemo() {
+      seedDemoData();
+      send('documents-changed', { seeded: true });
+    },
+    async wipeDemo() {
+      wipeDemoData();
+      send('documents-changed', { wiped: true });
+    },
+  },
+};
+
+/* ------------------------------------------------------------------ */
+/* Enregistrement                                                      */
+/* ------------------------------------------------------------------ */
+
+export function registerIpc(): void {
+  for (const [namespace, methods] of Object.entries(CHANNELS)) {
+    for (const method of methods as readonly string[]) {
+      const channel = `${namespace}:${method}`;
+      const handler = handlers[namespace]?.[method];
+      if (!handler) {
+        // Un canal déclaré sans implémentation est une erreur de développement :
+        // mieux vaut un message clair qu'un appel qui ne répond jamais.
+        ipcMain.handle(channel, () => {
+          throw new Error(`Canal non implémenté : ${channel}`);
+        });
+        console.error(`[ipc] canal sans implémentation : ${channel}`);
+        continue;
+      }
+      ipcMain.handle(channel, async (_event, ...args) => {
+        try {
+          return await handler(...args);
+        } catch (err) {
+          const message = (err as Error).message ?? String(err);
+          console.error(`[ipc] ${channel} :`, message);
+          // L'erreur est renvoyée telle quelle : l'interface affiche le message.
+          throw new Error(message);
+        }
+      });
+    }
+  }
+}
