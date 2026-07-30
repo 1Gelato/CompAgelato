@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { extractPdf, parsePdfDocument, parseEInvoiceXml } from './build/services.mjs';
+import { extractPdf, parsePdfDocument, parseEInvoiceXml, extractClient } from './build/services.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pdfDir = path.join(here, 'fixtures', 'pdf');
@@ -176,4 +176,51 @@ test('UBL 2.1 : lecture structurée', () => {
   assert.equal(doc.lines[0].ref, 'CON-STD');
   assert.equal(doc.lines[0].qty, 10);
   assert.equal(doc.lines[0].unitPriceHT, 12.4);
+});
+
+test('gabarit à deux colonnes (vendeur/client sur les mêmes lignes) : nom, adresse et totaux corrects', async () => {
+  const file = path.join(pdfDir, 'FA-2026-DEUXCOL.pdf');
+  const doc = parsePdfDocument(await extractPdf(file), file);
+
+  // Le nom du client ne doit pas être confondu avec la ligne « Siret : ... N° client : ... »
+  // qui mélange les colonnes vendeur et client sur la même ligne visuelle.
+  assert.equal(doc.clientName, 'LES GLACES DU PORT');
+  assert.equal(doc.clientAddress, '12 QUAI DU COMMERCE, 56100 LORIENT');
+
+  // « Base HT » apparaît comme un en-tête de tableau récapitulatif (« Code | Base HT |
+  // Taux | Montant ») et ne doit pas écraser le vrai Total HT lu plus haut.
+  assert.equal(doc.totalHT, 96.3);
+  assert.equal(doc.totalVAT, 19.26);
+  assert.equal(doc.totalTTC, 115.56);
+
+  // Le tableau récapitulatif de TVA et les mentions bancaires en bas de page ne
+  // doivent pas être lus comme des lignes de produits supplémentaires.
+  assert.equal(doc.lines.length, 2);
+  assert.equal(doc.lines[0].totalHT, 90);
+  assert.equal(doc.lines[1].totalHT, 6.3);
+
+  const sum = doc.lines.reduce((s, l) => s + l.totalHT, 0);
+  assert.ok(Math.abs(sum - doc.totalHT) < 0.01, `somme des lignes ${sum} ≠ total HT ${doc.totalHT}`);
+  assert.equal(doc.warnings.length, 0, JSON.stringify(doc.warnings));
+  assert.equal(doc.confidence, 1);
+});
+
+test('un code client (« CL9001 ») n’est jamais pris pour un nom', () => {
+  const { name } = extractClient([
+    'Siret : 00000000000000   N° client : CL9001',
+    'LES GLACES DU PORT',
+    '12 QUAI DU COMMERCE',
+    '56100 LORIENT',
+  ]);
+  assert.equal(name, 'LES GLACES DU PORT');
+});
+
+test('une ligne mélangeant vendeur et client par colonnes est nettoyée dans l’adresse', () => {
+  const { address } = extractClient([
+    'Siret : 00000000000000   N° client : CL9001',
+    'LES GLACES DU PORT',
+    'Tél. : 01 23 45 67 89   12 QUAI DU COMMERCE',
+    'Port. : 06 00 00 00 00   56100 LORIENT',
+  ]);
+  assert.equal(address, '12 QUAI DU COMMERCE, 56100 LORIENT');
 });

@@ -26,6 +26,15 @@ Un document dont le nom du client n'est précédé d'aucun libellé (« Client :
 « Facturé à »…) est tout de même rattaché : le texte de la pièce est comparé aux
 clients déjà connus.
 
+Certains logiciels de facturation impriment le bloc vendeur et le bloc client
+côte à côte, sur les mêmes lignes visuelles (« Siret : ...   N° client : ... »).
+CompaGelato détecte ce mélange — un code client n'est jamais pris pour un nom,
+les libellés de contact du vendeur (Tél., Port., Email...) qui se glissent dans
+l'adresse du client sont retirés, et l'appariement des colonnes du tableau
+d'articles respecte l'ordre gauche→droite plutôt que la seule position, ce qui
+évite qu'une valeur légèrement décalée (alignement à droite) ne tombe dans la
+mauvaise colonne.
+
 Les fichiers d'origine ne sont **jamais** modifiés ni déplacés. Un fichier déjà
 importé et inchangé est ignoré : rescanner ne crée pas de doublon.
 
@@ -207,12 +216,14 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **33 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **36 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
   liens Google Maps / Waze / Plans, lecture des réponses OSRM et Valhalla,
-  construction des messages MIME avec pièces jointes accentuées.
+  construction des messages MIME avec pièces jointes accentuées, gabarit de
+  facture à deux colonnes (vendeur/client sur les mêmes lignes, tableau
+  récapitulatif de TVA confondu avec un total).
 - **25 tests de bout en bout** — l'application réelle est lancée, pilotée et
   vérifiée : import d'une liste clients en Windows-1252, import du catalogue,
   analyse d'un dossier de PDF, rattachement automatique aux clients, association

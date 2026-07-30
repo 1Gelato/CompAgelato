@@ -123,3 +123,92 @@ if __name__ == "__main__":
               ("PRE-EVT", "Prestation événementielle — chariot glaces", 1, "forfait", 850.00),
               ("CUP-100", "Coupelle carton 100 ml (x50)", 20, "carton", 8.90),
           ])
+
+
+def build_two_column(filename, *, number, date, client_ref, client_name, client_street,
+                      client_city, client_email, lines, vat=20.0):
+    """Reproduit le gabarit « vendeur à gauche / client à droite, mêmes lignes »
+    de certains logiciels de facturation, avec un tableau récapitulatif de TVA
+    en bas de page — la mise en forme qui a révélé les bugs d'extraction."""
+    path = os.path.join(OUT, filename)
+    doc = SimpleDocTemplate(path, pagesize=A4,
+                            leftMargin=18 * mm, rightMargin=18 * mm,
+                            topMargin=18 * mm, bottomMargin=18 * mm)
+    story = []
+
+    # En-tête à deux colonnes : vendeur (gauche) / document + client (droite).
+    header = Table(
+        [
+            ["EXEMPLE SARL", "FACTURE"],
+            ["1 rue du Test", f"N° : {number}"],
+            ["44000 - ville CEDEX", f"Date : {date}"],
+            ["France", ""],
+            ["Siret : 00000000000000", f"N° client : {client_ref}"],
+            ["", client_name],
+            ["Tél. : 00 00 00 00 00", client_street],
+            ["Email : contact@exemple.fr", client_city],
+            ["", f"Email : {client_email}"],
+        ],
+        colWidths=[85 * mm, 85 * mm],
+    )
+    header.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    story.append(header)
+    story.append(Spacer(1, 8 * mm))
+
+    data = [["Libellé", "Qté", "Unité", "PU HT", "Rem.", "Montant HT", "TVA"]]
+    total_ht = 0.0
+    for label, qty, unit, pu, rem_pct in lines:
+        montant = round(qty * pu * (1 - rem_pct / 100), 2)
+        total_ht += montant
+        data.append([label, f"{qty:g}".replace(".", ","), unit, euro(pu),
+                     f"{rem_pct:g}".replace(".", ",") + "%", euro(montant),
+                     f"{vat:g}".replace(".", ",") + "%"])
+    t = Table(data, colWidths=[45 * mm, 12 * mm, 18 * mm, 22 * mm, 14 * mm, 26 * mm, 15 * mm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 6 * mm))
+
+    tva = round(total_ht * vat / 100.0, 2)
+    ttc = round(total_ht + tva, 2)
+
+    # Tableau récapitulatif : « Détail de la TVA » suivi d'un en-tête
+    # « Code | Base HT | Taux | Montant » — c'est ce bloc qui, sur une mise en
+    # page à deux colonnes, se confondait avec un vrai total.
+    recap = Table(
+        [
+            ["Détail de la TVA", "Total HT", euro(total_ht)],
+            ["Code", "Base HT", "Taux", "Montant", "TVA", euro(tva)],
+            ["Normale", euro(total_ht), f"{vat:g}%", euro(tva), "Total TTC", euro(ttc)],
+        ],
+        colWidths=[28 * mm, 22 * mm, 15 * mm, 22 * mm, 20 * mm, 22 * mm],
+    )
+    recap.setStyle(TableStyle([("FONTSIZE", (0, 0), (-1, -1), 8)]))
+    story.append(recap)
+    story.append(Spacer(1, 6 * mm))
+    story.append(Paragraph("Règlement Virement", styles["Normal"]))
+    story.append(Paragraph("Coordonnées bancaires", styles["Normal"]))
+    story.append(Paragraph("IBAN FR7610000000000000000000000", styles["Normal"]))
+    story.append(Paragraph(f"Le montant total s'élève à {ttc} euros", styles["Normal"]))
+
+    doc.build(story)
+    print("écrit", path, "| HT", round(total_ht, 2), "TVA", tva, "TTC", ttc)
+
+
+if __name__ == "__main__":
+    build_two_column(
+        "FA-2026-DEUXCOL.pdf", number="FA-2026-DEUXCOL", date="15/03/2026",
+        client_ref="CL9001", client_name="LES GLACES DU PORT",
+        client_street="12 QUAI DU COMMERCE", client_city="56100 LORIENT",
+        client_email="contact@glacesduport.fr",
+        lines=[
+            ("Bac gastro inox GN 1/3", 2, "Pièce", 45.00, 0),
+            ("Cuillère bois 95mm (x100)", 3, "Carton", 4.20, 50),
+        ],
+    )

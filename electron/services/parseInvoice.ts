@@ -159,7 +159,16 @@ export function extractTotals(lines: string[]): {
       totalTTC = value;
       continue;
     }
-    if (/(total\s*h\s*t|montant\s*ht|total\s*hors\s*taxe|sous\s*total|base\s*ht)/.test(n)) {
+    // « Base HT » est parfois un simple en-tête de colonne dans un tableau
+    // récapitulatif de TVA (« Code | Base HT | Taux | Montant ») : sur ce
+    // genre de ligne, la présence conjointe de « Code » et « Taux » trahit un
+    // en-tête, pas un total, et le nombre en fin de ligne appartient en
+    // réalité à une autre colonne (montant de TVA, pas total HT).
+    const looksLikeRecapHeader = /\bcode\b/.test(n) && /\btaux\b/.test(n);
+    if (
+      /(total\s*h\s*t|montant\s*ht|total\s*hors\s*taxe|sous\s*total)/.test(n) ||
+      (/base\s*ht/.test(n) && !looksLikeRecapHeader)
+    ) {
       totalHT = value;
       continue;
     }
@@ -195,6 +204,23 @@ export function extractTotals(lines: string[]): {
 const CLIENT_MARKERS = /(client|factur[ée]\s*(?:à|a)|adress[ée]\s*(?:à|a)|destinataire|livr[ée]\s*(?:à|a)|bill\s*to|customer)/i;
 const SELLER_MARKERS = /(emetteur|vendeur|fournisseur|expediteur|siret|siren|ape|naf|rcs|iban|bic|tva\s*intra)/i;
 
+/**
+ * Beaucoup de gabarits de facture impriment le bloc vendeur (à gauche) et le
+ * bloc client (à droite) sur les mêmes lignes visuelles : le texte fusionné
+ * ressemble alors à « Tél. : 01 23 45 67 89   RUE DE LA PLAGE ». On retire le
+ * préfixe connu du bloc vendeur pour ne garder que le fragment côté client,
+ * repéré par le grand espacement laissé par les colonnes.
+ */
+function stripSellerColumnNoise(line: string): string {
+  const match = line.match(/^(t[ée]l\.?|port\.?|fax|e-?mail|site\s*web|mobile)\b\s*[:.]?\s*.*?\s{2,}(.+)$/i);
+  return match ? match[2].trim() : line;
+}
+
+/** Un code client (« CL0012 », « CLT00000127 ») n'est pas un nom : lettres/chiffres, sans espace. */
+function looksLikeReferenceCode(value: string): boolean {
+  return /^[A-Za-z]{0,4}\d[\dA-Za-z]*$/.test(value.trim());
+}
+
 export function extractClient(lines: string[]): {
   name: string | null;
   address: string | null;
@@ -207,20 +233,25 @@ export function extractClient(lines: string[]): {
     const line = lines[i];
     if (!CLIENT_MARKERS.test(line)) continue;
     // Le nom peut suivre le marqueur sur la même ligne (« Client : Dupont SARL »).
+    // Si cette ligne mélange aussi un marqueur vendeur (« Siret : ...  N° client : CL0012 »)
+    // ou ne contient qu'un code de référence, ce n'est pas le nom : on ignore l'inline
+    // et on se rabat sur les lignes suivantes.
     const inline = line.split(/:/).slice(1).join(':').trim();
+    const inlineUsable = inline.length > 2 && !SELLER_MARKERS.test(line) && !looksLikeReferenceCode(inline);
     const candidates: string[] = [];
-    if (inline.length > 2) candidates.push(inline);
-    for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
+    if (inlineUsable) candidates.push(inline);
+    for (let j = i + 1; j < Math.min(i + 7, lines.length); j++) {
       const l = lines[j].trim();
       if (!l) continue;
       if (SELLER_MARKERS.test(l) && !/\d{2,}/.test(l)) break;
       candidates.push(l);
-      if (candidates.length >= 4) break;
+      if (candidates.length >= 5) break;
     }
     if (!candidates.length) continue;
 
     name = candidates[0].replace(/\s{2,}/g, ' ').trim();
-    for (const c of candidates.slice(1)) {
+    for (const raw of candidates.slice(1)) {
+      const c = stripSellerColumnNoise(raw);
       // On s'arrête au premier bloc qui ressemble à un tableau ou à un total.
       if (/(total|qt[ée]|d[ée]signation|r[ée]f\.)/i.test(c)) break;
       addressParts.push(c.replace(/\s{2,}/g, ' ').trim());
@@ -329,7 +360,8 @@ function toCell(items: PdfTextItem[]): Cell {
   return { text: text.trim(), x: items[0].x, end: last.x + last.width };
 }
 
-const STOP_ROW = /^(total|sous[-\s]?total|montant\s*(ht|ttc)|tva|net\s*[àa]\s*payer|conditions?|mode\s*de\s*r|arr[êe]t[ée]e?\s*la|escompte|acompte|p[ée]nalit)/i;
+const STOP_ROW =
+  /^(total|sous[-\s]?total|montant\s*(ht|ttc)|d[ée]tail\s*(de\s*la\s*)?tva|tva|net\s*[àa]\s*payer|conditions?|mode\s*de\s*r|arr[êe]t[ée]e?\s*la|escompte|acompte|p[ée]nalit|r[èe]glement|coordonn[ée]es?\s*bancaires?|le\s*montant\s*total)/i;
 
 export function extractLinesFromPdf(extract: PdfExtract): { lines: ParsedLine[]; warnings: string[] } {
   const warnings: string[] = [];
@@ -350,24 +382,32 @@ export function extractLinesFromPdf(extract: PdfExtract): { lines: ParsedLine[];
     const cells = groupCells(line.items);
     if (!cells.length) continue;
 
-    // Rattache chaque cellule à la colonne dont le centre est le plus proche.
+    // Rattache chaque cellule à une colonne, en respectant l'ordre gauche→droite.
+    // Les valeurs numériques (souvent alignées à droite) ne tombent pas
+    // forcément sous le début visuel de leur en-tête : chercher la colonne la
+    // plus proche indépendamment pour chaque cellule fait parfois « remonter »
+    // une valeur dans la colonne précédente. En n'autorisant jamais de retour
+    // en arrière (la colonne choisie pour une cellule ne peut être antérieure
+    // à celle de la cellule précédente), l'ordre des colonnes de l'en-tête
+    // sert d'ancre fiable même quand les positions x sont approximatives.
     const values: Partial<Record<ColumnRole, string>> = {};
+    let columnPointer = 0;
     for (const cell of cells) {
       const center = (cell.x + cell.end) / 2;
-      let best: Column | null = null;
+      let bestIndex = columnPointer;
       let bestDist = Number.POSITIVE_INFINITY;
-      for (const col of header.columns) {
+      for (let i = columnPointer; i < header.columns.length; i++) {
+        const col = header.columns[i];
         const colCenter = Number.isFinite(col.end) ? (col.x + col.end) / 2 : col.x + 20;
         const dist = Math.abs(center - colCenter);
-        // Une cellule qui démarre dans l'intervalle de la colonne gagne d'office.
-        const inside = cell.x >= col.x - 6 && cell.x < col.end;
-        const score = inside ? dist - 1000 : dist;
-        if (score < bestDist) {
-          bestDist = score;
-          best = col;
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestIndex = i;
         }
       }
-      if (!best || best.role === 'ignore') continue;
+      const best = header.columns[bestIndex];
+      columnPointer = bestIndex;
+      if (best.role === 'ignore') continue;
       values[best.role] = values[best.role] ? `${values[best.role]} ${cell.text}` : cell.text;
     }
 
