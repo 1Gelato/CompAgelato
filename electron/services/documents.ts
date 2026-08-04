@@ -18,6 +18,7 @@ import { DOCUMENT_FIELDS, guessMapping, readTable } from './tabular';
 import { normalize, parseDate, parseNumber, round2 } from './text';
 import {
   createClientFromDocument,
+  fillClientContact,
   matchClient,
   rememberClientAlias,
 } from './clients';
@@ -221,8 +222,18 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
     }
   }
   if (!clientId && parsed.clientName && settings.autoCreateClients) {
-    clientId = createClientFromDocument(parsed.clientName, parsed.clientAddress, parsed.clientSiret).id;
+    clientId = createClientFromDocument(
+      parsed.clientName,
+      parsed.clientAddress,
+      parsed.clientSiret,
+      parsed.clientEmail,
+      parsed.clientPhone,
+    ).id;
     warnings.push('Nouvelle fiche client créée automatiquement.');
+  } else if (clientId) {
+    // Fiche déjà connue : on complète l'e-mail / le téléphone s'ils manquaient,
+    // sans jamais écraser une valeur déjà saisie à la main.
+    fillClientContact(clientId, parsed.clientEmail, parsed.clientPhone);
   }
 
   const totalHT = parsed.totalHT ?? 0;
@@ -413,6 +424,8 @@ export async function parseTabularDocuments(
       clientName: get(head, 'clientName') ?? null,
       clientAddress: null,
       clientSiret: null,
+      clientEmail: null,
+      clientPhone: null,
       currency: 'EUR',
       totalHT: totalHT ?? (lines.length ? round2(lines.reduce((s, l) => s + (l.totalHT ?? 0), 0)) : null),
       totalVAT,

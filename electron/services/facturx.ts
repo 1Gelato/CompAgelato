@@ -163,6 +163,10 @@ export function parseEInvoiceXml(xml: string): ParsedDocument | null {
     }
   }
 
+  const contact = findFirst(buyer, ['DefinedTradeContact', 'Contact']);
+  const clientEmail = textIn(contact, ['URIID', 'ElectronicMail', 'EMail']);
+  const clientPhone = textIn(contact, ['CompleteNumber', 'Telephone', 'TelephoneNumber']);
+
   /* Totaux ---------------------------------------------------------- */
   const summation = isCII
     ? findFirst(root, ['SpecifiedTradeSettlementHeaderMonetarySummation'])
@@ -258,6 +262,8 @@ export function parseEInvoiceXml(xml: string): ParsedDocument | null {
     clientName,
     clientAddress,
     clientSiret,
+    clientEmail,
+    clientPhone,
     currency: currency || 'EUR',
     totalHT,
     totalVAT,

@@ -187,6 +187,10 @@ test('gabarit à deux colonnes (vendeur/client sur les mêmes lignes) : nom, adr
   assert.equal(doc.clientName, 'LES GLACES DU PORT');
   assert.equal(doc.clientAddress, '12 QUAI DU COMMERCE, 56100 LORIENT');
 
+  // L'e-mail du client (dernière ligne du bloc, sans fusion de colonne) doit être
+  // capturé sans être confondu avec l'e-mail du vendeur fusionné plus haut.
+  assert.equal(doc.clientEmail, 'contact@glacesduport.fr');
+
   // « Base HT » apparaît comme un en-tête de tableau récapitulatif (« Code | Base HT |
   // Taux | Montant ») et ne doit pas écraser le vrai Total HT lu plus haut.
   assert.equal(doc.totalHT, 96.3);
@@ -223,4 +227,33 @@ test('une ligne mélangeant vendeur et client par colonnes est nettoyée dans l�
     'Port. : 06 00 00 00 00   56100 LORIENT',
   ]);
   assert.equal(address, '12 QUAI DU COMMERCE, 56100 LORIENT');
+});
+
+test('téléphone et e-mail du client sont lus même après ses propres lignes Siret/Siren', () => {
+  // Reproduit un bloc client réel : les lignes « N° Siret / N° Siren » du
+  // client lui-même ne doivent pas couper la lecture avant Tél./E-mail.
+  const { name, email, phone } = extractClient([
+    'Facturé à :',
+    'JEVENDEEGAUFRES',
+    'MONSIEUR LANGUMIER',
+    "85100 LES SABLES D'OLONNES",
+    'FRANCE',
+    'N° Siret : NC',
+    'N° Siren : NC',
+    'Tel : 0608421957',
+    'Email : electricite.langumier@orange.fr',
+  ]);
+  assert.equal(name, 'JEVENDEEGAUFRES');
+  assert.equal(phone, '0608421957');
+  assert.equal(email, 'electricite.langumier@orange.fr');
+});
+
+test("le téléphone du vendeur fusionné sur la ligne d'adresse n'est jamais pris pour celui du client", () => {
+  const { phone } = extractClient([
+    'Siret : 00000000000000   N° client : CL9001',
+    'LES GLACES DU PORT',
+    'Tél. : 01 23 45 67 89   12 QUAI DU COMMERCE',
+    'Port. : 06 00 00 00 00   56100 LORIENT',
+  ]);
+  assert.equal(phone, null);
 });

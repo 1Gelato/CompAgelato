@@ -21,6 +21,8 @@ export interface ParsedDocument {
   clientName: string | null;
   clientAddress: string | null;
   clientSiret: string | null;
+  clientEmail: string | null;
+  clientPhone: string | null;
   currency: string;
   totalHT: number | null;
   totalVAT: number | null;
@@ -203,6 +205,18 @@ export function extractTotals(lines: string[]): {
 
 const CLIENT_MARKERS = /(client|factur[ée]\s*(?:à|a)|adress[ée]\s*(?:à|a)|destinataire|livr[ée]\s*(?:à|a)|bill\s*to|customer)/i;
 const SELLER_MARKERS = /(emetteur|vendeur|fournisseur|expediteur|siret|siren|ape|naf|rcs|iban|bic|tva\s*intra)/i;
+/**
+ * Un SIRET/SIREN peut appartenir aussi bien au vendeur qu'au client (chaque
+ * facture affiche le sien) : contrairement à `SELLER_MARKERS`, ce marqueur ne
+ * sert qu'à repérer qu'on a quitté le bloc client pour les mentions légales
+ * propres au vendeur (RIB, capital social...), donc SIRET/SIREN en est exclu
+ * pour ne pas couper la lecture avant les lignes téléphone/e-mail du client.
+ */
+const SELLER_ONLY_MARKERS = /(emetteur|vendeur|fournisseur|expediteur|ape|naf|rcs|iban|bic|tva\s*intra|capital\s*social)/i;
+const TABLE_HEADER_MARKERS = /(total|qt[ée]|d[ée]signation|r[ée]f\.)/i;
+const EMAIL_RE = /[\w.+-]+@[\w-]+\.[A-Za-z]{2,}/;
+const PHONE_RE = /\b0\d(?:[\s.-]?\d{2}){4}\b/;
+const PHONE_LABEL = /^(t[ée]l\.?|port\.?|mobile|gsm)\b/i;
 
 /**
  * Beaucoup de gabarits de facture impriment le bloc vendeur (à gauche) et le
@@ -225,9 +239,13 @@ export function extractClient(lines: string[]): {
   name: string | null;
   address: string | null;
   siret: string | null;
+  email: string | null;
+  phone: string | null;
 } {
   let name: string | null = null;
   const addressParts: string[] = [];
+  let email: string | null = null;
+  let phone: string | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -240,22 +258,35 @@ export function extractClient(lines: string[]): {
     const inlineUsable = inline.length > 2 && !SELLER_MARKERS.test(line) && !looksLikeReferenceCode(inline);
     const candidates: string[] = [];
     if (inlineUsable) candidates.push(inline);
-    for (let j = i + 1; j < Math.min(i + 7, lines.length); j++) {
+    // Fenêtre large : le bloc client comprend souvent nom, adresse, SIRET/SIREN
+    // propres au client puis téléphone et e-mail — on ne s'arrête qu'en
+    // atteignant le tableau d'articles ou un bloc réservé au vendeur.
+    for (let j = i + 1; j < Math.min(i + 18, lines.length); j++) {
       const l = lines[j].trim();
       if (!l) continue;
-      if (SELLER_MARKERS.test(l) && !/\d{2,}/.test(l)) break;
+      if (TABLE_HEADER_MARKERS.test(l) || SELLER_ONLY_MARKERS.test(l)) break;
       candidates.push(l);
-      if (candidates.length >= 5) break;
+      if (candidates.length >= 10) break;
     }
     if (!candidates.length) continue;
 
     name = candidates[0].replace(/\s{2,}/g, ' ').trim();
+    // L'adresse s'arrête au code postal, mais on continue de parcourir les
+    // lignes suivantes (SIRET, téléphone, e-mail) pour récupérer le contact.
+    let addressDone = false;
     for (const raw of candidates.slice(1)) {
       const c = stripSellerColumnNoise(raw);
-      // On s'arrête au premier bloc qui ressemble à un tableau ou à un total.
-      if (/(total|qt[ée]|d[ée]signation|r[ée]f\.)/i.test(c)) break;
+      if (!email) {
+        const found = c.match(EMAIL_RE);
+        if (found) email = found[0];
+      }
+      if (!phone && PHONE_LABEL.test(c)) {
+        const found = c.match(PHONE_RE);
+        if (found) phone = found[0].replace(/[\s.-]/g, '');
+      }
+      if (addressDone) continue;
       addressParts.push(c.replace(/\s{2,}/g, ' ').trim());
-      if (/\b\d{5}\b/.test(c)) break; // code postal atteint → fin d'adresse
+      if (/\b\d{5}\b/.test(c)) addressDone = true; // code postal atteint → fin d'adresse
     }
     break;
   }
@@ -270,6 +301,8 @@ export function extractClient(lines: string[]): {
     name: name && name.length >= 2 ? name : null,
     address: addressParts.length ? addressParts.join(', ') : null,
     siret,
+    email,
+    phone,
   };
 }
 
@@ -494,6 +527,8 @@ export function parsePdfDocument(extract: PdfExtract, filePath: string): ParsedD
     clientName: client.name,
     clientAddress: client.address,
     clientSiret: client.siret,
+    clientEmail: client.email,
+    clientPhone: client.phone,
     currency,
     totalHT: totals.totalHT,
     totalVAT: totals.totalVAT,

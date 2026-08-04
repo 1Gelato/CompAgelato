@@ -150,14 +150,44 @@ export function rememberClientAlias(clientId: ID, rawName?: string | null): void
 }
 
 /** Crée une fiche à partir des informations lues sur un document comptable. */
-export function createClientFromDocument(name: string, address?: string | null, siret?: string | null): Client {
+export function createClientFromDocument(
+  name: string,
+  address?: string | null,
+  siret?: string | null,
+  email?: string | null,
+  phone?: string | null,
+): Client {
   const parsed = parseAddressLine(address ?? '');
   return upsertClient({
     name: name.trim(),
     siret: siret ?? undefined,
+    email: email ?? undefined,
+    phone: phone ?? undefined,
     address: { label: address?.trim() ?? '', ...parsed },
     tags: ['importé'],
     notes: 'Fiche créée automatiquement depuis un document comptable.',
+  });
+}
+
+/**
+ * Complète l'e-mail / le téléphone d'une fiche existante à partir d'un
+ * document comptable, sans jamais écraser une valeur déjà saisie.
+ */
+export function fillClientContact(id: ID, email?: string | null, phone?: string | null): void {
+  if (!email && !phone) return;
+  store.mutate((db) => {
+    const client = db.clients.find((c) => c.id === id);
+    if (!client) return;
+    let changed = false;
+    if (!client.email && email) {
+      client.email = email;
+      changed = true;
+    }
+    if (!client.phone && phone) {
+      client.phone = phone;
+      changed = true;
+    }
+    if (changed) client.updatedAt = nowIso();
   });
 }
 
