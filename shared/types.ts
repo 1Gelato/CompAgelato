@@ -226,10 +226,140 @@ export interface DeliveryRoute {
   updatedAt: string;
 }
 
+/* ------------------------------------------------------------------ */
+/* Relevés bancaires                                                    */
+/* ------------------------------------------------------------------ */
+
+export type BankCategory =
+  | 'sales'
+  | 'suppliers'
+  | 'payroll'
+  | 'taxes'
+  | 'fuel'
+  | 'bankFees'
+  | 'rent'
+  | 'insurance'
+  | 'utilities'
+  | 'transfer'
+  | 'other';
+
+export interface BankTransaction {
+  id: ID;
+  /** Date d'opération (ISO yyyy-mm-dd). */
+  date: string;
+  /** Date de valeur, quand le relevé la distingue. */
+  valueDate?: string;
+  /** Libellé brut tel qu'écrit par la banque. */
+  label: string;
+  /** Montant signé : positif = encaissement, négatif = décaissement. */
+  amount: number;
+  /** Solde après opération, quand le relevé le fournit. */
+  balance?: number;
+  reference?: string;
+  /** Compte concerné, quand le relevé le précise. */
+  account?: string;
+  category: BankCategory;
+  /** La catégorie vient-elle de la reconnaissance automatique (vs choisie à la main) ? */
+  categoryAuto: boolean;
+  clientId?: ID;
+  /** Facture rapprochée de cette opération. */
+  documentId?: ID;
+  /** Fiabilité du rapprochement automatique, 0 → 1. */
+  matchScore?: number;
+  /** Le rapprochement vient-il de l'automatisme (vs validé à la main) ? */
+  matchAuto: boolean;
+  note?: string;
+  sourceFile?: string;
+  sourceFormat?: 'csv' | 'xlsx' | 'manual';
+  /**
+   * Empreinte de dédoublonnage : date + montant + libellé + rang d'occurrence.
+   * Deux imports du même relevé produisent exactement les mêmes empreintes,
+   * donc aucune ligne n'est ajoutée deux fois — y compris quand deux fichiers
+   * se chevauchent sur une même période.
+   */
+  fingerprint: string;
+  importedAt: string;
+  updatedAt: string;
+}
+
+export interface BankImportReport {
+  file: string;
+  total: number;
+  imported: number;
+  duplicates: number;
+  updated: number;
+  skipped: number;
+  reconciled: number;
+  headers: string[];
+  mapping: Record<string, string>;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface BankScanReport {
+  files: number;
+  imported: number;
+  duplicates: number;
+  reconciled: number;
+  failed: number;
+  errors: { file: string; message: string }[];
+  durationMs: number;
+}
+
+export interface BankMatchSuggestion {
+  documentId: ID;
+  number: string;
+  clientName: string;
+  date: string;
+  totalTTC: number;
+  score: number;
+  reason: string;
+}
+
+export interface BankMonthSummary {
+  /** yyyy-mm */
+  month: string;
+  in: number;
+  out: number;
+  net: number;
+  /** Dernier solde connu du mois, quand le relevé fournit les soldes. */
+  balance?: number;
+}
+
+export interface BankCategorySummary {
+  category: BankCategory;
+  in: number;
+  out: number;
+  count: number;
+}
+
+export interface BankSummary {
+  from: string | null;
+  to: string | null;
+  totalIn: number;
+  totalOut: number;
+  net: number;
+  /** Dernier solde connu, et sa date. */
+  balance?: number;
+  balanceDate?: string;
+  months: BankMonthSummary[];
+  categories: BankCategorySummary[];
+  /** Encaissements non encore rattachés à une facture. */
+  unreconciled: number;
+  unreconciledAmount: number;
+}
+
 export interface Settings {
   /** Dossier surveillé (par défaut Documents/CompaGelato). */
   watchFolder: string;
   autoScan: boolean;
+  /**
+   * Dossier des relevés bancaires. Peut pointer hors du dossier surveillé
+   * (les relevés sont souvent déjà rangés ailleurs).
+   */
+  statementFolder?: string;
+  /** Rapprocher automatiquement les encaissements avec les factures. */
+  autoReconcile: boolean;
   /** Déduire le stock automatiquement à l'import des factures. */
   autoApplyStock: boolean;
   /** Créer automatiquement une fiche client si le nom lu est inconnu. */
@@ -267,6 +397,7 @@ export interface Database {
   routes: DeliveryRoute[];
   vehicles: Vehicle[];
   attachments: Attachment[];
+  bankTransactions: BankTransaction[];
   settings: Settings;
 }
 

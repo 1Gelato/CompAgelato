@@ -3,6 +3,11 @@ import type {
   Address,
   AddressSuggestion,
   Attachment,
+  BankImportReport,
+  BankMatchSuggestion,
+  BankScanReport,
+  BankSummary,
+  BankTransaction,
   Client,
   DashboardStats,
   Database,
@@ -40,6 +45,10 @@ export const CHANNELS = {
   stock: ['moves', 'apply', 'revert', 'applyAll', 'linkLine', 'suggestions'],
   routes: ['list', 'save', 'remove', 'compute', 'optimize', 'link', 'qr', 'exportCsv'],
   vehicles: ['list', 'save', 'remove'],
+  bank: [
+    'list', 'scan', 'pickAndImport', 'update', 'remove', 'suggestions',
+    'reconcile', 'autoReconcile', 'summary', 'exportCsv', 'openFolder', 'chooseFolder',
+  ],
   geo: ['autocomplete', 'reverse', 'fuelPrice'],
   stats: ['dashboard'],
   db: ['backup', 'restore', 'exportAll', 'stats', 'seedDemo', 'wipeDemo'],
@@ -207,6 +216,23 @@ export interface Api {
     list(): Promise<Vehicle[]>;
     save(vehicle: Partial<Vehicle> & { id?: ID }): Promise<Vehicle>;
     remove(id: ID): Promise<void>;
+  };
+  bank: {
+    list(): Promise<BankTransaction[]>;
+    /** Analyse le dossier des relevés ; les opérations déjà connues sont ignorées. */
+    scan(): Promise<BankScanReport>;
+    pickAndImport(): Promise<BankImportReport | null>;
+    update(id: ID, patch: Partial<BankTransaction>): Promise<BankTransaction>;
+    remove(id: ID): Promise<void>;
+    /** Factures candidates pour le rapprochement, les plus probables d'abord. */
+    suggestions(transactionId: ID): Promise<BankMatchSuggestion[]>;
+    reconcile(transactionId: ID, documentId: ID | null): Promise<BankTransaction>;
+    autoReconcile(): Promise<{ matched: number; ambiguous: number }>;
+    summary(): Promise<BankSummary>;
+    exportCsv(): Promise<string | null>;
+    openFolder(): Promise<void>;
+    /** Choisit le dossier où sont rangés les relevés. */
+    chooseFolder(): Promise<string | null>;
   };
   geo: {
     autocomplete(query: string, options?: { near?: { lat: number; lon: number } }): Promise<AddressSuggestion[]>;

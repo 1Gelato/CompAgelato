@@ -7,10 +7,11 @@ import { Documents } from './pages/Documents';
 import { Clients } from './pages/Clients';
 import { Stock } from './pages/Stock';
 import { Routes } from './pages/Routes';
+import { Banque } from './pages/Banque';
 import { Settings } from './pages/Settings';
 import { errorMessage } from './lib/data';
 
-type Page = 'dashboard' | 'documents' | 'clients' | 'stock' | 'routes' | 'settings';
+type Page = 'dashboard' | 'documents' | 'clients' | 'stock' | 'routes' | 'banque' | 'settings';
 
 const PAGES: {
   id: Page;
@@ -53,6 +54,13 @@ const PAGES: {
     icon: Icons.routes,
     title: 'Tournées de livraison',
     subtitle: 'Feuille de route, optimisation du trajet et coût réel',
+  },
+  {
+    id: 'banque',
+    label: 'Banque',
+    icon: Icons.bank,
+    title: 'Relevés de compte',
+    subtitle: 'Opérations bancaires, rapprochement des factures et trésorerie',
   },
   {
     id: 'settings',
@@ -240,6 +248,7 @@ function Shell() {
           {page === 'clients' && <Clients />}
           {page === 'stock' && <Stock />}
           {page === 'routes' && <Routes />}
+          {page === 'banque' && <Banque />}
           {page === 'settings' && (
             <Settings onScan={scan} scanning={scanning} onThemeChange={applyTheme} />
           )}

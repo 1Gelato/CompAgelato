@@ -61,6 +61,29 @@ pré-rempli d'après vos modèles, avec le document en pièce jointe et vos flye
 à cocher ou décocher. Il s'ouvre en brouillon dans votre messagerie : rien n'est
 envoyé sans votre relecture.
 
+**Relevés de compte et rapprochement bancaire**
+Vous déposez les relevés exportés par votre banque (CSV ou Excel) dans un
+dossier — celui que vous utilisez déjà, où qu'il soit sur le disque. Toutes les
+mises en page courantes sont lues : colonnes Débit/Crédit séparées, colonne
+Montant unique signée, ou montant positif accompagné d'une colonne de sens.
+
+Chaque opération est identifiée par sa date, son montant et son libellé, avec un
+rang d'occurrence. Conséquence : **réimporter un relevé, ou importer deux
+fichiers qui se chevauchent, ne crée jamais de doublon** — tout en gardant les
+opérations réellement identiques d'une même journée (deux paiements du même
+montant au même endroit restent deux lignes).
+
+Les encaissements sont rapprochés des factures automatiquement : numéro de pièce
+cité dans le libellé, montant, nom du client, cohérence des dates. Une facture
+rapprochée passe à « réglée » — vous voyez d'un coup d'œil qui a payé et qui
+reste à relancer. En cas d'ambiguïté (deux factures du même montant, sans autre
+indice), l'opération est laissée à traiter à la main plutôt que mal affectée.
+
+Les dépenses sont classées automatiquement d'après le libellé (charges et
+impôts, fournisseurs, carburant, salaires, assurances, frais bancaires…),
+modifiable d'un clic. Le tout donne les totaux par catégorie et l'évolution de la
+trésorerie mois par mois.
+
 **Calculateur de tournées de livraison**
 
 - Recherche d'adresse avec auto-complétion (Base Adresse Nationale)
@@ -213,6 +236,9 @@ electron/                 Processus principal (Node)
     facturx.ts            Factur-X (CII) et UBL 2.1
     tabular.ts            CSV/Excel : séparateur, encodage, colonnes
     documents.ts          Analyse du dossier, dédoublonnage, ingestion
+    bankStatement.ts      Relevés : colonnes, empreintes, catégories, score de
+                          rapprochement (sans accès à la base — testable seul)
+    bank.ts               Import des relevés, rapprochement, trésorerie
     clients.ts            Import, rapprochement, fusion
     stock.ts              Rapprochement articles, mouvements
     routing.ts            Adresses, matrices de distances, carburants
@@ -240,7 +266,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **43 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **64 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
@@ -250,7 +276,16 @@ npm run test:all
   récapitulatif de TVA confondu avec un total), et le mécanisme de mise à
   jour git (détection, application, refus prudent si des fichiers locaux ont
   été modifiés) validé sur un vrai dépôt temporaire.
-- **26 tests de bout en bout** — l'application réelle est lancée, pilotée et
+- **21 de ces tests portent sur les relevés bancaires** — les trois mises en
+  page de montants (Débit/Crédit, montant signé, montant + sens), les lignes de
+  total et de solde écartées, la catégorisation des dépenses, et surtout le
+  dédoublonnage : même relevé relu deux fois, deux relevés qui se chevauchent,
+  et deux opérations réellement identiques le même jour qui doivent rester
+  distinctes. Le score de rapprochement est vérifié sur ses cas limites —
+  encaissement antérieur à la facture, devis et pièces annulées exclus,
+  décaissement rapproché d'un avoir et non d'une facture, et deux factures du
+  même montant départagées par le nom du client.
+- **32 tests de bout en bout** — l'application réelle est lancée, pilotée et
   vérifiée : import d'une liste clients en Windows-1252, import du catalogue,
   analyse d'un dossier de PDF, rattachement automatique aux clients, association
   des lignes au stock, déduction puis annulation, idempotence, absence de
@@ -259,4 +294,7 @@ npm run test:all
   déposé pendant que le logiciel tourne, rattachement d'une facture dépourvue
   de libellé « Client : », ouverture de chaque fenêtre de saisie, dépôt par
   défaut géolocalisé, repère d'impression, bibliothèque de pièces jointes et
-  préparation d'un e-mail depuis les modèles.
+  préparation d'un e-mail depuis les modèles. Côté banque : import d'un relevé
+  réel, encaissement rapproché tout seul de la bonne facture (qui passe à
+  « réglée »), relevé relu sans le moindre doublon, second relevé chevauchant
+  qui n'ajoute que les nouveautés, et synthèse (totaux, catégories, solde).

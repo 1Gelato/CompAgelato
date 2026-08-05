@@ -2,10 +2,13 @@ import type { FSWatcher } from 'chokidar';
 import type { BrowserWindow } from 'electron';
 import { store } from './store';
 import { ensureWatchFolder, scanFolder } from './services/documents';
+import { scanStatementFolder, statementFolder } from './services/bank';
 
 /**
  * Surveille le dossier de travail : tout fichier déposé est analysé
- * automatiquement, puis l'interface est prévenue.
+ * automatiquement, puis l'interface est prévenue. Le dossier des relevés
+ * bancaires est surveillé en parallèle : il peut se trouver ailleurs sur le
+ * disque, là où les relevés sont déjà rangés.
  */
 class FolderWatcher {
   private watcher: FSWatcher | null = null;
@@ -26,8 +29,18 @@ class FolderWatcher {
     const target = ensureWatchFolder(folder);
     this.current = target;
 
+    // Le dossier des relevés n'est ajouté que s'il est hors du dossier
+    // surveillé : sinon chokidar le couvre déjà.
+    const targets = [target];
+    try {
+      const statements = statementFolder();
+      if (!statements.toLowerCase().startsWith(target.toLowerCase())) targets.push(statements);
+    } catch (err) {
+      console.error('[watcher] dossier des relevés', err);
+    }
+
     const chokidar = await import('chokidar');
-    this.watcher = chokidar.watch(target, {
+    this.watcher = chokidar.watch(targets, {
       ignoreInitial: true,
       depth: 5,
       awaitWriteFinish: { stabilityThreshold: 900, pollInterval: 120 },
@@ -56,8 +69,15 @@ class FolderWatcher {
     this.scanning = true;
     try {
       const report = await scanFolder();
-      if (report.imported || report.updated || report.failed) {
-        this.window?.webContents.send('documents-changed', report);
+      let bankImported = 0;
+      try {
+        const bank = await scanStatementFolder();
+        bankImported = bank.imported;
+      } catch (err) {
+        console.error('[watcher] relevés', err);
+      }
+      if (report.imported || report.updated || report.failed || bankImported) {
+        this.window?.webContents.send('documents-changed', { ...report, bankImported });
       }
     } catch (err) {
       console.error('[watcher] scan', err);

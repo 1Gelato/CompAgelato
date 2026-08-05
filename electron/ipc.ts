@@ -14,6 +14,7 @@ import { CHANNELS } from '@shared/api';
 import type {
   AccountingDocument,
   Attachment,
+  BankTransaction,
   Client,
   DeliveryRoute,
   EmailDraft,
@@ -53,12 +54,24 @@ import { autocompleteAddress, fetchFuelPrice, geocodeOne, reverseGeocode } from 
 import { buildMapUrls, providerLabel, providerLimit, type MapPoint } from './services/mapLinks';
 import { buildDashboard } from './services/dashboard';
 import {
+  exportBankCsv,
   exportClientsCsv,
   exportDatabaseJson,
   exportDocumentsCsv,
   exportProductsCsv,
   exportRouteCsv,
 } from './services/exports';
+import {
+  autoReconcile,
+  bankSummary,
+  importStatementFile,
+  reconcile,
+  removeTransaction,
+  scanStatementFolder,
+  statementFolder,
+  suggestMatches,
+  updateTransaction,
+} from './services/bank';
 import { seedDemoData, wipeDemoData } from './services/demo';
 import { round2 } from './services/text';
 import {
@@ -857,6 +870,79 @@ const handlers: Registry = {
     },
   },
 
+  bank: {
+    async list(): Promise<BankTransaction[]> {
+      return [...store.db.bankTransactions].sort(
+        (a, b) => b.date.localeCompare(a.date) || b.importedAt.localeCompare(a.importedAt),
+      );
+    },
+    async scan() {
+      const report = await scanStatementFolder();
+      store.flushSync();
+      return report;
+    },
+    async pickAndImport() {
+      const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+        title: 'Importer un relevé de compte',
+        defaultPath: statementFolder(),
+        filters: [
+          { name: 'Relevés de compte', extensions: ['csv', 'xlsx', 'xls', 'xlsm'] },
+          { name: 'Tous les fichiers', extensions: ['*'] },
+        ],
+        properties: ['openFile'],
+      });
+      if (result.canceled || !result.filePaths[0]) return null;
+      const report = await importStatementFile(result.filePaths[0]);
+      store.flushSync();
+      return report;
+    },
+    async update(id: ID, patch: Partial<BankTransaction>) {
+      const tx = updateTransaction(id, patch);
+      store.flushSync();
+      return tx;
+    },
+    async remove(id: ID) {
+      removeTransaction(id);
+      store.flushSync();
+    },
+    async suggestions(transactionId: ID) {
+      return suggestMatches(transactionId);
+    },
+    async reconcile(transactionId: ID, documentId: ID | null) {
+      const tx = reconcile(transactionId, documentId);
+      store.flushSync();
+      return tx;
+    },
+    async autoReconcile() {
+      const result = autoReconcile();
+      store.flushSync();
+      return result;
+    },
+    async summary() {
+      return bankSummary();
+    },
+    async exportCsv() {
+      return exportBankCsv();
+    },
+    async openFolder() {
+      await shell.openPath(statementFolder());
+    },
+    async chooseFolder() {
+      const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+        title: 'Choisir le dossier des relevés de compte',
+        defaultPath: statementFolder(),
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      if (result.canceled || !result.filePaths[0]) return null;
+      const folder = result.filePaths[0];
+      store.mutate((db) => {
+        db.settings.statementFolder = folder;
+      });
+      store.flushSync();
+      return folder;
+    },
+  },
+
   geo: {
     async autocomplete(query: string, options?: { near?: { lat: number; lon: number } }) {
       return autocompleteAddress(query, { near: options?.near });
@@ -925,6 +1011,8 @@ const handlers: Registry = {
           stockMoves: store.db.stockMoves.length,
           routes: store.db.routes.length,
           vehicles: store.db.vehicles.length,
+          attachments: store.db.attachments.length,
+          bankTransactions: store.db.bankTransactions.length,
         },
       };
     },

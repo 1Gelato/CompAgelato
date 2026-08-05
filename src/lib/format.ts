@@ -104,6 +104,41 @@ export const STATUS_TONE: Record<string, string> = {
   cancelled: 'badge--red',
 };
 
+export const BANK_CATEGORY_LABEL: Record<string, string> = {
+  sales: 'Ventes',
+  suppliers: 'Fournisseurs',
+  payroll: 'Salaires',
+  taxes: 'Charges et impôts',
+  fuel: 'Carburant et péages',
+  bankFees: 'Frais bancaires',
+  rent: 'Loyer',
+  insurance: 'Assurances',
+  utilities: 'Énergie et télécom',
+  transfer: 'Virements internes',
+  other: 'À classer',
+};
+
+export const BANK_CATEGORY_TONE: Record<string, string> = {
+  sales: 'badge--green',
+  suppliers: 'badge--blue',
+  payroll: 'badge--purple',
+  taxes: 'badge--red',
+  fuel: 'badge--orange',
+  bankFees: 'badge--red',
+  rent: 'badge--purple',
+  insurance: 'badge--blue',
+  utilities: 'badge--blue',
+  transfer: '',
+  other: '',
+};
+
+/** Mois « 2026-01 » → « janvier 2026 ». */
+export function monthLong(month: string): string {
+  const date = new Date(`${month}-01T12:00:00`);
+  if (Number.isNaN(date.getTime())) return month;
+  return date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+}
+
 export const FUEL_LABEL: Record<string, string> = {
   gazole: 'Gazole',
   sp95: 'SP95 / E10',

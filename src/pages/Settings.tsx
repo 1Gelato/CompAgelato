@@ -202,6 +202,66 @@ export function Settings({
           </div>
         </Card>
 
+        <Card
+          title="Relevés de compte"
+          subtitle="Dossier où sont rangés les relevés exportés par votre banque"
+        >
+          <div className="col" style={{ gap: 13 }}>
+            <div className="row" style={{ gap: 8 }}>
+              <Input
+                value={settings.statementFolder || `${settings.watchFolder}\\Releves`}
+                readOnly
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+              />
+              <Button
+                icon={<Icons.folder size={14} />}
+                onClick={async () => {
+                  const folder = await window.api.bank.chooseFolder();
+                  if (folder) {
+                    refreshAll();
+                    toast.push({ tone: 'success', title: 'Dossier des relevés mis à jour' });
+                    await window.api.bank.scan();
+                    refreshAll();
+                  }
+                }}
+              >
+                Choisir…
+              </Button>
+              <Button onClick={() => window.api.bank.openFolder()}>Ouvrir</Button>
+            </div>
+
+            <div className="infobox">
+              Déposez-y les relevés au format <strong>CSV</strong> ou <strong>Excel</strong> exportés
+              depuis votre banque. Chaque opération est reconnue par sa date, son montant et son
+              libellé : réimporter un relevé, ou importer deux fichiers qui se chevauchent, ne crée
+              jamais de doublon.
+            </div>
+
+            <Switch
+              checked={settings.autoReconcile}
+              onChange={(v) => patch({ autoReconcile: v })}
+              label="Rapprocher automatiquement les encaissements des factures (et les marquer réglées)"
+            />
+
+            <div className="row">
+              <Button
+                icon={<Icons.refresh size={14} />}
+                onClick={async () => {
+                  const report = await window.api.bank.scan();
+                  refreshAll();
+                  toast.push({
+                    tone: report.imported ? 'success' : 'warn',
+                    title: report.imported ? 'Relevés à jour' : 'Aucune nouvelle opération',
+                    text: `${report.files} fichier(s) lu(s), ${report.imported} opération(s) ajoutée(s).`,
+                  });
+                }}
+              >
+                Analyser les relevés
+              </Button>
+            </div>
+          </div>
+        </Card>
+
         <Card title="Coût de trajet" subtitle="Base de calcul du carburant et du dépôt">
           <div className="col" style={{ gap: 13 }}>
             <div className="formgrid">

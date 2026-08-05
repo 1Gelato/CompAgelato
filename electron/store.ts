@@ -52,6 +52,7 @@ export function defaultSettings(): Settings {
     autoScan: true,
     autoApplyStock: false,
     autoCreateClients: true,
+    autoReconcile: true,
     currency: 'EUR',
     vatDefault: 20,
     fuelPricePerLiter: 1.75,
@@ -90,6 +91,7 @@ function emptyDatabase(): Database {
     routes: [],
     vehicles: [vehicle],
     attachments: [],
+    bankTransactions: [],
     settings: { ...defaultSettings(), defaultVehicleId: vehicle.id },
   };
 }
@@ -148,6 +150,7 @@ class Store {
       routes: parsed.routes ?? [],
       vehicles: parsed.vehicles?.length ? parsed.vehicles : base.vehicles,
       attachments: (parsed.attachments as Attachment[] | undefined) ?? [],
+      bankTransactions: parsed.bankTransactions ?? [],
       settings: { ...base.settings, ...(parsed.settings ?? {}) },
     };
     if (!db.settings.defaultVehicleId && db.vehicles[0]) {

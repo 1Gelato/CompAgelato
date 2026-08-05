@@ -90,7 +90,7 @@ test('la fenêtre s’ouvre sur le tableau de bord', async () => {
   assert.match(await page.textContent('h1'), /Tableau de bord/);
 
   const navLabels = await page.$$eval('.navitem', (items) => items.map((i) => i.textContent.trim()));
-  for (const expected of ['Tableau de bord', 'Documents', 'Clients', 'Stock', 'Tournées', 'Réglages']) {
+  for (const expected of ['Tableau de bord', 'Documents', 'Clients', 'Stock', 'Tournées', 'Banque', 'Réglages']) {
     assert.ok(
       navLabels.some((l) => l.startsWith(expected)),
       `entrée de menu manquante : ${expected}`,
@@ -692,4 +692,151 @@ test('les fenêtres de saisie s’ouvrent et se ferment sans erreur', async () =
   await closeModal();
 
   assert.deepEqual(errors, [], `erreurs React : ${errors.join(' | ')}`);
+});
+
+/* ------------------------------------------------------------------ */
+/* Relevés bancaires                                                    */
+/* ------------------------------------------------------------------ */
+
+const statementFolder = path.join(workspace, '17-RELEVES DE COMPTE');
+
+test('import d’un relevé de compte : lecture, catégories et solde', async () => {
+  fs.mkdirSync(statementFolder, { recursive: true });
+
+  // Le relevé cite une vraie facture importée plus tôt : son montant TTC et son
+  // client servent à vérifier le rapprochement automatique.
+  const documents = await page.evaluate(() => window.api.documents.list());
+  const facture = documents.find((d) => d.kind === 'invoice' && d.totalTTC > 0);
+  assert.ok(facture, 'aucune facture disponible pour le rapprochement');
+  const clients = await page.evaluate(() => window.api.clients.list());
+  const client = clients.find((c) => c.id === facture.clientId);
+  assert.ok(client, 'la facture de test doit être rattachée à un client');
+
+  const montant = facture.totalTTC.toFixed(2).replace('.', ',');
+  const releve = [
+    'Date;Libellé;Débit;Crédit;Solde',
+    `15/06/2026;VIR RECU ${client.name.toUpperCase()};;${montant};7 500,00`,
+    '16/06/2026;PRLV URSSAF PAYS DE LOIRE;842,15;;6 657,85',
+    '17/06/2026;CB TOTALENERGIES ST NAZAIRE;88,20;;6 569,65',
+    '18/06/2026;CB BOULANGERIE;12,50;;6 557,15',
+    '18/06/2026;CB BOULANGERIE;12,50;;6 544,65',
+  ].join('\r\n');
+  fs.writeFileSync(path.join(statementFolder, 'releve-juin.csv'), Buffer.from(releve, 'latin1'));
+
+  await page.evaluate((folder) => window.api.settings.update({ statementFolder: folder }), statementFolder);
+  const report = await page.evaluate(() => window.api.bank.scan());
+  assert.equal(report.files, 1, `fichiers lus : ${JSON.stringify(report)}`);
+  assert.equal(report.imported, 5, `opérations importées : ${JSON.stringify(report)}`);
+
+  const transactions = await page.evaluate(() => window.api.bank.list());
+  assert.equal(transactions.length, 5);
+
+  // Les sens sont respectés : un seul encaissement, quatre dépenses.
+  assert.equal(transactions.filter((t) => t.amount > 0).length, 1);
+  assert.equal(transactions.filter((t) => t.amount < 0).length, 4);
+
+  // Les catégories sont déduites du libellé.
+  const urssaf = transactions.find((t) => t.label.includes('URSSAF'));
+  assert.equal(urssaf.category, 'taxes');
+  assert.equal(urssaf.amount, -842.15);
+  assert.equal(transactions.find((t) => t.label.includes('TOTALENERGIES')).category, 'fuel');
+
+  // Deux passages identiques le même jour restent deux opérations distinctes.
+  assert.equal(transactions.filter((t) => t.label === 'CB BOULANGERIE').length, 2);
+});
+
+test('l’encaissement est rapproché tout seul de la bonne facture', async () => {
+  const transactions = await page.evaluate(() => window.api.bank.list());
+  const encaissement = transactions.find((t) => t.amount > 0);
+  assert.ok(encaissement.documentId, 'l’encaissement aurait dû être rapproché automatiquement');
+  assert.equal(encaissement.matchAuto, true);
+
+  // La facture correspondante passe à « réglée » : c'est tout l'intérêt.
+  const documents = await page.evaluate(() => window.api.documents.list());
+  const facture = documents.find((d) => d.id === encaissement.documentId);
+  assert.equal(facture.status, 'paid', 'la facture rapprochée doit être marquée réglée');
+  assert.equal(facture.totalTTC.toFixed(2), encaissement.amount.toFixed(2));
+});
+
+test('relire le même relevé n’ajoute aucun doublon', async () => {
+  const avant = await page.evaluate(() => window.api.bank.list());
+  const report = await page.evaluate(() => window.api.bank.scan());
+  assert.equal(report.imported, 0, `aucune opération ne devait être ajoutée : ${JSON.stringify(report)}`);
+  assert.equal(report.duplicates, 5);
+
+  const apres = await page.evaluate(() => window.api.bank.list());
+  assert.equal(apres.length, avant.length, 'le nombre d’opérations ne doit pas bouger');
+});
+
+test('un second relevé qui chevauche le premier n’ajoute que les nouveautés', async () => {
+  const chevauchement = [
+    'Date;Libellé;Débit;Crédit;Solde',
+    // Les deux premières lignes figurent déjà dans le relevé de juin.
+    '17/06/2026;CB TOTALENERGIES ST NAZAIRE;88,20;;6 569,65',
+    '18/06/2026;CB BOULANGERIE;12,50;;6 557,15',
+    '02/07/2026;VIR RECU AMICALE DES PLAISANCIERS;;620,00;7 177,15',
+  ].join('\r\n');
+  fs.writeFileSync(
+    path.join(statementFolder, 'releve-juillet.csv'),
+    Buffer.from(chevauchement, 'latin1'),
+  );
+
+  const report = await page.evaluate(() => window.api.bank.scan());
+  assert.equal(report.imported, 1, `seule l’opération de juillet est nouvelle : ${JSON.stringify(report)}`);
+
+  const transactions = await page.evaluate(() => window.api.bank.list());
+  assert.equal(transactions.length, 6);
+  assert.equal(transactions.filter((t) => t.label.includes('TOTALENERGIES')).length, 1);
+  assert.equal(transactions.filter((t) => t.label === 'CB BOULANGERIE').length, 2);
+});
+
+test('la synthèse donne les totaux, les catégories et la trésorerie', async () => {
+  const summary = await page.evaluate(() => window.api.bank.summary());
+  assert.ok(summary.totalIn > 0);
+  assert.ok(summary.totalOut > 0);
+  assert.equal(summary.net.toFixed(2), (summary.totalIn - summary.totalOut).toFixed(2));
+
+  // Le solde retenu est celui de la dernière opération connue.
+  assert.equal(summary.balance, 7177.15);
+  assert.equal(summary.balanceDate, '2026-07-02');
+
+  // Deux mois d'activité, dans l'ordre chronologique.
+  assert.deepEqual(summary.months.map((m) => m.month), ['2026-06', '2026-07']);
+
+  const taxes = summary.categories.find((c) => c.category === 'taxes');
+  assert.equal(taxes.out, 842.15);
+
+  // L'encaissement de juillet n'a aucune facture en face : il reste à traiter.
+  assert.equal(summary.unreconciled, 1);
+  assert.equal(summary.unreconciledAmount, 620);
+});
+
+test('l’écran Banque affiche les opérations et permet de filtrer', async () => {
+  await page.click('.navitem:has-text("Banque")');
+  await page.waitForSelector('table.data tbody tr');
+
+  const lignes = await page.$$eval('table.data tbody tr', (rows) => rows.length);
+  assert.equal(lignes, 6);
+
+  // Filtre « Entrées » : seuls les encaissements restent.
+  await page.click('.segmented button:has-text("Entrées")');
+  await page.waitForTimeout(250);
+  assert.equal(await page.$$eval('table.data tbody tr', (r) => r.length), 2);
+
+  // Filtre « À rapprocher » : l'encaissement de juillet, sans facture en face.
+  await page.click('.segmented button:has-text("Tout")');
+  await page.waitForTimeout(150);
+  await page.click('.segmented button:has-text("À rapprocher")');
+  await page.waitForTimeout(250);
+  assert.equal(await page.$$eval('table.data tbody tr', (r) => r.length), 1);
+  assert.ok(await page.isVisible('text=AMICALE DES PLAISANCIERS'));
+
+  // Le détail s'ouvre et propose le rapprochement manuel. On clique le libellé :
+  // la cellule « Catégorie » porte une liste déroulante et ne doit justement
+  // pas ouvrir la fiche.
+  await page.click('table.data tbody tr td:nth-child(2)');
+  await page.waitForSelector('.modal');
+  assert.ok(await page.isVisible('text=Rapprochement'));
+  await page.locator('.modal .modal__header .iconbtn').last().click();
+  await page.waitForTimeout(250);
 });

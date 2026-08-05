@@ -106,6 +106,40 @@ export function exportProductsCsv(): string {
   );
 }
 
+const CATEGORY_LABEL: Record<string, string> = {
+  sales: 'Ventes', suppliers: 'Fournisseurs', payroll: 'Salaires', taxes: 'Charges et impôts',
+  fuel: 'Carburant et péages', bankFees: 'Frais bancaires', rent: 'Loyer', insurance: 'Assurances',
+  utilities: 'Énergie et télécom', transfer: 'Virements internes', other: 'À classer',
+};
+
+export function exportBankCsv(): string {
+  const rows = store.db.bankTransactions
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((t) => {
+      const doc = t.documentId ? store.db.documents.find((d) => d.id === t.documentId) : undefined;
+      const client = t.clientId ? store.db.clients.find((c) => c.id === t.clientId) : undefined;
+      return [
+        t.date, t.valueDate ?? '', t.label,
+        t.amount < 0 ? Math.abs(t.amount).toFixed(2) : '',
+        t.amount >= 0 ? t.amount.toFixed(2) : '',
+        t.balance ?? '',
+        CATEGORY_LABEL[t.category] ?? t.category,
+        doc?.number ?? '', client?.name ?? '',
+        t.matchAuto ? 'automatique' : doc ? 'manuel' : '',
+        t.reference ?? '', t.note ?? '',
+      ];
+    });
+  return write(
+    'releves-bancaires',
+    toCsv(
+      ['Date', 'Date de valeur', 'Libellé', 'Débit', 'Crédit', 'Solde', 'Catégorie',
+       'Facture rapprochée', 'Client', 'Rapprochement', 'Référence', 'Note'],
+      rows,
+    ),
+  );
+}
+
 export function exportRouteCsv(routeId: string): string {
   const route = store.db.routes.find((r) => r.id === routeId) as DeliveryRoute | undefined;
   if (!route) throw new Error('Tournée introuvable.');

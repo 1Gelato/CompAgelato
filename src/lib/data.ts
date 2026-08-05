@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   AccountingDocument,
   Attachment,
+  BankSummary,
+  BankTransaction,
   Client,
   DashboardStats,
   DeliveryRoute,
@@ -82,6 +84,10 @@ export const useAttachments = () =>
   useResource<(Attachment & { exists: boolean })[]>(() => window.api.attachments.list(), []);
 export const useStockMoves = (productId?: string) =>
   useResource<StockMove[]>(() => window.api.stock.moves(productId), [], [productId]);
+export const useBankTransactions = () =>
+  useResource<BankTransaction[]>(() => window.api.bank.list(), []);
+export const useBankSummary = () =>
+  useResource<BankSummary | null>(() => window.api.bank.summary(), null);
 export const useDashboard = () =>
   useResource<DashboardStats | null>(() => window.api.stats.dashboard(), null);
 export const useSettings = () => useResource<Settings | null>(() => window.api.settings.get(), null);
