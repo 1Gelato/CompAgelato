@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { Product } from '@shared/types';
+import type { Product, StockMove } from '@shared/types';
 import {
   Badge,
   Button,
@@ -14,10 +14,12 @@ import {
   Segmented,
   Spinner,
   Stat,
+  Th,
   useToast,
 } from '../components/ui';
 import { errorMessage, refreshAll, useProducts, useStockMoves } from '../lib/data';
 import { dateFr, euro, matches, num } from '../lib/format';
+import { useSort } from '../lib/sort';
 
 type Filter = 'all' | 'low' | 'out';
 
@@ -42,6 +44,23 @@ export function Stock() {
         );
       }),
     [products, filter, search],
+  );
+
+  const { sorted, sort, toggle } = useSort(
+    filtered,
+    useMemo(
+      () => ({
+        sku: (p: Product) => p.sku,
+        name: (p: Product) => p.name,
+        category: (p: Product) => p.category ?? null,
+        qtyOnHand: (p: Product) => p.qtyOnHand,
+        minQty: (p: Product) => p.minQty,
+        unitCost: (p: Product) => p.unitCost ?? null,
+        value: (p: Product) => (p.unitCost === undefined ? null : p.unitCost * p.qtyOnHand),
+      }),
+      [],
+    ),
+    { key: 'name', direction: 'asc' },
   );
 
   const stats = useMemo(() => {
@@ -154,18 +173,18 @@ export function Stock() {
           <table className="data">
             <thead>
               <tr>
-                <th>Référence</th>
-                <th>Désignation</th>
-                <th>Catégorie</th>
-                <th className="num">Stock</th>
-                <th className="num">Seuil</th>
-                <th className="num">Prix unitaire</th>
-                <th className="num">Valeur</th>
-                <th />
+                <Th sortKey="sku" sort={sort} onSort={toggle}>Référence</Th>
+                <Th sortKey="name" sort={sort} onSort={toggle}>Désignation</Th>
+                <Th sortKey="category" sort={sort} onSort={toggle}>Catégorie</Th>
+                <Th sortKey="qtyOnHand" sort={sort} onSort={toggle} className="num">Stock</Th>
+                <Th sortKey="minQty" sort={sort} onSort={toggle} className="num">Seuil</Th>
+                <Th sortKey="unitCost" sort={sort} onSort={toggle} className="num">Prix unitaire</Th>
+                <Th sortKey="value" sort={sort} onSort={toggle} className="num">Valeur</Th>
+                <Th />
               </tr>
             </thead>
             <tbody>
-              {filtered.map((product) => {
+              {sorted.map((product) => {
                 const low = product.minQty > 0 && product.qtyOnHand < product.minQty;
                 const out = product.qtyOnHand <= 0;
                 return (
@@ -381,6 +400,25 @@ function ProductEditor({ product, onClose }: { product: Product | null; onClose:
 function MovesDialog({ product, onClose }: { product: Product; onClose: () => void }) {
   const { data: moves, loading } = useStockMoves(product.id);
 
+  const {
+    sorted: sortedMoves,
+    sort: moveSort,
+    toggle: toggleMove,
+  } = useSort(
+    moves,
+    useMemo(
+      () => ({
+        date: (m: StockMove) => m.date,
+        type: (m: StockMove) => m.type,
+        origin: (m: StockMove) => m.documentNumber ?? m.note ?? null,
+        qty: (m: StockMove) => m.qty,
+        balanceAfter: (m: StockMove) => m.balanceAfter,
+      }),
+      [],
+    ),
+    { key: 'date', direction: 'desc' },
+  );
+
   return (
     <Modal
       open
@@ -404,15 +442,15 @@ function MovesDialog({ product, onClose }: { product: Product; onClose: () => vo
           <table className="data">
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Type</th>
-                <th>Origine</th>
-                <th className="num">Quantité</th>
-                <th className="num">Stock après</th>
+                <Th sortKey="date" sort={moveSort} onSort={toggleMove}>Date</Th>
+                <Th sortKey="type" sort={moveSort} onSort={toggleMove}>Type</Th>
+                <Th sortKey="origin" sort={moveSort} onSort={toggleMove}>Origine</Th>
+                <Th sortKey="qty" sort={moveSort} onSort={toggleMove} className="num">Quantité</Th>
+                <Th sortKey="balanceAfter" sort={moveSort} onSort={toggleMove} className="num">Stock après</Th>
               </tr>
             </thead>
             <tbody>
-              {moves.map((move) => (
+              {sortedMoves.map((move) => (
                 <tr key={move.id}>
                   <td className="muted">{dateFr(move.date)}</td>
                   <td>

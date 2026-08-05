@@ -23,15 +23,27 @@ const alias = {
   },
 };
 
-await esbuild.build({
-  entryPoints: [path.join(root, 'tests/entry.ts')],
-  outfile: path.join(root, 'tests/build/services.mjs'),
+const common = {
   bundle: true,
   platform: 'node',
   target: 'node20',
   format: 'esm',
   sourcemap: false,
-  external: ['pdfjs-dist', 'chokidar', 'xlsx', 'qrcode', 'fast-xml-parser', 'electron'],
+  external: ['pdfjs-dist', 'chokidar', 'xlsx', 'qrcode', 'fast-xml-parser', 'electron', 'react'],
   plugins: [alias],
   logLevel: 'warning',
+};
+
+await esbuild.build({
+  ...common,
+  entryPoints: [path.join(root, 'tests/entry.ts')],
+  outfile: path.join(root, 'tests/build/services.mjs'),
+});
+
+// Logique d'interface testable sans navigateur : la comparaison du tri des
+// tableaux est pure, on la vérifie comme le reste.
+await esbuild.build({
+  ...common,
+  entryPoints: [path.join(root, 'src/lib/sort.ts')],
+  outfile: path.join(root, 'tests/build/sort.mjs'),
 });

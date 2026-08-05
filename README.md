@@ -84,6 +84,17 @@ impôts, fournisseurs, carburant, salaires, assurances, frais bancaires…),
 modifiable d'un clic. Le tout donne les totaux par catégorie et l'évolution de la
 trésorerie mois par mois.
 
+**Tableaux triables et filtres**
+Chaque colonne des tableaux (documents, clients, stock, banque, mouvements) se
+trie d'un clic sur son en-tête ; un second clic inverse le sens. Les dates et
+les montants s'ouvrent du plus grand au plus petit, les textes de A à Z, et les
+numéros suivent l'ordre naturel des nombres (`FAC…009` avant `FAC…010`). Les
+lignes sans valeur restent en bas quel que soit le sens : une facture sans
+montant n'a rien à faire en tête du classement des plus gros montants.
+
+Les relevés bancaires se filtrent en plus sur une période libre (du … au …),
+cumulable avec le mois, la catégorie, le sens et l'état de rapprochement.
+
 **Calculateur de tournées de livraison**
 
 - Recherche d'adresse avec auto-complétion (Base Adresse Nationale)
@@ -266,10 +277,12 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **64 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **75 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
+  tri des tableaux (ordre naturel des numéros, alphabet français, valeurs
+  manquantes rejetées en fin de liste, stabilité),
   liens Google Maps / Waze / Plans, lecture des réponses OSRM et Valhalla,
   construction des messages MIME avec pièces jointes accentuées, gabarit de
   facture à deux colonnes (vendeur/client sur les mêmes lignes, tableau
@@ -285,7 +298,7 @@ npm run test:all
   encaissement antérieur à la facture, devis et pièces annulées exclus,
   décaissement rapproché d'un avoir et non d'une facture, et deux factures du
   même montant départagées par le nom du client.
-- **32 tests de bout en bout** — l'application réelle est lancée, pilotée et
+- **37 tests de bout en bout** — l'application réelle est lancée, pilotée et
   vérifiée : import d'une liste clients en Windows-1252, import du catalogue,
   analyse d'un dossier de PDF, rattachement automatique aux clients, association
   des lignes au stock, déduction puis annulation, idempotence, absence de
@@ -298,3 +311,5 @@ npm run test:all
   réel, encaissement rapproché tout seul de la bonne facture (qui passe à
   « réglée »), relevé relu sans le moindre doublon, second relevé chevauchant
   qui n'ajoute que les nouveautés, et synthèse (totaux, catégories, solde).
+  Enfin le tri des colonnes dans les deux sens sur documents, clients et stock,
+  et le filtre des relevés sur une période donnée.

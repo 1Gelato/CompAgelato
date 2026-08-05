@@ -17,8 +17,10 @@ import {
   Spinner,
   Stat,
   Textarea,
+  Th,
   useToast,
 } from '../components/ui';
+import { useSort } from '../lib/sort';
 import {
   errorMessage,
   refreshAll,
@@ -54,6 +56,8 @@ export function Banque() {
   const [flow, setFlow] = useState<FlowFilter>('all');
   const [matchFilter, setMatchFilter] = useState<MatchFilter>('all');
   const [month, setMonth] = useState('all');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const [category, setCategory] = useState<'all' | BankCategory>('all');
   const [selected, setSelected] = useState<BankTransaction | null>(null);
   const [removing, setRemoving] = useState<BankTransaction | null>(null);
@@ -78,12 +82,35 @@ export function Banque() {
       if (matchFilter === 'todo' && (t.documentId || t.amount < 0)) return false;
       if (matchFilter === 'done' && !t.documentId) return false;
       if (month !== 'all' && !t.date.startsWith(month)) return false;
+      // Les dates sont au format ISO : la comparaison de chaînes suffit.
+      if (from && t.date < from) return false;
+      if (to && t.date > to) return false;
       if (category !== 'all' && t.category !== category) return false;
       if (!search) return true;
       const client = t.clientId ? clientIndex.get(t.clientId) : undefined;
       return matches([t.label, t.reference ?? '', t.note ?? '', client?.name ?? ''].join(' '), search);
     });
-  }, [transactions, flow, matchFilter, month, category, search, clientIndex]);
+  }, [transactions, flow, matchFilter, month, from, to, category, search, clientIndex]);
+
+  const { sorted, sort, toggle } = useSort(
+    filtered,
+    useMemo(
+      () => ({
+        date: (t: BankTransaction) => t.date,
+        label: (t: BankTransaction) => t.label,
+        category: (t: BankTransaction) => BANK_CATEGORY_LABEL[t.category] ?? t.category,
+        // Débit et crédit se trient sur la valeur absolue : chaque colonne ne
+        // montre qu'un sens, on veut « la plus grosse dépense » en tête.
+        debit: (t: BankTransaction) => (t.amount < 0 ? Math.abs(t.amount) : null),
+        credit: (t: BankTransaction) => (t.amount > 0 ? t.amount : null),
+        balance: (t: BankTransaction) => t.balance ?? null,
+        document: (t: BankTransaction) =>
+          t.documentId ? 2 : t.amount > 0 ? 1 : null,
+      }),
+      [],
+    ),
+    { key: 'date', direction: 'desc' },
+  );
 
   const totals = useMemo(() => {
     let inSum = 0;
@@ -270,6 +297,37 @@ export function Banque() {
             </option>
           ))}
         </Select>
+        <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+          <span className="tiny muted">Du</span>
+          <Input
+            type="date"
+            value={from}
+            max={to || undefined}
+            onChange={(e) => setFrom(e.target.value)}
+            style={{ width: 148 }}
+            title="Début de la période"
+          />
+          <span className="tiny muted">au</span>
+          <Input
+            type="date"
+            value={to}
+            min={from || undefined}
+            onChange={(e) => setTo(e.target.value)}
+            style={{ width: 148 }}
+            title="Fin de la période"
+          />
+          {(from || to) && (
+            <IconButton
+              title="Effacer la période"
+              onClick={() => {
+                setFrom('');
+                setTo('');
+              }}
+            >
+              <Icons.close size={14} />
+            </IconButton>
+          )}
+        </div>
         <div className="spacer" />
         <Button icon={<Icons.link size={14} />} onClick={autoReconcile} disabled={busy}>
           Rapprocher
@@ -315,18 +373,18 @@ export function Banque() {
             <table className="data">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Libellé</th>
-                  <th>Catégorie</th>
-                  <th className="num">Débit</th>
-                  <th className="num">Crédit</th>
-                  <th className="num">Solde</th>
-                  <th>Facture</th>
-                  <th />
+                  <Th sortKey="date" sort={sort} onSort={toggle}>Date</Th>
+                  <Th sortKey="label" sort={sort} onSort={toggle}>Libellé</Th>
+                  <Th sortKey="category" sort={sort} onSort={toggle}>Catégorie</Th>
+                  <Th sortKey="debit" sort={sort} onSort={toggle} className="num">Débit</Th>
+                  <Th sortKey="credit" sort={sort} onSort={toggle} className="num">Crédit</Th>
+                  <Th sortKey="balance" sort={sort} onSort={toggle} className="num">Solde</Th>
+                  <Th sortKey="document" sort={sort} onSort={toggle}>Facture</Th>
+                  <Th />
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((tx) => {
+                {sorted.map((tx) => {
                   const client = tx.clientId ? clientIndex.get(tx.clientId) : undefined;
                   return (
                     <tr key={tx.id} onClick={() => setSelected(tx)} style={{ cursor: 'default' }}>

@@ -310,6 +310,53 @@ export function Segmented<T extends string>({
   );
 }
 
+/**
+ * En-tête de colonne triable. Un clic trie, un second inverse le sens.
+ * `aria-sort` porte l'état : il sert au style comme aux lecteurs d'écran.
+ */
+export function Th({
+  sortKey,
+  sort,
+  onSort,
+  className = '',
+  children,
+  ...rest
+}: {
+  /** Absent = colonne non triable (actions, cases à cocher…). */
+  sortKey?: string;
+  sort?: { key: string; direction: 'asc' | 'desc' } | null;
+  onSort?: (key: string) => void;
+  className?: string;
+  children?: ReactNode;
+} & React.ThHTMLAttributes<HTMLTableCellElement>) {
+  if (!sortKey || !onSort) {
+    return (
+      <th className={className} {...rest}>
+        {children}
+      </th>
+    );
+  }
+  const active = sort?.key === sortKey;
+  const direction = active ? sort.direction : undefined;
+
+  return (
+    <th
+      className={`sortable ${className}`.trim()}
+      aria-sort={active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+      title="Trier sur cette colonne"
+      onClick={() => onSort(sortKey)}
+      {...rest}
+    >
+      {children}
+      <span className="sorticon" aria-hidden="true">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+          {direction === 'asc' ? <path d="m5 15 7-7 7 7" /> : <path d="m5 9 7 7 7-7" />}
+        </svg>
+      </span>
+    </th>
+  );
+}
+
 export function Badge({
   tone = '',
   children,

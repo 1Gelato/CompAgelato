@@ -840,3 +840,118 @@ test('l’écran Banque affiche les opérations et permet de filtrer', async () 
   await page.locator('.modal .modal__header .iconbtn').last().click();
   await page.waitForTimeout(250);
 });
+
+/* ------------------------------------------------------------------ */
+/* Tri des tableaux et filtre par période                               */
+/* ------------------------------------------------------------------ */
+
+/** Contenu d'une colonne du tableau affiché, ligne par ligne. */
+async function column(nth) {
+  return page.$$eval(
+    `table.data tbody tr td:nth-child(${nth})`,
+    (cells) => cells.map((c) => c.textContent.trim()),
+  );
+}
+
+test('les colonnes des documents se trient dans les deux sens', async () => {
+  await page.click('.navitem:has-text("Documents")');
+  await page.waitForSelector('table.data tbody tr');
+  // Repart d'un tableau non filtré.
+  await page.click('.segmented button:has-text("Tout")');
+  await page.waitForTimeout(200);
+
+  // Colonne « Total TTC » (6e). Premier clic : du plus grand au plus petit.
+  await page.click('table.data th:has-text("Total TTC")');
+  await page.waitForTimeout(200);
+  const desc = (await column(6)).map((v) => Number(v.replace(/[^\d,]/g, '').replace(',', '.')));
+  assert.ok(desc.length >= 3, 'trop peu de lignes pour vérifier le tri');
+  assert.deepEqual(desc, [...desc].sort((a, b) => b - a), `ordre décroissant attendu : ${desc}`);
+
+  // Second clic : le sens s'inverse.
+  await page.click('table.data th:has-text("Total TTC")');
+  await page.waitForTimeout(200);
+  const asc = (await column(6)).map((v) => Number(v.replace(/[^\d,]/g, '').replace(',', '.')));
+  assert.deepEqual(asc, [...asc].sort((a, b) => a - b), `ordre croissant attendu : ${asc}`);
+
+  // L'en-tête actif porte l'état du tri.
+  assert.equal(
+    await page.getAttribute('table.data th:has-text("Total TTC")', 'aria-sort'),
+    'ascending',
+  );
+});
+
+test('le tri par numéro suit l’ordre naturel des nombres', async () => {
+  await page.click('table.data th:has-text("Numéro")');
+  await page.waitForTimeout(200);
+  const numbers = await column(2);
+  const sorted = [...numbers].sort((a, b) => a.localeCompare(b, 'fr', { numeric: true }));
+  assert.deepEqual(numbers, sorted, `ordre naturel attendu : ${numbers}`);
+});
+
+test('les tableaux clients et stock se trient aussi', async () => {
+  await page.click('.navitem:has-text("Clients")');
+  await page.waitForSelector('table.data tbody tr');
+  await page.click('table.data th:has-text("Nom")');
+  await page.waitForTimeout(200);
+  const names = await page.$$eval('table.data tbody tr td:nth-child(2)', (cells) =>
+    cells.map((c) => c.querySelector('span')?.textContent.trim() ?? ''),
+  );
+  const sortedNames = [...names].sort((a, b) =>
+    a.localeCompare(b, 'fr', { numeric: true, sensitivity: 'base' }),
+  );
+  // Le premier clic sur « Nom » trie de A à Z ; ici l'état initial l'est déjà,
+  // donc le clic inverse : on vérifie l'un ou l'autre ordre, pas le hasard.
+  assert.ok(
+    JSON.stringify(names) === JSON.stringify(sortedNames) ||
+      JSON.stringify(names) === JSON.stringify([...sortedNames].reverse()),
+    `ordre alphabétique attendu : ${names}`,
+  );
+
+  await page.click('.navitem:has-text("Stock")');
+  await page.waitForSelector('table.data tbody tr');
+  await page.click('table.data th:has-text("Stock")');
+  await page.waitForTimeout(200);
+  const qty = (await column(4)).map((v) => Number(v.replace(/[^\d,-]/g, '').replace(',', '.')));
+  assert.deepEqual(qty, [...qty].sort((a, b) => b - a), `stock décroissant attendu : ${qty}`);
+});
+
+test('la banque se filtre sur une période donnée', async () => {
+  await page.click('.navitem:has-text("Banque")');
+  await page.waitForSelector('table.data tbody tr');
+  const total = await page.$$eval('table.data tbody tr', (r) => r.length);
+  assert.equal(total, 6);
+
+  // Juillet seul : l'unique opération du 02/07.
+  await page.fill('input[title="Début de la période"]', '2026-07-01');
+  await page.waitForTimeout(250);
+  assert.equal(await page.$$eval('table.data tbody tr', (r) => r.length), 1);
+  assert.ok(await page.isVisible('text=AMICALE DES PLAISANCIERS'));
+
+  // Bornée à juin : les cinq opérations de juin, sans celle de juillet.
+  await page.fill('input[title="Début de la période"]', '2026-06-01');
+  await page.fill('input[title="Fin de la période"]', '2026-06-30');
+  await page.waitForTimeout(250);
+  assert.equal(await page.$$eval('table.data tbody tr', (r) => r.length), 5);
+
+  // Le bouton d'effacement rétablit la totalité.
+  await page.click('button[title="Effacer la période"]');
+  await page.waitForTimeout(250);
+  assert.equal(await page.$$eval('table.data tbody tr', (r) => r.length), total);
+});
+
+test('les opérations bancaires se trient par montant', async () => {
+  await page.click('table.data th:has-text("Débit")');
+  await page.waitForTimeout(250);
+  const debits = (await column(4))
+    .filter(Boolean)
+    .map((v) => Number(v.replace(/[^\d,]/g, '').replace(',', '.')));
+  assert.ok(debits.length >= 2, 'pas assez de débits pour vérifier');
+  assert.deepEqual(debits, [...debits].sort((a, b) => b - a), `débits décroissants : ${debits}`);
+  // Les lignes sans débit (les encaissements) sont rejetées en fin de tableau.
+  const colonne = await column(4);
+  const dernierChiffre = colonne.map(Boolean).lastIndexOf(true);
+  const premierVide = colonne.map(Boolean).indexOf(false);
+  if (premierVide !== -1) {
+    assert.ok(premierVide > dernierChiffre - 1, 'les lignes vides doivent finir en bas');
+  }
+});

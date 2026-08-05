@@ -14,10 +14,12 @@ import {
   Select,
   Spinner,
   Textarea,
+  Th,
   useToast,
 } from '../components/ui';
 import { errorMessage, refreshAll, useClients, useDocuments } from '../lib/data';
 import { euro, matches } from '../lib/format';
+import { useSort } from '../lib/sort';
 
 export function Clients() {
   const { data: clients, loading } = useClients();
@@ -89,6 +91,23 @@ export function Clients() {
         ),
       ),
     [clients, search],
+  );
+
+  const { sorted, sort, toggle } = useSort(
+    filtered,
+    useMemo(
+      () => ({
+        code: (c: Client) => c.code,
+        name: (c: Client) => c.name,
+        city: (c: Client) => c.address.city ?? null,
+        contact: (c: Client) => c.email ?? c.phone ?? null,
+        total: (c: Client) => activity.get(c.id)?.total ?? null,
+        count: (c: Client) => activity.get(c.id)?.count ?? 0,
+        tags: (c: Client) => c.tags.join(' ') || null,
+      }),
+      [activity],
+    ),
+    { key: 'name', direction: 'asc' },
   );
 
   const runImport = async () => {
@@ -180,18 +199,18 @@ export function Clients() {
           <table className="data">
             <thead>
               <tr>
-                <th>Code</th>
-                <th>Nom</th>
-                <th>Ville</th>
-                <th>Contact</th>
-                <th className="num">Facturé HT</th>
-                <th className="num">Pièces</th>
-                <th>Étiquettes</th>
-                <th />
+                <Th sortKey="code" sort={sort} onSort={toggle}>Code</Th>
+                <Th sortKey="name" sort={sort} onSort={toggle}>Nom</Th>
+                <Th sortKey="city" sort={sort} onSort={toggle}>Ville</Th>
+                <Th sortKey="contact" sort={sort} onSort={toggle}>Contact</Th>
+                <Th sortKey="total" sort={sort} onSort={toggle} className="num">Facturé HT</Th>
+                <Th sortKey="count" sort={sort} onSort={toggle} className="num">Pièces</Th>
+                <Th sortKey="tags" sort={sort} onSort={toggle}>Étiquettes</Th>
+                <Th />
               </tr>
             </thead>
             <tbody>
-              {filtered.map((client) => {
+              {sorted.map((client) => {
                 const stats = activity.get(client.id);
                 const located = typeof client.address.lat === 'number';
                 return (

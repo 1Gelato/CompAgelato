@@ -17,8 +17,10 @@ import {
   Spinner,
   Switch,
   Textarea,
+  Th,
   useToast,
 } from '../components/ui';
+import { useSort } from '../lib/sort';
 import {
   errorMessage,
   refreshAll,
@@ -67,6 +69,25 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
       return matches(haystack, search);
     });
   }, [documents, kind, stockFilter, search, clientIndex]);
+
+  const { sorted, sort, toggle } = useSort(
+    filtered,
+    useMemo(
+      () => ({
+        kind: (d: AccountingDocument) => KIND_LABEL[d.kind] ?? d.kind,
+        number: (d: AccountingDocument) => d.number,
+        date: (d: AccountingDocument) => d.date,
+        client: (d: AccountingDocument) =>
+          (d.clientId ? clientIndex.get(d.clientId)?.name : null) ?? d.clientNameRaw ?? null,
+        totalHT: (d: AccountingDocument) => d.totalHT,
+        totalTTC: (d: AccountingDocument) => d.totalTTC,
+        status: (d: AccountingDocument) => STATUS_LABEL[d.status] ?? d.status,
+        stock: (d: AccountingDocument) => (d.kind === 'quote' ? null : d.stockApplied ? 1 : 0),
+      }),
+      [clientIndex],
+    ),
+    { key: 'date', direction: 'desc' },
+  );
 
   const totals = useMemo(() => {
     const sign = (d: AccountingDocument) => (d.kind === 'credit' ? -1 : 1);
@@ -219,20 +240,20 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
             <table className="data">
               <thead>
                 <tr>
-                  <th>Type</th>
-                  <th>Numéro</th>
-                  <th>Date</th>
-                  <th>Client</th>
-                  <th className="num">Total HT</th>
-                  <th className="num">Total TTC</th>
-                  <th>Statut</th>
-                  <th>Stock</th>
-                  <th style={{ textAlign: 'center' }}>Actions</th>
-                  <th />
+                  <Th sortKey="kind" sort={sort} onSort={toggle}>Type</Th>
+                  <Th sortKey="number" sort={sort} onSort={toggle}>Numéro</Th>
+                  <Th sortKey="date" sort={sort} onSort={toggle}>Date</Th>
+                  <Th sortKey="client" sort={sort} onSort={toggle}>Client</Th>
+                  <Th sortKey="totalHT" sort={sort} onSort={toggle} className="num">Total HT</Th>
+                  <Th sortKey="totalTTC" sort={sort} onSort={toggle} className="num">Total TTC</Th>
+                  <Th sortKey="status" sort={sort} onSort={toggle}>Statut</Th>
+                  <Th sortKey="stock" sort={sort} onSort={toggle}>Stock</Th>
+                  <Th style={{ textAlign: 'center' }}>Actions</Th>
+                  <Th />
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((doc) => {
+                {sorted.map((doc) => {
                   const client = doc.clientId ? clientIndex.get(doc.clientId) : undefined;
                   const hasWarnings = doc.warnings.length > 0 || doc.confidence < 0.7;
                   return (

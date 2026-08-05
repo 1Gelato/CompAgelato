@@ -762,9 +762,29 @@ table.data th {
 
 table.data th.sortable {
   cursor: default;
+  user-select: none;
 }
 table.data th.sortable:hover {
   color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+table.data th.sortable[aria-sort]:not([aria-sort='none']) {
+  color: var(--accent);
+}
+
+/* Flèche de tri : réservée en permanence pour que la largeur des colonnes ne
+   bouge pas au clic, visible seulement sur la colonne active (ou au survol). */
+.sorticon {
+  display: inline-flex;
+  width: 10px;
+  margin-left: 5px;
+  opacity: 0;
+  transition: opacity 0.12s;
+  vertical-align: -1px;
+}
+table.data th.sortable:hover .sorticon,
+table.data th.sortable[aria-sort]:not([aria-sort='none']) .sorticon {
+  opacity: 1;
 }
 
 table.data td {
