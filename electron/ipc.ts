@@ -132,6 +132,18 @@ const euroFormatter = new Intl.NumberFormat('fr-FR', {
   minimumFractionDigits: 2,
 });
 
+/**
+ * `child` est-il le dossier `parent` ou situé dedans ? La comparaison ignore la
+ * casse : sous Windows, deux chemins qui ne diffèrent que par la casse
+ * désignent le même dossier.
+ */
+function isInside(child: string, parent: string): boolean {
+  if (!child || !parent) return false;
+  const a = path.resolve(child).toLowerCase();
+  const b = path.resolve(parent).toLowerCase();
+  return a === b || a.startsWith(b + path.sep);
+}
+
 function requireDocument(documentId: ID): AccountingDocument {
   const doc = store.db.documents.find((d) => d.id === documentId);
   if (!doc) throw new Error('Document introuvable.');
@@ -184,6 +196,10 @@ const handlers: Registry = {
           }
         })(),
         isPackaged: app.isPackaged,
+        // Sur Windows les chemins sont insensibles à la casse : « Documents\
+        // CompaGelato » et le dossier cloné « documents\compagelato » peuvent
+        // être le même endroit. Les documents se retrouvent alors mêlés au code.
+        watchFolderInsideApp: isInside(store.settings.watchFolder, projectRoot),
       };
     },
     async openPath(target: string) {
@@ -1030,8 +1046,12 @@ const handlers: Registry = {
     async check() {
       return checkForUpdates(projectRoot);
     },
-    async apply() {
-      return applyUpdate(projectRoot, (step) => send('toast', { tone: 'info', title: step }));
+    async apply(options?: { discardLocalChanges?: boolean }) {
+      return applyUpdate(
+        projectRoot,
+        (step) => send('toast', { tone: 'info', title: step }),
+        { discardLocalChanges: options?.discardLocalChanges },
+      );
     },
   },
 };

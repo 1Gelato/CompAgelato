@@ -46,6 +46,8 @@ export function Settings({
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [applyingUpdate, setApplyingUpdate] = useState(false);
   const [updateDone, setUpdateDone] = useState(false);
+  /** Fichiers du logiciel modifiés localement, quand ils bloquent la mise à jour. */
+  const [localChanges, setLocalChanges] = useState<string[]>([]);
   // Le dépôt n'est enregistré qu'à la sélection d'une proposition : sans cela,
   // chaque frappe déclencherait une écriture puis un rechargement de l'écran.
   const [depotDraft, setDepotDraft] = useState<Address | null>(null);
@@ -68,10 +70,11 @@ export function Settings({
     }
   };
 
-  const applyUpdateNow = async () => {
+  const applyUpdateNow = async (discardLocalChanges = false) => {
     setApplyingUpdate(true);
     try {
-      const result = await window.api.updates.apply();
+      const result = await window.api.updates.apply({ discardLocalChanges });
+      setLocalChanges(result.localChanges ?? []);
       if (result.success) {
         setUpdateDone(true);
         toast.push({ tone: 'success', title: 'Mise à jour installée', text: result.message });
@@ -153,6 +156,18 @@ export function Settings({
               </Button>
               <Button onClick={() => window.api.app.openPath(settings.watchFolder)}>Ouvrir</Button>
             </div>
+
+            {info?.watchFolderInsideApp && (
+              <div className="warnbox">
+                <strong>Ce dossier est aussi celui du logiciel.</strong>
+                <p style={{ margin: '6px 0 0' }}>
+                  Vos documents sont rangés au même endroit que les fichiers de CompaGelato. Cela
+                  fonctionne, mais il est plus sûr de les séparer : choisissez un dossier dédié
+                  (par exemple <span className="mono">Documents\CompaGelato-Donnees</span>), puis
+                  déplacez-y vos factures. Elles seront relues automatiquement, sans doublon.
+                </p>
+              </div>
+            )}
 
             <div className="infobox">
               Les sous-dossiers <strong>Factures</strong>, <strong>Devis</strong>,{' '}
@@ -591,11 +606,43 @@ export function Settings({
                     Rechercher les mises à jour
                   </Button>
                   {updateCheck?.available && (
-                    <Button variant="primary" onClick={applyUpdateNow} loading={applyingUpdate}>
+                    <Button variant="primary" onClick={() => applyUpdateNow()} loading={applyingUpdate}>
                       Installer la mise à jour
                     </Button>
                   )}
+                  {localChanges.length > 0 && (
+                    <Button
+                      variant="danger"
+                      onClick={() => applyUpdateNow(true)}
+                      loading={applyingUpdate}
+                    >
+                      Réparer et installer
+                    </Button>
+                  )}
                 </div>
+
+                {localChanges.length > 0 && (
+                  <div className="warnbox">
+                    <strong>
+                      {localChanges.length} fichier{localChanges.length > 1 ? 's' : ''} du logiciel
+                      {localChanges.length > 1 ? ' ont' : ' a'} été modifié
+                      {localChanges.length > 1 ? 's' : ''} sur ce poste
+                    </strong>
+                    <ul style={{ margin: '6px 0 0 16px' }}>
+                      {localChanges.slice(0, 8).map((f, i) => (
+                        <li key={i} className="mono tiny">
+                          {f}
+                        </li>
+                      ))}
+                      {localChanges.length > 8 && <li className="tiny">…</li>}
+                    </ul>
+                    <p style={{ margin: '8px 0 0' }}>
+                      « Réparer et installer » rétablit ces fichiers dans leur état d’origine puis
+                      met à jour. Vos données — clients, documents, stock, relevés — sont stockées
+                      ailleurs et ne sont pas concernées.
+                    </p>
+                  </div>
+                )}
 
                 {updateCheck && !updateCheck.supported && (
                   <div className="warnbox">{updateCheck.reason}</div>

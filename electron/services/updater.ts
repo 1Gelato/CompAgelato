@@ -32,6 +32,20 @@ export interface UpdateApplyResult {
   success: boolean;
   message: string;
   log: string;
+  /**
+   * Fichiers du logiciel modifiés localement qui ont bloqué la mise à jour.
+   * Permet de les afficher à l'utilisateur et de proposer la réparation.
+   */
+  localChanges?: string[];
+}
+
+export interface UpdateApplyOptions {
+  /**
+   * Rétablit les fichiers du logiciel modifiés localement avant de mettre à
+   * jour. Les données (base, documents, relevés) ne sont jamais concernées :
+   * elles vivent hors du dossier de code.
+   */
+  discardLocalChanges?: boolean;
 }
 
 function isGitCheckout(root: string): boolean {
@@ -130,12 +144,17 @@ function extractGitError(err: unknown): string {
 
 /**
  * Applique la mise à jour : bascule sur les derniers commits puis reconstruit.
- * Refuse si des modifications locales existent (aucune ne devrait exister sur
- * un poste utilisateur, mais on ne prend pas de risque avec les données).
+ *
+ * Seules les modifications de fichiers *suivis* bloquent. Les fichiers non
+ * suivis sont ignorés à dessein : sur un poste où le dossier de travail
+ * (factures, relevés) se trouve à l'intérieur du dossier du logiciel, ils sont
+ * légion et n'ont rien à voir avec le code. Ils ne risquent rien non plus :
+ * `git pull --ff-only` refuse de lui-même d'écraser un fichier non suivi.
  */
 export async function applyUpdate(
   root: string,
   onProgress?: (step: string) => void,
+  options: UpdateApplyOptions = {},
 ): Promise<UpdateApplyResult> {
   const log: string[] = [];
   const step = (label: string) => {
@@ -149,14 +168,33 @@ export async function applyUpdate(
 
   try {
     step('Vérification des modifications locales…');
-    const status = await run('git status --porcelain', root, GIT_TIMEOUT_MS);
+    // --untracked-files=no : ne regarde que les fichiers du logiciel.
+    const status = await run('git status --porcelain --untracked-files=no', root, GIT_TIMEOUT_MS);
     if (status) {
-      return {
-        success: false,
-        message:
-          'Des modifications locales inattendues ont été trouvées dans le dossier du logiciel : la mise à jour a été annulée par précaution. Contactez le support.',
-        log: log.join('\n') + '\n' + status,
-      };
+      // Format porcelain : deux caractères d'état puis le chemin. La sortie
+      // étant élaguée, le premier état peut avoir perdu son espace de tête :
+      // on retire donc l'état par motif plutôt qu'à position fixe.
+      const localChanges = status
+        .split('\n')
+        .map((l) => l.trim().replace(/^\S{1,2}\s+/, ''))
+        .filter(Boolean);
+
+      if (!options.discardLocalChanges) {
+        return {
+          success: false,
+          message:
+            `Des fichiers du logiciel ont été modifiés sur ce poste (${localChanges.length}) : ` +
+            'la mise à jour a été annulée par précaution. Utilisez « Réparer et installer » ' +
+            'pour rétablir ces fichiers puis mettre à jour — vos données ne sont pas concernées.',
+          log: log.join('\n') + '\n' + status,
+          localChanges,
+        };
+      }
+
+      step('Rétablissement des fichiers du logiciel…');
+      // Ne touche qu'aux fichiers suivis : les documents déposés par
+      // l'utilisateur, non suivis, restent intacts.
+      await run('git checkout -- .', root, GIT_TIMEOUT_MS);
     }
 
     const branch = await run('git rev-parse --abbrev-ref HEAD', root, GIT_TIMEOUT_MS);

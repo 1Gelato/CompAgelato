@@ -66,6 +66,12 @@ export interface AppInfo {
   watchFolder: string;
   documentsPath: string;
   isPackaged: boolean;
+  /**
+   * Le dossier surveillé est-il situé à l'intérieur du dossier du logiciel ?
+   * Les documents se mêlent alors au code : à signaler pour inviter à les
+   * séparer.
+   */
+  watchFolderInsideApp?: boolean;
 }
 
 export interface RouteQr {
@@ -93,6 +99,8 @@ export interface UpdateApplyResult {
   success: boolean;
   message: string;
   log: string;
+  /** Fichiers du logiciel modifiés localement ayant bloqué la mise à jour. */
+  localChanges?: string[];
 }
 
 export interface PrintOutcome {
@@ -255,7 +263,11 @@ export interface Api {
   };
   updates: {
     check(): Promise<UpdateCheckResult>;
-    apply(): Promise<UpdateApplyResult>;
+    /**
+     * `discardLocalChanges` rétablit les fichiers du logiciel modifiés sur ce
+     * poste avant d'installer. Sans conséquence sur les données.
+     */
+    apply(options?: { discardLocalChanges?: boolean }): Promise<UpdateApplyResult>;
   };
   /** Événements poussés par le processus principal (scan de dossier, alertes…). */
   on(event: 'documents-changed' | 'scan-progress' | 'toast', handler: (payload: any) => void): () => void;
