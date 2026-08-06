@@ -180,14 +180,26 @@ function buildMenu(): void {
 }
 
 app.whenReady().then(async () => {
-  store.init();
+  // Le magasin ne connaît pas Electron : on lui indique où vivre.
+  store.init({
+    dataDir: app.getPath('userData'),
+    documentsDir: (() => {
+      try {
+        return app.getPath('documents');
+      } catch {
+        return path.join(app.getPath('home'), 'Documents');
+      }
+    })(),
+  });
   ensureWatchFolder(store.settings.watchFolder);
   registerIpc();
   buildMenu();
 
   mainWindow = createWindow();
   setMainWindow(mainWindow);
-  folderWatcher.attach(mainWindow);
+  folderWatcher.setNotifier((channel, payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+  });
 
   // Analyse initiale et surveillance en arrière-plan, sans bloquer l'ouverture.
   mainWindow.webContents.once('did-finish-load', () => {
@@ -210,7 +222,6 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createWindow();
       setMainWindow(mainWindow);
-      folderWatcher.attach(mainWindow);
     }
   });
 });

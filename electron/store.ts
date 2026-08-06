@@ -1,11 +1,35 @@
-import { app } from 'electron';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import type { Address, Attachment, Database, Settings, Vehicle } from '@shared/types';
 
 const DB_VERSION = 1;
+
+/**
+ * Emplacements injectés par l'hôte. Le magasin ne dépend plus d'Electron :
+ * l'application de bureau lui passe `app.getPath('userData')` et
+ * `app.getPath('documents')`, le serveur un dossier de données explicite
+ * (`COMPAGELATO_DATA_DIR`). Sans rien, on retombe sur le dossier personnel —
+ * jamais sur une erreur.
+ */
+export interface StorePaths {
+  /** Dossier où vivent la base et ses sauvegardes. */
+  dataDir?: string;
+  /** Dossier « Documents » de l'utilisateur, base du dossier surveillé par défaut. */
+  documentsDir?: string;
+}
+
+const configured: StorePaths = {};
+
+function resolveDataDir(): string {
+  return (
+    configured.dataDir ||
+    process.env.COMPAGELATO_DATA_DIR ||
+    path.join(os.homedir(), '.compagelato')
+  );
+}
 
 /**
  * Identifiant unique. 16 caractères hexadécimaux (64 bits) : sur un seul poste
@@ -28,12 +52,7 @@ export function today(): string {
 
 /** Dossier surveillé par défaut : Documents/CompaGelato (C:\Users\<user>\Documents\CompaGelato sur Windows). */
 export function defaultWatchFolder(): string {
-  let documents: string;
-  try {
-    documents = app.getPath('documents');
-  } catch {
-    documents = path.join(app.getPath('home'), 'Documents');
-  }
+  const documents = configured.documentsDir || path.join(os.homedir(), 'Documents');
   return path.join(documents, 'CompaGelato');
 }
 
@@ -108,7 +127,7 @@ function emptyDatabase(): Database {
   };
 }
 
-class Store {
+export class Store {
   private data: Database = emptyDatabase();
   private file = '';
   private backupDir = '';
@@ -116,9 +135,11 @@ class Store {
   private flushTimer: NodeJS.Timeout | null = null;
   private loaded = false;
 
-  init(): void {
+  init(paths?: StorePaths): void {
     if (this.loaded) return;
-    const dir = app.getPath('userData');
+    if (paths?.dataDir) configured.dataDir = paths.dataDir;
+    if (paths?.documentsDir) configured.documentsDir = paths.documentsDir;
+    const dir = resolveDataDir();
     fs.mkdirSync(dir, { recursive: true });
     this.file = path.join(dir, 'compagelato-data.json');
     this.backupDir = path.join(dir, 'backups');

@@ -267,6 +267,73 @@ automatiquement remplacée par la dernière sauvegarde valide.
 
 Réglages → Données permet de sauvegarder, restaurer et exporter à tout moment.
 
+## Mode serveur : les mêmes données partout
+
+CompaGelato sait aussi tourner en **serveur** : un simple processus Node — sans
+Electron, sans dépendance à compiler — qui détient la base et les PDF, surveille
+le dossier de comptabilité, et sert **l'application complète dans le
+navigateur** de n'importe quel appareil du réseau. C'est la première étape du
+mode multi-postes : un seul écrivain, plus aucun risque de bases divergentes
+entre le bureau et la maison.
+
+```bash
+# Sur la machine qui héberge (vieux PC, mini-PC, Raspberry Pi…)
+git clone <dépôt> CompaGelato-App && cd CompaGelato-App
+npm ci
+COMPAGELATO_TOKEN=un-secret-long npm run server
+```
+
+Puis, depuis n'importe quel PC ou téléphone du réseau :
+`http://<ip-du-serveur>:4680/?token=un-secret-long` — le jeton est mémorisé par
+l'appareil, l'adresse se garde en favori.
+
+| Variable | Rôle | Défaut |
+|---|---|---|
+| `COMPAGELATO_DATA_DIR` | Dossier de la base et des sauvegardes | `~/.compagelato` |
+| `COMPAGELATO_PORT` | Port d'écoute | `4680` |
+| `COMPAGELATO_HOST` | Adresse d'écoute | `0.0.0.0` |
+| `COMPAGELATO_TOKEN` | Jeton exigé pour l'API et les fichiers | *(aucun — à renseigner !)* |
+
+Ce qui marche dans le navigateur : tout — tableaux, recherche, tournées,
+cahiers, banque, imports (le « choisir un fichier » téléverse vers le serveur),
+ouverture des PDF dans un onglet, e-mail (le brouillon `.eml` se télécharge,
+prêt à ouvrir dans la messagerie). Seules les actions qui ouvrent une fenêtre
+sur le poste (sélecteur de dossier…) restent propres à l'application de bureau,
+avec un message clair.
+
+Notes de fonctionnement :
+
+- **Une seule instance écrit.** Si le serveur détient les données, n'ouvrez pas
+  en même temps l'application de bureau sur le même dossier de données : le
+  magasin n'a pas de verrou, le dernier qui écrit gagne.
+- Service permanent sous Linux : créez `/etc/systemd/system/compagelato.service` :
+
+  ```ini
+  [Unit]
+  Description=CompaGelato serveur
+  After=network.target
+
+  [Service]
+  User=compagelato
+  WorkingDirectory=/home/compagelato/CompaGelato-App
+  Environment=COMPAGELATO_DATA_DIR=/home/compagelato/donnees
+  Environment=COMPAGELATO_TOKEN=un-secret-long
+  ExecStart=/usr/bin/node dist/server/server.mjs
+  Restart=always
+
+  [Install]
+  WantedBy=multi-user.target
+  ```
+
+  puis `systemctl enable --now compagelato`. La mise à jour depuis l'écran
+  Réglages fonctionne : après « Installer », le service redémarre tout seul.
+- Pour l'accès **hors du réseau local** (tournées, télétravail), installez
+  [Tailscale](https://tailscale.com) sur le serveur et sur vos appareils :
+  l'adresse `http://<nom-tailscale>:4680` marche alors de partout, chiffrée,
+  sans ouvrir le moindre port sur la box.
+- Le jeton protège les données, pas les personnes : les **comptes utilisateurs
+  et les rôles** (gérant, bureau, livreur) sont l'étape suivante du plan.
+
 ## Ce qui sort de votre ordinateur
 
 Trois services publics, sollicités uniquement quand vous en avez besoin :
@@ -291,7 +358,14 @@ electron/                 Processus principal (Node)
   main.ts                 Fenêtre, menu, cycle de vie
   preload.ts              Pont IPC — seule surface exposée à l'interface
   store.ts                Base JSON, écritures atomiques, sauvegardes
-  ipc.ts                  Tous les gestionnaires d'appels
+                          (indépendante d'Electron : chemins injectés)
+  handlers.ts             Les gestionnaires métier, sans Electron — le même
+                          registre sert le bureau (IPC) et le serveur (HTTP)
+  ipc.ts                  Surcharges bureau (dialogues, impression, messagerie)
+                          et enregistrement IPC
+  server.ts               Serveur HTTP zéro dépendance : API, SSE, fichiers,
+                          téléversements, interface web
+  serverMain.ts           Point d'entrée du mode serveur
   watcher.ts              Surveillance du dossier
   services/
     mail.ts               Brouillons .eml multipart avec pièces jointes
@@ -374,6 +448,14 @@ npm run test:all
   réel, encaissement rapproché tout seul de la bonne facture (qui passe à
   « réglée »), relevé relu sans le moindre doublon, second relevé chevauchant
   qui n'ajoute que les nouveautés, et synthèse (totaux, catégories, solde).
+- **10 tests du mode serveur** — le vrai processus `node dist/server/server.mjs`
+  est lancé sur une base temporaire puis interrogé en HTTP comme le ferait un
+  navigateur : refus sans jeton, interface web servie, canal inconnu rejeté,
+  action de bureau expliquée, création/lecture de client, téléversement d'une
+  liste CSV, dépôt d'un PDF détecté par la surveillance avec diffusion SSE,
+  téléchargement du PDF d'origine, brouillon d'e-mail `.eml` téléchargeable et
+  pièce marquée « envoyée », base écrite au bon endroit et arrêt propre sur
+  SIGTERM.
   Enfin le tri des colonnes dans les deux sens sur documents, clients et stock,
   le filtre des relevés sur une période donnée, et la recherche par montant
   qui retrouve une facture par son HT comme par son TTC et une opération

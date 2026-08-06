@@ -44,7 +44,7 @@ export const CHANNELS = {
     'list', 'get', 'save', 'remove', 'scan', 'rescanFile', 'setClient', 'setStatus', 'exportCsv',
     'openFile', 'print', 'setPrinted', 'prepareEmail', 'sendEmail',
   ],
-  attachments: ['list', 'pickAndAdd', 'update', 'remove', 'open', 'sync', 'openFolder'],
+  attachments: ['list', 'pickAndAdd', 'addFiles', 'update', 'remove', 'open', 'sync', 'openFolder'],
   products: ['list', 'save', 'remove', 'importFrom', 'pickAndImport', 'exportCsv', 'adjust'],
   stock: ['moves', 'apply', 'revert', 'applyAll', 'linkLine', 'suggestions'],
   routes: ['list', 'save', 'remove', 'compute', 'optimize', 'link', 'qr', 'exportCsv'],
@@ -53,7 +53,7 @@ export const CHANNELS = {
   machines: ['list', 'save', 'remove'],
   notify: ['test'],
   bank: [
-    'list', 'scan', 'pickAndImport', 'update', 'remove', 'suggestions',
+    'list', 'scan', 'pickAndImport', 'importFrom', 'update', 'remove', 'suggestions',
     'reconcile', 'autoReconcile', 'summary', 'exportCsv', 'openFolder', 'chooseFolder',
   ],
   geo: ['autocomplete', 'reverse', 'fuelPrice'],
@@ -134,6 +134,11 @@ export interface EmailOutcome {
   message: string;
   /** Taille totale des pièces jointes, en Mo. */
   attachmentMb: number;
+  /**
+   * En mode navigateur, le brouillon .eml est préparé sur le serveur : cette
+   * adresse permet de le télécharger pour l'ouvrir dans sa messagerie.
+   */
+  fileUrl?: string;
 }
 
 export interface ProductSuggestion {
@@ -191,6 +196,8 @@ export interface Api {
   attachments: {
     list(): Promise<(Attachment & { exists: boolean })[]>;
     pickAndAdd(): Promise<Attachment[] | null>;
+    /** Ajoute des fichiers déjà présents sur le disque (téléversement navigateur). */
+    addFiles(filePaths: string[]): Promise<Attachment[]>;
     update(id: ID, patch: Partial<Attachment>): Promise<Attachment>;
     remove(id: ID): Promise<void>;
     open(id: ID): Promise<void>;
@@ -256,6 +263,8 @@ export interface Api {
     /** Analyse le dossier des relevés ; les opérations déjà connues sont ignorées. */
     scan(): Promise<BankScanReport>;
     pickAndImport(): Promise<BankImportReport | null>;
+    /** Importe un relevé dont le fichier est déjà sur le disque (téléversement navigateur). */
+    importFrom(filePath: string): Promise<BankImportReport>;
     update(id: ID, patch: Partial<BankTransaction>): Promise<BankTransaction>;
     remove(id: ID): Promise<void>;
     /** Factures candidates pour le rapprochement, les plus probables d'abord. */

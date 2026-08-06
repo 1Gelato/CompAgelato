@@ -1,5 +1,4 @@
 import type { FSWatcher } from 'chokidar';
-import type { BrowserWindow } from 'electron';
 import { store } from './store';
 import { ensureWatchFolder, scanFolder } from './services/documents';
 import { scanStatementFolder, statementFolder } from './services/bank';
@@ -9,17 +8,20 @@ import { scanStatementFolder, statementFolder } from './services/bank';
  * automatiquement, puis l'interface est prévenue. Le dossier des relevés
  * bancaires est surveillé en parallèle : il peut se trouver ailleurs sur le
  * disque, là où les relevés sont déjà rangés.
+ *
+ * La façon de prévenir l'interface est injectée : fenêtre Electron sur le
+ * bureau, flux d'événements SSE côté serveur. Le watcher n'a pas à le savoir.
  */
 class FolderWatcher {
   private watcher: FSWatcher | null = null;
   private timer: NodeJS.Timeout | null = null;
   private scanning = false;
   private pending = false;
-  private window: BrowserWindow | null = null;
+  private notify: (channel: string, payload: unknown) => void = () => {};
   private current = '';
 
-  attach(window: BrowserWindow): void {
-    this.window = window;
+  setNotifier(notify: (channel: string, payload: unknown) => void): void {
+    this.notify = notify;
   }
 
   async start(folder: string): Promise<void> {
@@ -77,7 +79,7 @@ class FolderWatcher {
         console.error('[watcher] relevés', err);
       }
       if (report.imported || report.updated || report.failed || bankImported) {
-        this.window?.webContents.send('documents-changed', { ...report, bankImported });
+        this.notify('documents-changed', { ...report, bankImported });
       }
     } catch (err) {
       console.error('[watcher] scan', err);

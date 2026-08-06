@@ -37,6 +37,21 @@ const mainConfig = {
   define: { 'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production') },
 };
 
+const serverConfig = {
+  entryPoints: [path.join(root, 'electron/serverMain.ts')],
+  outfile: path.join(root, 'dist/server/server.mjs'),
+  bundle: true,
+  platform: 'node',
+  target: 'node20',
+  format: 'esm',
+  sourcemap: true,
+  // Pas d'electron ici : le serveur est du Node pur.
+  external: external.filter((name) => name !== 'electron'),
+  plugins: [alias],
+  logLevel: 'info',
+  define: { 'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production') },
+};
+
 const preloadConfig = {
   entryPoints: [path.join(root, 'electron/preload.ts')],
   outfile: path.join(root, 'dist/main/preload.cjs'),
@@ -55,5 +70,9 @@ if (watch) {
   await Promise.all(ctxs.map((c) => c.watch()));
   console.log('[build-main] watching…');
 } else {
-  await Promise.all([esbuild.build(mainConfig), esbuild.build(preloadConfig)]);
+  await Promise.all([
+    esbuild.build(mainConfig),
+    esbuild.build(preloadConfig),
+    esbuild.build(serverConfig),
+  ]);
 }
