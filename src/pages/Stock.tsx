@@ -20,6 +20,7 @@ import {
 import { errorMessage, refreshAll, useProducts, useStockMoves } from '../lib/data';
 import { dateFr, euro, matches, num } from '../lib/format';
 import { useSort } from '../lib/sort';
+import { matchesAmount } from '../lib/search';
 
 type Filter = 'all' | 'low' | 'out';
 
@@ -38,9 +39,15 @@ export function Stock() {
       products.filter((product) => {
         if (filter === 'low' && !(product.minQty > 0 && product.qtyOnHand < product.minQty)) return false;
         if (filter === 'out' && product.qtyOnHand > 0) return false;
-        return matches(
-          [product.sku, product.name, product.category ?? '', product.supplier ?? '', product.aliases.join(' ')].join(' '),
-          search,
+        return (
+          matches(
+            [product.sku, product.name, product.category ?? '', product.supplier ?? '', product.aliases.join(' ')].join(' '),
+            search,
+          ) ||
+          matchesAmount(search, [
+            product.unitCost,
+            product.unitCost === undefined ? null : product.unitCost * product.qtyOnHand,
+          ])
         );
       }),
     [products, filter, search],
@@ -118,7 +125,7 @@ export function Stock() {
       )}
 
       <div className="row row--wrap" style={{ marginBottom: 12 }}>
-        <SearchInput value={search} onChange={setSearch} placeholder="Référence, désignation…" style={{ width: 250 }} />
+        <SearchInput value={search} onChange={setSearch} placeholder="Référence, désignation, prix…" style={{ width: 250 }} />
         <Segmented
           value={filter}
           onChange={setFilter}

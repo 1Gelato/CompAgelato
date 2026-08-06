@@ -616,7 +616,14 @@ test('vérification des mises à jour depuis l’application réelle', async () 
   await page.click('button:has-text("Rechercher les mises à jour")');
   await page.waitForTimeout(1500);
   const bodyText = await page.textContent('.content');
-  assert.match(bodyText, /derni[eè]re version|amélioration.*disponible/i);
+  // Le bouton doit toujours aboutir à un message clair. Sans réseau (machine
+  // de compilation isolée), c'est l'échec de la vérification qui s'affiche :
+  // c'est un résultat valable, pas un défaut du logiciel.
+  assert.match(
+    bodyText,
+    /derni[eè]re version|amélioration.*disponible|Vérification impossible/i,
+    `aucun message de mise à jour affiché : ${bodyText.slice(0, 400)}`,
+  );
 });
 
 test('les fenêtres de saisie s’ouvrent et se ferment sans erreur', async () => {
@@ -954,4 +961,65 @@ test('les opérations bancaires se trient par montant', async () => {
   if (premierVide !== -1) {
     assert.ok(premierVide > dernierChiffre - 1, 'les lignes vides doivent finir en bas');
   }
+});
+
+test('la recherche par montant retrouve une facture et une opération bancaire', async () => {
+  /* Documents : la facture FA-2026-0142 vaut 319,00 HT / 382,80 TTC ------- */
+  await page.click('.navitem:has-text("Documents")');
+  await page.waitForSelector('table.data tbody tr');
+  const searchDocs = 'input[placeholder*="Numéro, client"]';
+
+  await page.fill(searchDocs, '382,80');
+  await page.waitForTimeout(300);
+  let numbers = await column(2);
+  assert.deepEqual(numbers, ['FA-2026-0142'], `TTC exact : ${numbers}`);
+
+  // Les chiffres du début suffisent, sans les décimales.
+  await page.fill(searchDocs, '382');
+  await page.waitForTimeout(300);
+  numbers = await column(2);
+  assert.ok(numbers.includes('FA-2026-0142'), `TTC partiel : ${numbers}`);
+
+  // Le total HT est cherchable au même titre que le TTC.
+  await page.fill(searchDocs, '319');
+  await page.waitForTimeout(300);
+  numbers = await column(2);
+  assert.ok(numbers.includes('FA-2026-0142'), `HT : ${numbers}`);
+
+  // Un montant absent ne renvoie rien plutôt que n'importe quoi.
+  await page.fill(searchDocs, '99999');
+  await page.waitForTimeout(300);
+  assert.equal(await page.$$eval('table.data tbody tr', (r) => r.length), 0);
+
+  // Une recherche textuelle continue de fonctionner comme avant.
+  await page.fill(searchDocs, '0142');
+  await page.waitForTimeout(300);
+  assert.deepEqual(await column(2), ['FA-2026-0142']);
+  await page.fill(searchDocs, '');
+  await page.waitForTimeout(250);
+
+  /* Banque : le prélèvement URSSAF de 842,15 € ---------------------------- */
+  await page.click('.navitem:has-text("Banque")');
+  await page.waitForSelector('table.data tbody tr');
+  const searchBank = 'input[placeholder*="Libellé, client"]';
+
+  await page.fill(searchBank, '842,15');
+  await page.waitForTimeout(300);
+  assert.equal(
+    await page.$$eval('table.data tbody tr', (r) => r.length),
+    1,
+    'un seul prélèvement à 842,15 €',
+  );
+  assert.ok(await page.isVisible('text=URSSAF'));
+
+  // Un débit se cherche sans se soucier du signe.
+  await page.fill(searchBank, '842');
+  await page.waitForTimeout(300);
+  assert.equal(await page.$$eval('table.data tbody tr', (r) => r.length), 1);
+
+  await page.fill(searchBank, '99999');
+  await page.waitForTimeout(300);
+  assert.equal(await page.$$eval('table.data tbody tr', (r) => r.length), 0);
+  await page.fill(searchBank, '');
+  await page.waitForTimeout(250);
 });

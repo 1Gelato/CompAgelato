@@ -21,6 +21,7 @@ import {
   useToast,
 } from '../components/ui';
 import { useSort } from '../lib/sort';
+import { matchesAmount } from '../lib/search';
 import {
   errorMessage,
   refreshAll,
@@ -88,7 +89,13 @@ export function Banque() {
       if (category !== 'all' && t.category !== category) return false;
       if (!search) return true;
       const client = t.clientId ? clientIndex.get(t.clientId) : undefined;
-      return matches([t.label, t.reference ?? '', t.note ?? '', client?.name ?? ''].join(' '), search);
+      // La recherche porte sur le texte *et* sur les montants : taper « 482 »
+      // doit retrouver l'opération de 482,96 € comme celle dont le libellé
+      // contient 482.
+      return (
+        matches([t.label, t.reference ?? '', t.note ?? '', client?.name ?? ''].join(' '), search) ||
+        matchesAmount(search, [t.amount, t.balance])
+      );
     });
   }, [transactions, flow, matchFilter, month, from, to, category, search, clientIndex]);
 
@@ -256,7 +263,7 @@ export function Banque() {
         <SearchInput
           value={search}
           onChange={setSearch}
-          placeholder="Rechercher un libellé, un client…"
+          placeholder="Libellé, client, montant…"
           style={{ minWidth: 240 }}
         />
         <Segmented

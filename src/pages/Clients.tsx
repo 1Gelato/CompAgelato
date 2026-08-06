@@ -20,6 +20,7 @@ import {
 import { errorMessage, refreshAll, useClients, useDocuments } from '../lib/data';
 import { euro, matches } from '../lib/format';
 import { useSort } from '../lib/sort';
+import { matchesAmount } from '../lib/search';
 
 export function Clients() {
   const { data: clients, loading } = useClients();
@@ -75,22 +76,23 @@ export function Clients() {
 
   const filtered = useMemo(
     () =>
-      clients.filter((client) =>
-        matches(
-          [
-            client.code,
-            client.name,
-            client.legalName ?? '',
-            client.email ?? '',
-            client.phone ?? '',
-            client.address.city ?? '',
-            client.address.postcode ?? '',
-            client.tags.join(' '),
-          ].join(' '),
-          search,
-        ),
+      clients.filter(
+        (client) =>
+          matches(
+            [
+              client.code,
+              client.name,
+              client.legalName ?? '',
+              client.email ?? '',
+              client.phone ?? '',
+              client.address.city ?? '',
+              client.address.postcode ?? '',
+              client.tags.join(' '),
+            ].join(' '),
+            search,
+          ) || matchesAmount(search, [activity.get(client.id)?.total]),
       ),
-    [clients, search],
+    [clients, search, activity],
   );
 
   const { sorted, sort, toggle } = useSort(
@@ -143,7 +145,7 @@ export function Clients() {
         <SearchInput
           value={search}
           onChange={setSearch}
-          placeholder="Nom, ville, e-mail…"
+          placeholder="Nom, ville, e-mail, montant…"
           style={{ width: 270 }}
         />
         <div className="spacer" />

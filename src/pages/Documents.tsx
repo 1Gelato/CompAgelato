@@ -21,6 +21,7 @@ import {
   useToast,
 } from '../components/ui';
 import { useSort } from '../lib/sort';
+import { matchesAmount } from '../lib/search';
 import {
   errorMessage,
   refreshAll,
@@ -66,7 +67,12 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
       const client = doc.clientId ? clientIndex.get(doc.clientId) : undefined;
       const haystack = [doc.number, doc.clientNameRaw ?? '', client?.name ?? '', doc.notes ?? '']
         .join(' ');
-      return matches(haystack, search);
+      // Un montant tapé au clavier doit retrouver la pièce, qu'il s'agisse du
+      // HT, de la TVA ou du TTC.
+      return (
+        matches(haystack, search) ||
+        matchesAmount(search, [doc.totalTTC, doc.totalHT, doc.totalVAT])
+      );
     });
   }, [documents, kind, stockFilter, search, clientIndex]);
 
@@ -171,7 +177,7 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
   return (
     <>
       <div className="row row--wrap" style={{ marginBottom: 12 }}>
-        <SearchInput value={search} onChange={setSearch} placeholder="Numéro, client…" style={{ width: 250 }} />
+        <SearchInput value={search} onChange={setSearch} placeholder="Numéro, client, montant…" style={{ width: 250 }} />
         <Segmented
           value={kind}
           onChange={setKind}

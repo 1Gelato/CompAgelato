@@ -40,10 +40,10 @@ await esbuild.build({
   outfile: path.join(root, 'tests/build/services.mjs'),
 });
 
-// Logique d'interface testable sans navigateur : la comparaison du tri des
-// tableaux est pure, on la vérifie comme le reste.
+// Logique d'interface testable sans navigateur : tri des tableaux et
+// recherche par montant sont des fonctions pures, on les vérifie comme le reste.
 await esbuild.build({
   ...common,
-  entryPoints: [path.join(root, 'src/lib/sort.ts')],
-  outfile: path.join(root, 'tests/build/sort.mjs'),
+  entryPoints: [path.join(root, 'tests/ui-entry.ts')],
+  outfile: path.join(root, 'tests/build/ui.mjs'),
 });

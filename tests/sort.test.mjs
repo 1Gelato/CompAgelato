@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compareValues, sortRows } from './build/sort.mjs';
+import { compareValues, sortRows } from './build/ui.mjs';
 
 /**
  * Le tri des tableaux est du code d'interface, mais sa logique de comparaison
