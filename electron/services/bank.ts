@@ -22,6 +22,7 @@ import {
   type ParsedTransaction,
 } from './bankStatement';
 import { round2 } from './text';
+import { storePath } from './paths';
 
 const STATEMENT_EXTENSIONS = new Set(['.csv', '.xlsx', '.xls', '.xlsm']);
 
@@ -169,7 +170,7 @@ function toRecord(
     categoryAuto: true,
     matchAuto: false,
     fingerprint: tx.fingerprint,
-    sourceFile: filePath,
+    sourceFile: storePath(filePath),
     sourceFormat: format,
     importedAt: nowIso(),
     updatedAt: nowIso(),

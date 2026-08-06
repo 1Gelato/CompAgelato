@@ -23,6 +23,7 @@ import {
   rememberClientAlias,
 } from './clients';
 import { applyDocumentToStock, resolveDocumentLines } from './stock';
+import { storePath } from './paths';
 
 /* ------------------------------------------------------------------ */
 /* Dossier surveillé                                                    */
@@ -187,6 +188,25 @@ interface IngestContext {
 }
 
 /**
+ * Champs qu'une relecture du fichier d'origine ne doit pas écraser dès lors
+ * qu'ils ont été corrigés à la main. Les totaux en font partie : le lecteur se
+ * trompe parfois sur un gabarit inhabituel, et la correction doit tenir.
+ */
+export const MANUAL_FIELDS = [
+  'kind', 'number', 'date', 'dueDate', 'clientId',
+  'totalHT', 'totalVAT', 'totalTTC', 'status', 'notes',
+] as const;
+
+export type ManualField = (typeof MANUAL_FIELDS)[number];
+
+/** Note qu'un champ vient d'une saisie manuelle et non du lecteur automatique. */
+export function markManual(doc: AccountingDocument, ...fields: ManualField[]): void {
+  const set = new Set(doc.manualFields ?? []);
+  for (const field of fields) set.add(field);
+  doc.manualFields = [...set];
+}
+
+/**
  * Transforme un document analysé en enregistrement de la base : rattachement
  * du client, association des lignes au stock, contrôle des doublons.
  */
@@ -257,18 +277,29 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
     totalTTC: round2(totalTTC),
     status: existing?.status ?? (kind === 'quote' ? 'draft' : 'confirmed'),
     lines: existing && existing.stockApplied ? existing.lines : toLines(parsed.lines),
-    sourceFile: ctx.filePath ?? existing?.sourceFile,
+    sourceFile: ctx.filePath ? storePath(ctx.filePath) : existing?.sourceFile,
     sourceFormat: ctx.sourceFormat,
     sourceHash: ctx.sourceHash ?? existing?.sourceHash,
     sourceMtime: ctx.sourceMtime ?? existing?.sourceMtime,
     stockApplied: existing?.stockApplied ?? false,
     stockAppliedAt: existing?.stockAppliedAt,
+    // Les repères d'impression et d'envoi appartiennent à l'utilisateur, pas au
+    // fichier : une relecture ne doit pas les effacer.
+    printedAt: existing?.printedAt,
+    emailedAt: existing?.emailedAt,
     confidence: parsed.confidence,
     warnings,
+    manualFields: existing?.manualFields,
     notes: existing?.notes,
     importedAt: existing?.importedAt ?? nowIso(),
     updatedAt: nowIso(),
   };
+
+  // Les corrections saisies à la main l'emportent sur ce que relit le lecteur.
+  if (existing?.manualFields?.length) {
+    const kept = MANUAL_FIELDS.filter((field) => existing.manualFields?.includes(field));
+    Object.assign(doc, Object.fromEntries(kept.map((field) => [field, existing[field]])));
+  }
 
   // Conserve les associations validées manuellement lors d'un ré-import.
   if (existing && !existing.stockApplied) {
@@ -477,7 +508,8 @@ export async function scanFolder(options: ScanOptions = {}): Promise<ScanReport>
   for (const [index, file] of files.entries()) {
     options.onProgress?.({ current: index + 1, total: files.length, file: path.basename(file.filePath) });
 
-    const known = store.db.documents.find((d) => d.sourceFile === file.filePath);
+    const stored = storePath(file.filePath);
+    const known = store.db.documents.find((d) => d.sourceFile === stored);
     if (!options.force && known && known.sourceMtime === file.mtimeMs) {
       report.skipped++;
       continue;
@@ -551,7 +583,13 @@ export function upsertDocument(input: Partial<AccountingDocument> & { id?: ID })
   return store.mutate((db) => {
     const existing = input.id ? db.documents.find((d) => d.id === input.id) : undefined;
     if (existing) {
+      // Tout champ effectivement modifié ici vient de l'utilisateur : on le note
+      // pour qu'une relecture du fichier d'origine ne le défasse pas.
+      const edited = MANUAL_FIELDS.filter(
+        (field) => field in input && (input as Record<string, unknown>)[field] !== existing[field],
+      );
       Object.assign(existing, { ...input, updatedAt: nowIso() });
+      if (edited.length) markManual(existing, ...edited);
       if (input.lines) resolveDocumentLines(existing);
       return existing;
     }

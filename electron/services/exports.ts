@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { DeliveryRoute } from '@shared/types';
 import { store } from '../store';
 import { ensureWatchFolder } from './documents';
+import { resolvePath } from './paths';
 
 /** Échappe une valeur pour un CSV lisible par Excel en français (séparateur `;`). */
 function cell(value: unknown): string {
@@ -63,7 +64,7 @@ export function exportDocumentsCsv(): string {
         client?.name ?? d.clientNameRaw ?? '', client?.code ?? '',
         '', '', '', '', '',
         d.totalHT, d.totalVAT, d.totalTTC, STATUS_LABEL[d.status] ?? d.status,
-        d.stockApplied ? 'oui' : 'non', d.sourceFile ?? '',
+        d.stockApplied ? 'oui' : 'non', d.sourceFile ? resolvePath(d.sourceFile) : '',
       ]];
     }
     return d.lines.map((l) => {
@@ -74,7 +75,7 @@ export function exportDocumentsCsv(): string {
         l.ref ?? '', l.label, l.qty, l.unit ?? '', l.unitPriceHT ?? '',
         l.totalHT ?? '', product?.sku ?? '', product?.name ?? '',
         d.totalTTC, STATUS_LABEL[d.status] ?? d.status,
-        d.stockApplied ? 'oui' : 'non', d.sourceFile ?? '',
+        d.stockApplied ? 'oui' : 'non', d.sourceFile ? resolvePath(d.sourceFile) : '',
       ];
     });
   });

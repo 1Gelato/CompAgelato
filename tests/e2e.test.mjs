@@ -220,6 +220,93 @@ test('une seconde analyse ne crée pas de doublons', async () => {
   assert.equal(second.length, first.length);
 });
 
+test('une relecture ne défait pas les corrections manuelles', async () => {
+  const documents = await page.evaluate(() => window.api.documents.list());
+  const facture = documents.find((d) => d.number === 'FA-2026-0142');
+  assert.ok(facture, 'facture de référence absente');
+
+  // L'utilisateur corrige des champs que le lecteur avait remplis lui-même,
+  // marque la pièce imprimée, puis détache volontairement le client.
+  await page.evaluate(async (id) => {
+    await window.api.documents.save({ id, totalHT: 999.99, dueDate: '2026-12-31', notes: 'vérifié à la main' });
+    await window.api.documents.setPrinted(id, true);
+    await window.api.documents.setClient(id, null);
+  }, facture.id);
+
+  // Le fichier d'origine est relu de force.
+  const report = await page.evaluate(() => window.api.documents.scan({ force: true }));
+  assert.equal(report.failed, 0, JSON.stringify(report.errors));
+
+  const after = (await page.evaluate(() => window.api.documents.list()))
+    .find((d) => d.id === facture.id);
+  assert.ok(after, 'la facture a disparu après relecture');
+
+  assert.equal(after.totalHT, 999.99, 'le total corrigé a été écrasé par le lecteur');
+  assert.equal(after.dueDate, '2026-12-31', 'l’échéance saisie a été perdue');
+  assert.equal(after.notes, 'vérifié à la main');
+  assert.ok(after.printedAt, 'le repère d’impression a été effacé par la relecture');
+  assert.equal(after.clientId, undefined, 'le client détaché a été rerattaché tout seul');
+
+  // Ce qui n'a pas été corrigé continue bien de suivre le fichier.
+  assert.equal(after.totalTTC, 382.8, 'les champs non corrigés doivent rester à jour');
+
+  // Remise en état pour les tests suivants.
+  await page.evaluate(async (payload) => {
+    await window.api.documents.save({
+      id: payload.id, totalHT: payload.totalHT, dueDate: payload.dueDate, notes: undefined,
+    });
+    await window.api.documents.setPrinted(payload.id, false);
+    await window.api.documents.setClient(payload.id, payload.clientId);
+  }, { id: facture.id, totalHT: facture.totalHT, dueDate: facture.dueDate ?? null, clientId: facture.clientId });
+});
+
+test('déplacer le dossier de travail ne duplique aucun document', async () => {
+  // C'est le piège des chemins absolus : si le chemin enregistré ne correspond
+  // plus, chaque pièce est relue comme si elle était nouvelle.
+  const before = await page.evaluate(() => window.api.documents.list());
+  assert.ok(before.length >= 3, 'trop peu de documents pour que le test ait du sens');
+
+  // Les chemins sont désormais enregistrés relativement au dossier de travail.
+  const withSource = before.filter((d) => d.sourceFile);
+  assert.ok(withSource.length >= 3, 'aucun document ne porte de fichier source');
+  for (const doc of withSource) {
+    assert.ok(
+      !/^([A-Za-z]:[\\/]|\/)/.test(doc.sourceFile),
+      `chemin encore absolu en base : ${doc.sourceFile}`,
+    );
+  }
+
+  // Déménagement : le dossier entier change d'emplacement.
+  const moved = path.join(workspace, 'Documents', 'CompaGelato-Deplace');
+  fs.cpSync(watchFolder, moved, { recursive: true });
+  await page.evaluate(
+    (folder) => window.api.settings.update({ watchFolder: folder, autoScan: false }),
+    moved,
+  );
+
+  const report = await page.evaluate(() => window.api.documents.scan({}));
+  assert.equal(report.failed, 0, JSON.stringify(report.errors));
+  assert.equal(report.imported, 0, `le déménagement a réimporté ${report.imported} document(s)`);
+
+  const after = await page.evaluate(() => window.api.documents.list());
+  assert.equal(after.length, before.length, 'le nombre de documents a changé après déménagement');
+
+  // Le fichier d'origine reste ouvrable depuis le nouvel emplacement.
+  const target = after.find((d) => d.number === 'FA-2026-0142');
+  assert.ok(target?.sourceFile, 'la facture de référence a perdu son fichier');
+  assert.ok(
+    fs.existsSync(path.join(moved, target.sourceFile)),
+    `fichier introuvable au nouvel emplacement : ${target.sourceFile}`,
+  );
+
+  // Retour à l'emplacement d'origine pour la suite des tests.
+  await page.evaluate(
+    (folder) => window.api.settings.update({ watchFolder: folder }),
+    watchFolder,
+  );
+  fs.rmSync(moved, { recursive: true, force: true });
+});
+
 test('optimisation de tournée avec arrêt épinglé et calcul du coût', async () => {
   const result = await page.evaluate(async () => {
     const clients = await window.api.clients.list();
@@ -400,6 +487,8 @@ test('la surveillance du dossier importe un fichier déposé sans intervention',
 
   // Nouveau fichier déposé par le logiciel de comptabilité.
   const dropped = path.join(watchFolder, 'Factures', 'FA-2026-0199.pdf');
+  // Les chemins sont enregistrés relativement au dossier de travail.
+  const droppedRelative = 'Factures/FA-2026-0199.pdf';
   fs.copyFileSync(path.join(pdfDir, 'FA-2026-0143.pdf'), dropped);
 
   // La surveillance attend la fin d'écriture puis regroupe les événements.
@@ -408,10 +497,10 @@ test('la surveillance du dossier importe un fichier déposé sans intervention',
   while (Date.now() < deadline) {
     await page.waitForTimeout(700);
     documents = await page.evaluate(() => window.api.documents.list());
-    if (documents.some((d) => d.sourceFile === dropped)) break;
+    if (documents.some((d) => d.sourceFile === droppedRelative)) break;
   }
 
-  const imported = documents.find((d) => d.sourceFile === dropped);
+  const imported = documents.find((d) => d.sourceFile === droppedRelative);
   assert.ok(imported, `fichier non repris automatiquement (${documents.length} document(s) en base)`);
   assert.equal(imported.totalHT, 143.7);
   // Même contenu qu'une facture déjà connue : le numéro lu est identique,

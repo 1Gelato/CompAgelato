@@ -25,8 +25,10 @@ import type {
 } from '@shared/types';
 import { defaultWatchFolder, newId, nowIso, store } from './store';
 import { folderWatcher } from './watcher';
+import { resolvePath } from './services/paths';
 import {
   ensureWatchFolder,
+  markManual,
   removeDocument,
   rescanFile,
   scanFolder,
@@ -399,6 +401,9 @@ const handlers: Registry = {
         if (!target) throw new Error('Document introuvable.');
         target.clientId = clientId ?? undefined;
         target.warnings = target.warnings.filter((w) => !w.startsWith('Client'));
+        // Y compris un détachement volontaire : sans cette marque, la relecture
+        // rattacherait à nouveau le client deviné.
+        markManual(target, 'clientId');
         target.updatedAt = nowIso();
         return target;
       });
@@ -419,6 +424,7 @@ const handlers: Registry = {
         const target = db.documents.find((d) => d.id === documentId);
         if (!target) throw new Error('Document introuvable.');
         target.status = status;
+        markManual(target, 'status');
         target.updatedAt = nowIso();
         return target;
       });
@@ -436,17 +442,18 @@ const handlers: Registry = {
     async openFile(documentId: ID) {
       const doc = requireDocument(documentId);
       if (!doc.sourceFile) throw new Error("Ce document n'a pas de fichier d'origine (saisie manuelle).");
-      if (!fs.existsSync(doc.sourceFile)) {
-        throw new Error(`Le fichier n'est plus à son emplacement :\n${doc.sourceFile}`);
+      const source = resolvePath(doc.sourceFile);
+      if (!fs.existsSync(source)) {
+        throw new Error(`Le fichier n'est plus à son emplacement :\n${source}`);
       }
-      const error = await shell.openPath(doc.sourceFile);
+      const error = await shell.openPath(source);
       if (error) throw new Error(error);
     },
 
     async print(documentId: ID): Promise<PrintOutcome> {
       const doc = requireDocument(documentId);
       if (!doc.sourceFile) throw new Error("Ce document n'a pas de fichier d'origine à imprimer.");
-      const result = await printFile(doc.sourceFile);
+      const result = await printFile(resolvePath(doc.sourceFile));
       if (result.printed) {
         store.mutate(() => {
           doc.printedAt = nowIso();
@@ -492,7 +499,7 @@ const handlers: Registry = {
       const body = signature ? `${bodyBase}\n\n${signature}` : bodyBase;
 
       const attachments = listAttachments().map((a) => ({ ...a, exists: attachmentExists(a) }));
-      const documentAttachable = Boolean(doc.sourceFile && fs.existsSync(doc.sourceFile));
+      const documentAttachable = Boolean(doc.sourceFile && fs.existsSync(resolvePath(doc.sourceFile)));
 
       return {
         draft: {
@@ -518,16 +525,17 @@ const handlers: Registry = {
       if (!draft.to?.trim()) throw new Error('Renseignez au moins un destinataire.');
 
       const files: { filePath: string; fileName?: string }[] = [];
-      if (draft.includeDocument && doc.sourceFile && fs.existsSync(doc.sourceFile)) {
-        files.push({ filePath: doc.sourceFile });
+      if (draft.includeDocument && doc.sourceFile && fs.existsSync(resolvePath(doc.sourceFile))) {
+        files.push({ filePath: resolvePath(doc.sourceFile) });
       }
       for (const id of draft.attachmentIds ?? []) {
         const attachment = store.db.attachments.find((a) => a.id === id);
         if (!attachment) continue;
-        if (!fs.existsSync(attachment.filePath)) continue;
+        const attachmentPath = resolvePath(attachment.filePath);
+        if (!fs.existsSync(attachmentPath)) continue;
         files.push({
-          filePath: attachment.filePath,
-          fileName: `${attachment.name}${path.extname(attachment.filePath)}`,
+          filePath: attachmentPath,
+          fileName: `${attachment.name}${path.extname(attachmentPath)}`,
         });
       }
 
@@ -620,8 +628,9 @@ const handlers: Registry = {
     async open(id: ID) {
       const attachment = store.db.attachments.find((a) => a.id === id);
       if (!attachment) throw new Error('Pièce jointe introuvable.');
-      if (!fs.existsSync(attachment.filePath)) throw new Error('Le fichier a été déplacé ou supprimé.');
-      const error = await shell.openPath(attachment.filePath);
+      const file = resolvePath(attachment.filePath);
+      if (!fs.existsSync(file)) throw new Error('Le fichier a été déplacé ou supprimé.');
+      const error = await shell.openPath(file);
       if (error) throw new Error(error);
     },
     async sync() {
@@ -847,7 +856,7 @@ const handlers: Registry = {
       const vehicle = store.mutate((db) => {
         const existing = input.id ? db.vehicles.find((v) => v.id === input.id) : undefined;
         if (existing) {
-          Object.assign(existing, input);
+          Object.assign(existing, input, { updatedAt: nowIso() });
           if (input.isDefault) {
             for (const v of db.vehicles) v.isDefault = v.id === existing.id;
             db.settings.defaultVehicleId = existing.id;
@@ -862,6 +871,8 @@ const handlers: Registry = {
           maintenancePerKm: input.maintenancePerKm ?? 0.08,
           driverCostPerHour: input.driverCostPerHour ?? 0,
           isDefault: input.isDefault ?? db.vehicles.length === 0,
+          createdAt: nowIso(),
+          updatedAt: nowIso(),
         };
         if (created.isDefault) {
           for (const v of db.vehicles) v.isDefault = false;

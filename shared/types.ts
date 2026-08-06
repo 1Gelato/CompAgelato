@@ -95,6 +95,12 @@ export interface AccountingDocument {
   confidence: number;
   /** Champs que l'extraction n'a pas su lire de façon sûre. */
   warnings: string[];
+  /**
+   * Champs corrigés à la main. Une relecture du fichier d'origine ne les
+   * écrase jamais : sans cette liste, rattacher une facture au bon client ou
+   * corriger une date serait défait au prochain passage du lecteur.
+   */
+  manualFields?: string[];
   notes?: string;
   importedAt: string;
   updatedAt: string;
@@ -148,6 +154,7 @@ export interface Attachment {
   defaultSelected: boolean;
   archived: boolean;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface EmailDraft {
@@ -171,6 +178,8 @@ export interface Vehicle {
   /** Coût horaire du chauffeur en €/h (0 pour l'ignorer). */
   driverCostPerHour: number;
   isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface RouteStop {

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Attachment, ID } from '@shared/types';
 import { newId, nowIso, store } from '../store';
+import { resolvePath, storePath } from './paths';
 
 /**
  * Bibliothèque de pièces jointes réutilisables (flyers, plaquettes,
@@ -46,13 +47,16 @@ export function addAttachment(sourcePath: string, options: { name?: string; cate
   const target = alreadyInside ? sourcePath : uniqueTarget(folder, fileName);
   if (!alreadyInside) fs.copyFileSync(sourcePath, target);
 
-  const existing = store.db.attachments.find((a) => path.resolve(a.filePath) === path.resolve(target));
+  const existing = store.db.attachments.find(
+    (a) => path.resolve(resolvePath(a.filePath)) === path.resolve(target),
+  );
   if (existing) {
     return store.mutate(() => {
       existing.archived = false;
       existing.size = fs.statSync(target).size;
       if (options.name) existing.name = options.name;
       if (options.category) existing.category = options.category;
+      existing.updatedAt = nowIso();
       return existing;
     });
   }
@@ -61,12 +65,13 @@ export function addAttachment(sourcePath: string, options: { name?: string; cate
     const attachment: Attachment = {
       id: newId('att'),
       name: options.name?.trim() || path.basename(target, path.extname(target)),
-      filePath: target,
+      filePath: storePath(target),
       size: fs.statSync(target).size,
       category: options.category,
       defaultSelected: false,
       archived: false,
       createdAt: nowIso(),
+      updatedAt: nowIso(),
     };
     db.attachments.push(attachment);
     return attachment;
@@ -82,6 +87,7 @@ export function updateAttachment(id: ID, patch: Partial<Attachment>): Attachment
       category: patch.category ?? attachment.category,
       defaultSelected: patch.defaultSelected ?? attachment.defaultSelected,
       archived: patch.archived ?? attachment.archived,
+      updatedAt: nowIso(),
     });
     return attachment;
   });
@@ -110,7 +116,7 @@ export function syncAttachmentsFolder(): { added: number; missing: number } {
     return { added: 0, missing: 0 };
   }
 
-  const known = new Set(store.db.attachments.map((a) => path.resolve(a.filePath)));
+  const known = new Set(store.db.attachments.map((a) => path.resolve(resolvePath(a.filePath))));
   for (const file of files) {
     const full = path.join(folder, file);
     try {
@@ -126,7 +132,7 @@ export function syncAttachmentsFolder(): { added: number; missing: number } {
   // Une pièce dont le fichier a disparu est signalée plutôt que supprimée.
   store.mutate((db) => {
     for (const attachment of db.attachments) {
-      if (!fs.existsSync(attachment.filePath)) missing++;
+      if (!fs.existsSync(resolvePath(attachment.filePath))) missing++;
     }
   });
 
@@ -134,5 +140,5 @@ export function syncAttachmentsFolder(): { added: number; missing: number } {
 }
 
 export function attachmentExists(attachment: Attachment): boolean {
-  return fs.existsSync(attachment.filePath);
+  return fs.existsSync(resolvePath(attachment.filePath));
 }

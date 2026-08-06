@@ -38,6 +38,13 @@ mauvaise colonne.
 Les fichiers d'origine ne sont **jamais** modifiés ni déplacés. Un fichier déjà
 importé et inchangé est ignoré : rescanner ne crée pas de doublon.
 
+**Vos corrections tiennent.** Si vous rattachez une facture au bon client,
+rectifiez un total mal lu ou saisissez une échéance, une relecture du fichier ne
+défait rien : les champs corrigés à la main sont mémorisés comme tels. Les
+repères d'impression et d'envoi survivent également. Les emplacements de
+fichiers sont enregistrés relativement au dossier de travail, si bien que
+déplacer ce dossier ne réimporte rien en double.
+
 **Carnet de clients**
 Import de votre liste depuis CSV ou Excel, avec reconnaissance automatique des
 colonnes (nom, adresse, code postal, e-mail, SIRET…). Les factures se rattachent
@@ -321,4 +328,6 @@ npm run test:all
   Enfin le tri des colonnes dans les deux sens sur documents, clients et stock,
   le filtre des relevés sur une période donnée, et la recherche par montant
   qui retrouve une facture par son HT comme par son TTC et une opération
-  bancaire par son débit.
+  bancaire par son débit. Deux garde-fous vérifiés en neutralisant volontairement
+  le correctif : une relecture ne défait pas les corrections manuelles, et
+  déplacer le dossier de travail ne duplique aucun document.

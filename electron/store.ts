@@ -7,8 +7,14 @@ import type { Address, Attachment, Database, Settings, Vehicle } from '@shared/t
 
 const DB_VERSION = 1;
 
+/**
+ * Identifiant unique. 16 caractères hexadécimaux (64 bits) : sur un seul poste
+ * 12 suffisaient, mais dès que plusieurs appareils créent des fiches chacun de
+ * leur côté la marge devient trop mince. Les identifiants déjà émis restent
+ * valides — ce sont de simples chaînes.
+ */
 export function newId(prefix = ''): string {
-  const raw = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+  const raw = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   return prefix ? `${prefix}_${raw}` : raw;
 }
 
@@ -77,6 +83,8 @@ function defaultVehicle(): Vehicle {
     maintenancePerKm: 0.08,
     driverCostPerHour: 0,
     isDefault: true,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
   };
 }
 
@@ -156,6 +164,16 @@ class Store {
     if (!db.settings.defaultVehicleId && db.vehicles[0]) {
       db.settings.defaultVehicleId = db.vehicles[0].id;
     }
+    // Véhicules et pièces jointes n'ont pas toujours porté de date de
+    // modification : on la renseigne pour les fiches déjà enregistrées, faute
+    // de quoi il serait impossible de départager deux versions plus tard.
+    for (const vehicle of db.vehicles) {
+      if (!vehicle.createdAt) vehicle.createdAt = nowIso();
+      if (!vehicle.updatedAt) vehicle.updatedAt = vehicle.createdAt;
+    }
+    for (const attachment of db.attachments) {
+      if (!attachment.updatedAt) attachment.updatedAt = attachment.createdAt ?? nowIso();
+    }
     // Le dossier surveillé doit toujours pointer quelque part de valide.
     if (!db.settings.watchFolder) db.settings.watchFolder = defaultWatchFolder();
     // Un dépôt sans coordonnées empêche tout calcul de tournée : on rétablit
@@ -163,7 +181,33 @@ class Store {
     if (!db.settings.depot?.lat || !db.settings.depot?.lon) {
       db.settings.depot = { ...DEFAULT_DEPOT };
     }
+    this.relativizePaths(db);
     return db;
+  }
+
+  /**
+   * Réécrit en relatif les chemins de fichiers enregistrés en absolu par les
+   * versions précédentes. Sans cette reprise, déplacer le dossier de travail
+   * ferait réimporter chaque document en double : la déduplication compare ces
+   * chemins caractère par caractère.
+   */
+  private relativizePaths(db: Database): void {
+    const root = db.settings.watchFolder;
+    if (!root) return;
+    const inside = path.resolve(root);
+
+    const toRelative = (stored?: string): string | undefined => {
+      if (!stored || !path.isAbsolute(stored)) return stored;
+      const relative = path.relative(inside, path.resolve(stored));
+      if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return stored;
+      return relative.split(path.sep).join('/');
+    };
+
+    for (const doc of db.documents) doc.sourceFile = toRelative(doc.sourceFile);
+    for (const tx of db.bankTransactions) tx.sourceFile = toRelative(tx.sourceFile);
+    for (const attachment of db.attachments) {
+      attachment.filePath = toRelative(attachment.filePath) ?? attachment.filePath;
+    }
   }
 
   private restoreLatestBackup(): Database | null {
