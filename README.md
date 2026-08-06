@@ -420,8 +420,45 @@ Ce qui tient la sécurité :
 - Les tentatives de connexion sont **limitées**, par compte et par appareil, et
   un identifiant inconnu renvoie le même message qu'un mot de passe erroné.
 
-Ce qui n'est pas encore fait : la synchronisation hors-ligne filtrée par rôle
-(étape 3). Aujourd'hui l'accès distant exige le réseau.
+### Hors ligne : l'application marche en zone blanche
+
+L'application de bureau branchée garde une **copie locale** des données qui la
+concernent (`miroir.json`, à côté de la base) et reste utilisable sans réseau :
+
+- **Serveur injoignable ?** Les tableaux s'affichent depuis la copie locale, un
+  bandeau « Hors ligne » l'indique dans la barre latérale, et l'application
+  s'ouvre même serveur éteint — sans dialogue bloquant dès lors qu'une première
+  synchronisation a eu lieu.
+- **Vos modifications sont conservées.** Chaque geste fait hors ligne est
+  journalisé comme une intention (`attente.json`) et **rejoué dans l'ordre** à
+  la reconnexion — détectée automatiquement. L'écran reflète le geste tout de
+  suite ; à la synchronisation suivante, la version du serveur fait foi.
+- **Un rejeu refusé n'est jamais abandonné en silence.** Si la fiche visée a été
+  supprimée entre-temps, l'opération est présentée dans **Réglages →
+  Synchronisation**, avec son explication, à garder ou abandonner.
+
+Le principe : **descendre des états, remonter des intentions.** Le serveur
+numérote chaque modification (`rev`) et descend les deltas ; les suppressions
+voyagent en pierres tombales (purgées à 90 jours — un appareil plus en retard
+refait une synchronisation complète, de même qu'après une restauration de
+sauvegarde, qui change la génération de la base). Le poste ne fusionne rien :
+les conflits se résolvent sur le serveur, en rejouant les intentions contre
+l'état réel — les règles métier ne sont écrites qu'une fois.
+
+**Le stock est le seul cas qui demande mieux que « le dernier qui écrit
+gagne »**, et il est traité : le stock est la **somme de ses mouvements**, pas
+un nombre stocké. Deux appareils qui déduisent chacun la même facture hors
+ligne produisent des mouvements aux **identifiants déterministes** — dérivés de
+(document, ligne) — qui fusionnent au lieu de se cumuler. Le stock initial
+(saisie, import) passe lui aussi par un mouvement, et les bases existantes
+reçoivent un mouvement de reprise d'inventaire à la migration.
+
+Restent en ligne uniquement : les analyses de dossier, les imports de fichiers,
+le géocodage et le calcul d'itinéraire (services externes), et le tableau de
+bord.
+
+Ce qui n'est pas encore fait : le pré-téléchargement des PDF pour la tournée du
+jour — hors ligne, les fichiers d'origine ne s'ouvrent pas encore.
 
 ## Ce qui sort de votre ordinateur
 
@@ -458,6 +495,8 @@ electron/                 Processus principal (Node)
                           toucher aux signatures des gestionnaires
   remote.ts               Proxy HTTP du processus principal : les canaux métier
                           renvoyés au serveur, fichiers rapatriés, flux SSE
+  offline.ts              Miroir local, file d'attente d'intentions et rejeu :
+                          le mode branché qui survit aux coupures
   server.ts               Serveur HTTP zéro dépendance : API, SSE, fichiers,
                           téléversements, interface web
   serverMain.ts           Point d'entrée du mode serveur
@@ -484,7 +523,8 @@ electron/                 Processus principal (Node)
     dashboard.ts          Agrégats
     exports.ts            Exports CSV
 src/                      Interface React
-shared/                   Types, contrat IPC et table des droits par canal
+shared/                   Types, contrat IPC, table des droits par canal et
+                          protocole de synchronisation (révisions, tombstones)
 tests/                    Tests unitaires et de bout en bout
 ```
 
@@ -576,6 +616,19 @@ npm run test:all
   erroné, une rafale de tentatives verrouille, révoquer une session coupe
   l'accès dans la seconde, et le dernier gérant ne peut ni se rétrograder ni se
   supprimer.
+- **11 tests du hors-ligne** — un vrai serveur, un vrai poste (le module
+  `offline` tel que l'application l'utilise) et une vraie coupure : le serveur
+  est **tué puis relancé** en cours de test. Sont vérifiés : le stock initial
+  enregistré comme mouvement, la synchronisation complète puis les deltas, la
+  suppression qui descend en pierre tombale, la déduction **déterministe**
+  (annuler puis redéduire recrée exactement les mêmes identifiants de
+  mouvements), le miroir écrit sur disque, les lectures — y compris soldes de
+  stock recalculés — servies pendant la coupure, les écritures muées en
+  intentions avec identifiant pré-assigné, le rejeu dans l'ordre au retour du
+  serveur avec la fiche recréée **sous le même identifiant**, l'échec métier
+  conservé et présenté plutôt qu'avalé, le miroir d'un livreur qui ne reçoit
+  jamais banque ni documents, et la restauration de sauvegarde qui change de
+  génération et force la resynchronisation complète.
   Enfin le tri des colonnes dans les deux sens sur documents, clients et stock,
   le filtre des relevés sur une période donnée, et la recherche par montant
   qui retrouve une facture par son HT comme par son TTC et une opération

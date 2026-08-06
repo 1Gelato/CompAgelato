@@ -80,7 +80,7 @@ export function upsertRegisterEntry(
     }
 
     const created: RegisterEntry = {
-      id: newId('reg'),
+      id: input.id ?? newId('reg'),
       kind: input.kind!,
       clientId: input.clientId,
       clientName: input.clientName?.trim() || undefined,
@@ -216,7 +216,7 @@ export function upsertMachine(input: Partial<EventMachine> & { id?: ID }): Event
       return existing;
     }
     const machine: EventMachine = {
-      id: newId('mch'),
+      id: input.id ?? newId('mch'),
       name: input.name?.trim() || 'Machine sans nom',
       reference: input.reference?.trim() || undefined,
       qtyTotal: Math.max(0, input.qtyTotal ?? 1),

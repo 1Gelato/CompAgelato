@@ -24,6 +24,7 @@ import type {
   RegisterStatus,
   Role,
   Session,
+  SyncedCollection,
   UserSummary,
   RouteComputation,
   RouteStop,
@@ -67,6 +68,7 @@ export const CHANNELS = {
   db: ['backup', 'restore', 'exportAll', 'stats', 'seedDemo', 'wipeDemo'],
   updates: ['check', 'apply'],
   auth: ['status', 'login', 'logout', 'me', 'changePassword', 'users', 'saveUser', 'removeUser', 'sessions', 'revokeSession'],
+  sync: ['pull', 'status', 'retry', 'discard'],
 } as const;
 
 export type ChannelMap = typeof CHANNELS;
@@ -241,6 +243,15 @@ export const CHANNEL_ACCESS: Record<ChannelName, readonly Role[]> = {
   'auth:removeUser': GERANT,
   'auth:sessions': GERANT,
   'auth:revokeSession': GERANT,
+
+  /* Synchronisation ---------------------------------------------------- */
+  // `pull` est ouvert à tous les rôles : c'est le mécanisme de réplication,
+  // et il filtre lui-même collection par collection selon le rôle.
+  'sync:pull': ALL,
+  // L'état de la file d'attente appartient au poste, pas au serveur.
+  'sync:status': LOCAL,
+  'sync:retry': LOCAL,
+  'sync:discard': LOCAL,
 };
 
 /** Ce rôle peut-il appeler ce canal ? */
@@ -248,6 +259,25 @@ export function mayCall(role: Role, channel: string): boolean {
   const allowed = CHANNEL_ACCESS[channel as ChannelName];
   return Boolean(allowed?.includes(role));
 }
+
+/**
+ * Le canal qui gouverne la réplication de chaque collection. Le filtre
+ * s'applique **à la source** : le miroir d'un livreur ne contient jamais les
+ * données bancaires ni les documents — les cacher à l'écran ne protégerait
+ * rien, le fichier local étant lisible sur l'appareil.
+ */
+export const COLLECTION_CHANNEL: Record<SyncedCollection, ChannelName> = {
+  clients: 'clients:list',
+  documents: 'documents:list',
+  products: 'products:list',
+  stockMoves: 'stock:moves',
+  routes: 'routes:list',
+  vehicles: 'vehicles:list',
+  attachments: 'attachments:list',
+  bankTransactions: 'bank:list',
+  registerEntries: 'registers:list',
+  eventMachines: 'machines:list',
+};
 
 export interface AppInfo {
   version: string;
@@ -395,6 +425,65 @@ export interface ProductSuggestion {
   product: Product;
   score: number;
   reason: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Synchronisation                                                      */
+/* ------------------------------------------------------------------ */
+
+export interface SyncPullRequest {
+  /** Génération connue de l'appareil ; absente ou différente → base complète. */
+  generation?: string;
+  /** Dernière révision connue de l'appareil. */
+  since?: number;
+}
+
+/**
+ * Delta descendu du serveur : les enregistrements modifiés, tels quels. Le
+ * poste n'a **aucune logique de fusion** — il remplace, il supprime, c'est
+ * tout. Toute la résolution de conflits vit côté serveur, dans les
+ * gestionnaires qui rejouent les intentions.
+ */
+export interface SyncPullResult {
+  generation: string;
+  maxRev: number;
+  /** Rôle et identité vus par le serveur, mémorisés dans le miroir. */
+  role: Role;
+  identity: AuthIdentity | null;
+  /**
+   * `true` : repartir de zéro (première synchro, génération changée, retard
+   * au-delà des pierres tombales conservées, ou rôle différent).
+   */
+  full: boolean;
+  /** Enregistrements nouveaux ou modifiés, par collection autorisée au rôle. */
+  changes: Partial<Record<SyncedCollection, unknown[]>>;
+  /** Identifiants supprimés depuis `since`, par collection. */
+  removed: Partial<Record<SyncedCollection, ID[]>>;
+  /** Réglages, quand ils ont changé (ou en synchro complète). */
+  settings?: Settings;
+}
+
+/** Une intention en attente de rejeu sur le serveur. */
+export interface QueuedIntent {
+  id: ID;
+  at: string;
+  namespace: string;
+  method: string;
+  args: unknown[];
+  /** Renseigné quand le rejeu a échoué pour une raison métier. */
+  error?: string;
+}
+
+export interface SyncStatus {
+  /** Le serveur répond-il en ce moment ? */
+  online: boolean;
+  /** Dernière révision répliquée dans le miroir. */
+  since: number;
+  lastPullAt?: string;
+  /** Intentions en attente de rejeu, dans l'ordre. */
+  pending: QueuedIntent[];
+  /** Rejeux refusés par le serveur, à arbitrer par l'utilisateur. */
+  failed: QueuedIntent[];
 }
 
 export interface Api {
@@ -593,6 +682,16 @@ export interface Api {
     removeUser(id: ID): Promise<void>;
     sessions(): Promise<(Session & { username: string })[]>;
     revokeSession(id: ID): Promise<void>;
+  };
+  sync: {
+    /** Delta depuis la révision connue — ou base complète s'il le faut. */
+    pull(input?: SyncPullRequest): Promise<SyncPullResult>;
+    /** État du miroir et de la file d'attente de ce poste. */
+    status(): Promise<SyncStatus>;
+    /** Rejoue la file d'attente maintenant (et resynchronise). */
+    retry(): Promise<SyncStatus>;
+    /** Abandonne une intention dont le rejeu a échoué. */
+    discard(intentId: ID): Promise<SyncStatus>;
   };
   /** Événements poussés par le processus principal (scan de dossier, alertes…). */
   on(event: 'documents-changed' | 'scan-progress' | 'toast', handler: (payload: any) => void): () => void;

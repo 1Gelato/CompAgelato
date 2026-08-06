@@ -240,7 +240,7 @@ export function upsertRoute(input: Partial<DeliveryRoute> & { id?: string }): De
       return existing;
     }
     const route: DeliveryRoute = {
-      id: newId('rte'),
+      id: input.id ?? newId('rte'),
       name: input.name?.trim() || `Tournée du ${today()}`,
       date: input.date ?? today(),
       vehicleId: input.vehicleId ?? db.settings.defaultVehicleId,

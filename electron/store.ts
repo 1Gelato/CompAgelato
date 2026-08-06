@@ -3,7 +3,18 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import type { Address, Attachment, Database, Settings, Vehicle } from '@shared/types';
+import type {
+  Address,
+  Attachment,
+  Database,
+  ID,
+  Settings,
+  StockMove,
+  SyncMeta,
+  Syncable,
+  Vehicle,
+} from '@shared/types';
+import { SYNCED_COLLECTIONS } from '@shared/types';
 
 const DB_VERSION = 1;
 
@@ -109,6 +120,22 @@ function defaultVehicle(): Vehicle {
   };
 }
 
+function freshSyncMeta(): SyncMeta {
+  return { generation: newId('gen'), maxRev: 0, floorRev: 0, tombstones: {} };
+}
+
+/** Pierres tombales conservées 90 jours ; au-delà, synchronisation complète. */
+const TOMBSTONE_DAYS = 90;
+
+/**
+ * Empreinte du contenu d'un enregistrement, révision exclue : c'est elle qui
+ * dit « quelque chose a changé », et la révision qu'on attribue en conséquence
+ * ne doit pas déclencher elle-même un nouveau changement.
+ */
+function fingerprintOf(row: Syncable & { id: ID }): string {
+  return JSON.stringify({ ...row, rev: undefined });
+}
+
 function emptyDatabase(): Database {
   const vehicle = defaultVehicle();
   return {
@@ -126,6 +153,7 @@ function emptyDatabase(): Database {
     settings: { ...defaultSettings(), defaultVehicleId: vehicle.id },
     users: [],
     sessions: [],
+    sync: freshSyncMeta(),
   };
 }
 
@@ -136,6 +164,16 @@ export class Store {
   private dirty = false;
   private flushTimer: NodeJS.Timeout | null = null;
   private loaded = false;
+  /**
+   * Empreinte de chaque enregistrement telle que vue à la dernière écriture.
+   * C'est le cœur du suivi des modifications : à chaque flush, on compare et on
+   * numérote ce qui a changé — aucun des points d'écriture n'a besoin de le
+   * signaler, et les mutations d'objets capturés avant l'appel sont vues quand
+   * même. Un identifiant présent hier et absent aujourd'hui est une
+   * suppression : sa pierre tombale est produite automatiquement.
+   */
+  private fingerprints = new Map<string, Map<ID, string>>();
+  private settingsFingerprint = '';
 
   init(paths?: StorePaths): void {
     if (this.loaded) return;
@@ -170,8 +208,88 @@ export class Store {
       this.dirty = true;
     }
     this.loaded = true;
+    this.rebuildFingerprints();
     this.flushSync();
     this.rotateBackups();
+  }
+
+  /**
+   * Reconstruit les empreintes après un chargement. Un enregistrement sans
+   * révision n'est volontairement pas empreint : le prochain flush le verra
+   * comme nouveau et lui en attribuera une.
+   */
+  private rebuildFingerprints(): void {
+    this.fingerprints.clear();
+    for (const collection of SYNCED_COLLECTIONS) {
+      const map = new Map<ID, string>();
+      for (const row of this.data[collection] as (Syncable & { id: ID })[]) {
+        if (row.rev !== undefined) map.set(row.id, fingerprintOf(row));
+      }
+      this.fingerprints.set(collection, map);
+    }
+    this.settingsFingerprint = JSON.stringify(this.data.settings);
+  }
+
+  /**
+   * Compare la base aux empreintes et numérote ce qui a changé. Appelée juste
+   * avant chaque écriture disque : les révisions sont donc toujours à jour au
+   * moment où un appareil vient les demander.
+   */
+  private assignRevisions(): void {
+    const sync = (this.data.sync ??= freshSyncMeta());
+    const now = nowIso();
+
+    for (const collection of SYNCED_COLLECTIONS) {
+      const rows = this.data[collection] as (Syncable & { id: ID })[];
+      const before = this.fingerprints.get(collection) ?? new Map<ID, string>();
+      const after = new Map<ID, string>();
+
+      for (const row of rows) {
+        const print = fingerprintOf(row);
+        if (row.rev === undefined || before.get(row.id) !== print) {
+          row.rev = ++sync.maxRev;
+        }
+        after.set(row.id, print);
+        before.delete(row.id);
+        // Un enregistrement recréé (restauration partielle, rejeu) reprend vie :
+        // sa pierre tombale ne doit plus le faire supprimer ailleurs.
+        const graves = sync.tombstones[collection];
+        if (graves?.some((g) => g.id === row.id)) {
+          sync.tombstones[collection] = graves.filter((g) => g.id !== row.id);
+        }
+      }
+
+      // Ce qui reste dans `before` a disparu : suppression.
+      if (before.size) {
+        const graves = (sync.tombstones[collection] ??= []);
+        for (const id of before.keys()) {
+          graves.push({ id, rev: ++sync.maxRev, deletedAt: now });
+        }
+      }
+      this.fingerprints.set(collection, after);
+    }
+
+    const settingsPrint = JSON.stringify(this.data.settings);
+    if (settingsPrint !== this.settingsFingerprint) {
+      sync.settingsRev = ++sync.maxRev;
+      this.settingsFingerprint = settingsPrint;
+    }
+
+    // Purge des pierres tombales trop vieilles. `floorRev` avance d'autant :
+    // un appareil resté en deçà refera une synchronisation complète.
+    const limit = Date.now() - TOMBSTONE_DAYS * 24 * 3600 * 1000;
+    for (const collection of SYNCED_COLLECTIONS) {
+      const graves = sync.tombstones[collection];
+      if (!graves?.length) continue;
+      const kept = graves.filter((g) => Date.parse(g.deletedAt) >= limit);
+      if (kept.length !== graves.length) {
+        sync.floorRev = Math.max(
+          sync.floorRev,
+          ...graves.filter((g) => Date.parse(g.deletedAt) < limit).map((g) => g.rev),
+        );
+        sync.tombstones[collection] = kept;
+      }
+    }
   }
 
   private migrate(parsed: Partial<Database>): Database {
@@ -193,6 +311,7 @@ export class Store {
       // partagé. Aucune bascule automatique vers une connexion obligatoire.
       users: parsed.users ?? [],
       sessions: parsed.sessions ?? [],
+      sync: parsed.sync ?? freshSyncMeta(),
     };
     if (!db.settings.defaultVehicleId && db.vehicles[0]) {
       db.settings.defaultVehicleId = db.vehicles[0].id;
@@ -221,6 +340,28 @@ export class Store {
         entry.items = [{ label: legacy.trim(), qty: 1 }];
       }
       delete (entry as { parts?: string }).parts;
+    }
+    // Le stock devient la somme de ses mouvements. Les bases existantes ont
+    // des quantités saisies ou importées sans trace : un mouvement de reprise
+    // rétablit l'égalité, une fois pour toutes. Son identifiant est déterministe
+    // pour que rejouer la migration n'en crée jamais un second.
+    for (const product of db.products) {
+      const total = db.stockMoves
+        .filter((m) => m.productId === product.id)
+        .reduce((sum, m) => sum + m.qty, 0);
+      const gap = Math.round((product.qtyOnHand - total) * 100) / 100;
+      if (gap !== 0) {
+        db.stockMoves.push({
+          id: `mv_ouv_${product.id}`,
+          productId: product.id,
+          qty: gap,
+          type: gap > 0 ? 'in' : 'adjust',
+          date: (product.createdAt ?? nowIso()).slice(0, 10),
+          note: 'Reprise d’inventaire',
+          balanceAfter: product.qtyOnHand,
+          createdAt: product.createdAt ?? nowIso(),
+        } as StockMove);
+      }
     }
     // Le dossier surveillé doit toujours pointer quelque part de valide.
     if (!db.settings.watchFolder) db.settings.watchFolder = defaultWatchFolder();
@@ -312,6 +453,9 @@ export class Store {
 
   flushSync(): void {
     if (!this.dirty || !this.file) return;
+    // Les révisions sont attribuées au moment d'écrire : tout ce qui a muté
+    // depuis le dernier flush est numéroté d'un coup, suppressions comprises.
+    this.assignRevisions();
     const tmp = `${this.file}.tmp`;
     const payload = JSON.stringify(this.data, null, 2);
     try {
@@ -353,6 +497,13 @@ export class Store {
     if (!parsed || typeof parsed !== 'object') return false;
     await this.backup();
     this.data = this.migrate(parsed);
+    // Nouvelle génération : les fiches supprimées depuis la sauvegarde
+    // ressusciteraient sans que les appareils s'en aperçoivent (leurs révisions
+    // sont anciennes, aucun delta ne les renverrait). Changer de génération
+    // leur dit « repars de zéro » — c'est correct par construction.
+    const sync = this.data.sync ?? freshSyncMeta();
+    this.data.sync = { ...sync, generation: newId('gen'), tombstones: {}, floorRev: 0 };
+    this.rebuildFingerprints();
     this.dirty = true;
     this.flushSync();
     return true;

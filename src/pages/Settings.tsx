@@ -5,6 +5,8 @@ import type {
   AuthIdentity,
   ChannelName,
   Connection,
+  QueuedIntent,
+  SyncStatus,
   UpdateCheckResult,
 } from '@shared/api';
 import { mayCall } from '@shared/api';
@@ -249,6 +251,8 @@ export function Settings({
       <div className="col" style={{ gap: 14, maxWidth: 940 }}>
         {identity && <AccountCard identity={identity} onSignedOut={onSignedOut} />}
         {identity?.role === 'gerant' && <UsersCard currentUserId={identity.userId} />}
+
+        {info?.mode === 'remote' && <SyncCard />}
 
         {/* Servie par le serveur : la question ne se pose pas, on y est déjà. */}
         {connection && connection.mode !== 'server' && (
@@ -1034,6 +1038,153 @@ export function Settings({
 /* ================================================================== */
 /* Bibliothèque de pièces jointes (flyers, plaquettes…)                */
 /* ================================================================== */
+
+/* ------------------------------------------------------------------ */
+/* Synchronisation (mode branché)                                       */
+/* ------------------------------------------------------------------ */
+
+/** Ce qu'un humain doit lire d'une intention : le geste, pas le JSON. */
+function intentLabel(intent: QueuedIntent): string {
+  const subject = (intent.args[0] ?? {}) as { name?: string; number?: string; title?: string };
+  const what =
+    typeof subject === 'object' && subject
+      ? subject.name ?? subject.number ?? subject.title ?? ''
+      : '';
+  const verbs: Record<string, string> = {
+    save: 'Enregistrer',
+    remove: 'Supprimer',
+    setStatus: 'Changer le statut',
+    setPrinted: 'Marquer imprimé',
+    setClient: 'Rattacher au client',
+    apply: 'Déduire du stock',
+    revert: 'Annuler la déduction',
+    linkLine: 'Associer une ligne',
+    adjust: 'Ajuster le stock',
+    update: 'Modifier les réglages',
+  };
+  const domains: Record<string, string> = {
+    clients: 'client',
+    documents: 'document',
+    products: 'article',
+    routes: 'tournée',
+    vehicles: 'véhicule',
+    registers: 'cahier',
+    machines: 'machine',
+    stock: 'stock',
+    settings: 'réglages',
+  };
+  const verb = verbs[intent.method] ?? intent.method;
+  const domain = domains[intent.namespace] ?? intent.namespace;
+  return `${verb} (${domain})${what ? ` — ${what}` : ''}`;
+}
+
+/**
+ * La file d'attente de ce poste : ce qui part au serveur à la reconnexion, et
+ * ce que le serveur a refusé — présenté, jamais abandonné en silence.
+ */
+function SyncCard() {
+  const toast = useToast();
+  const [status, setStatus] = useState<SyncStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    window.api.sync
+      .status()
+      .then(setStatus)
+      .catch(() => setStatus(null));
+  }, []);
+
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, 10_000);
+    return () => clearInterval(timer);
+  }, [load]);
+
+  if (!status) return null;
+
+  return (
+    <Card
+      title="Synchronisation"
+      subtitle="La copie locale de ce poste et les modifications faites hors ligne"
+    >
+      <div className="col" style={{ gap: 13 }}>
+        <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+          <Badge tone={status.online ? 'success' : 'warn'}>
+            {status.online ? 'En ligne' : 'Hors ligne'}
+          </Badge>
+          <span className="muted" style={{ fontSize: 12 }}>
+            {status.lastPullAt
+              ? `Dernière synchronisation : ${new Date(status.lastPullAt).toLocaleString('fr-FR')}`
+              : 'Pas encore synchronisé.'}
+          </span>
+          <div className="spacer" />
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                setStatus(await window.api.sync.retry());
+              } catch (err) {
+                toast.push({ tone: 'error', title: 'Échec', text: errorMessage(err) });
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? <Spinner size={14} /> : 'Synchroniser maintenant'}
+          </Button>
+        </div>
+
+        {status.pending.length > 0 && (
+          <div className="col" style={{ gap: 6 }}>
+            <strong style={{ fontSize: 13 }}>
+              En attente de rejeu ({status.pending.length})
+            </strong>
+            {status.pending.map((intent) => (
+              <div key={intent.id} className="row" style={{ gap: 8, fontSize: 12.5 }}>
+                <span className="muted">{new Date(intent.at).toLocaleTimeString('fr-FR')}</span>
+                <span className="truncate">{intentLabel(intent)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {status.failed.length > 0 && (
+          <div className="col" style={{ gap: 6 }}>
+            <strong style={{ fontSize: 13 }}>Refusées par le serveur</strong>
+            {status.failed.map((intent) => (
+              <div key={intent.id} className="warnbox" style={{ fontSize: 12.5 }}>
+                <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <strong>{intentLabel(intent)}</strong>
+                    <div className="muted">{intent.error}</div>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      setStatus(await window.api.sync.discard(intent.id));
+                    }}
+                  >
+                    Abandonner
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {status.online && !status.pending.length && !status.failed.length && (
+          <div className="infobox">
+            Ce poste garde une copie complète des données qui le concernent : coupure de réseau ou
+            serveur éteint, l’application continue de fonctionner et rejoue vos modifications à la
+            reconnexion.
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /* Comptes                                                             */

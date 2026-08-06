@@ -166,11 +166,48 @@ function Shell({
       setProgress(payload);
       if (payload.current >= payload.total) setTimeout(() => setProgress(null), 700);
     });
+    // Messages poussés par le processus principal : passage hors-ligne,
+    // reconnexion, étapes de mise à jour.
+    const offToast = window.api.on('toast', (payload: { tone?: string; title: string; text?: string }) => {
+      toast.push({
+        tone: (payload.tone as 'success' | 'warn' | 'error' | 'info' | undefined) ?? 'info',
+        title: payload.title,
+        text: payload.text,
+      });
+    });
     return () => {
       offChanged();
       offProgress();
+      offToast();
     };
   }, [toast]);
+
+  /* État de synchronisation (mode branché uniquement) ------------------ */
+  const [syncInfo, setSyncInfo] = useState<{ online: boolean; pending: number; failed: number } | null>(null);
+  useEffect(() => {
+    if (appInfo?.mode !== 'remote') return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const status = await window.api.sync.status();
+        if (!cancelled) {
+          setSyncInfo({
+            online: status.online,
+            pending: status.pending.length,
+            failed: status.failed.length,
+          });
+        }
+      } catch {
+        /* mode local ou serveur : pas de file d'attente ici */
+      }
+    };
+    void poll();
+    const timer = setInterval(poll, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [appInfo?.mode]);
 
   const scan = useCallback(
     async (force = false) => {
@@ -280,6 +317,19 @@ function Shell({
         </nav>
 
         <div className="sidebar__footer">
+          {/* Hors ligne, ou file d'attente non vide : le poste doit le voir. */}
+          {syncInfo && (!syncInfo.online || syncInfo.pending > 0 || syncInfo.failed > 0) && (
+            <button
+              className={`syncpill ${syncInfo.online ? 'syncpill--pending' : 'syncpill--offline'}`}
+              onClick={() => setPage('settings')}
+              title="Voir la synchronisation dans les Réglages"
+            >
+              {syncInfo.online ? '' : 'Hors ligne'}
+              {syncInfo.pending > 0 &&
+                `${syncInfo.online ? '' : ' · '}${syncInfo.pending} en attente`}
+              {syncInfo.failed > 0 && ` · ${syncInfo.failed} refusée(s)`}
+            </button>
+          )}
           {progress ? (
             <>
               <div className="truncate">Analyse : {progress.file}</div>

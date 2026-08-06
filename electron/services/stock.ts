@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type {
   AccountingDocument,
   ID,
@@ -118,16 +119,41 @@ export function resolveDocumentLines(doc: AccountingDocument): AccountingDocumen
 /* Mouvements de stock                                                  */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Le stock est **la somme de ses mouvements**, jamais un nombre entretenu à la
+ * main. Deux appareils qui ajoutent chacun leur mouvement hors ligne fusionnent
+ * alors sans perte, là où « le dernier qui écrit son total gagne » ferait
+ * disparaître une déduction. `qtyOnHand` n'est qu'un dérivé, recalculé ici.
+ */
+export function recomputeProductQty(product: Product): void {
+  product.qtyOnHand = round2(
+    store.db.stockMoves
+      .filter((m) => m.productId === product.id)
+      .reduce((sum, m) => sum + m.qty, 0),
+  );
+}
+
+/**
+ * Identifiant déterministe d'une déduction : dérivé de (document, ligne).
+ * Deux appareils qui déduisent la même facture chacun de leur côté produisent
+ * le même identifiant — les mouvements fusionnent au lieu de se cumuler. Le
+ * garde-fou `stockApplied` ne suffit pas hors ligne ; ceci, oui.
+ */
+function deductionMoveId(documentId: ID, lineId: ID): ID {
+  return `mv_${crypto.createHash('sha1').update(`${documentId}:${lineId}`).digest('hex').slice(0, 16)}`;
+}
+
 function recordMove(
   product: Product,
   qty: number,
   type: StockMove['type'],
-  opts: { documentId?: ID; documentNumber?: string; note?: string; date?: string } = {},
-): StockMove {
-  product.qtyOnHand = round2(product.qtyOnHand + qty);
-  product.updatedAt = nowIso();
+  opts: { id?: ID; documentId?: ID; documentNumber?: string; note?: string; date?: string } = {},
+): StockMove | null {
+  // Identifiant déjà présent : le mouvement a été enregistré par un autre
+  // chemin (autre appareil, rejeu). On ne le compte pas deux fois.
+  if (opts.id && store.db.stockMoves.some((m) => m.id === opts.id)) return null;
   const move: StockMove = {
-    id: newId('mv'),
+    id: opts.id ?? newId('mv'),
     productId: product.id,
     qty: round2(qty),
     type,
@@ -135,11 +161,21 @@ function recordMove(
     documentId: opts.documentId,
     documentNumber: opts.documentNumber,
     note: opts.note,
-    balanceAfter: product.qtyOnHand,
+    balanceAfter: 0,
     createdAt: nowIso(),
   };
   store.db.stockMoves.unshift(move);
+  recomputeProductQty(product);
+  product.updatedAt = nowIso();
+  move.balanceAfter = product.qtyOnHand;
   return move;
+}
+
+/** Stock de départ d'un article créé ou importé avec une quantité. */
+export function registerOpeningStock(product: Product, qty: number, note = 'Stock initial'): void {
+  const amount = round2(qty);
+  if (amount === 0) return;
+  recordMove(product, amount, amount > 0 ? 'in' : 'adjust', { note });
 }
 
 /**
@@ -188,14 +224,14 @@ export function applyDocumentToStock(documentId: ID): StockApplyReport {
       // poudre, ce sont 5 poches de 2,5 kg, pas 12,5.
       const qty = round2(invoiceQtyToStockUnits(product, invoiced));
       if (qty <= 0) continue;
-      moves.push(
-        recordMove(product, direction * qty, direction < 0 ? 'out' : 'in', {
-          documentId: doc.id,
-          documentNumber: doc.number,
-          note: `${doc.kind === 'credit' ? 'Avoir' : 'Facture'} ${doc.number}`,
-          date: doc.date,
-        }),
-      );
+      const move = recordMove(product, direction * qty, direction < 0 ? 'out' : 'in', {
+        id: deductionMoveId(doc.id, line.id),
+        documentId: doc.id,
+        documentNumber: doc.number,
+        note: `${doc.kind === 'credit' ? 'Avoir' : 'Facture'} ${doc.number}`,
+        date: doc.date,
+      });
+      if (move) moves.push(move);
     }
     if (moves.length) {
       doc.stockApplied = true;
@@ -211,7 +247,16 @@ export function applyDocumentToStock(documentId: ID): StockApplyReport {
   return { documentId, applied: moves.length, unmatched, moves, message };
 }
 
-/** Annule la déduction de stock d'un document (mouvements inverses). */
+/**
+ * Annule la déduction de stock d'un document.
+ *
+ * Les mouvements du document sont **retirés du journal** plutôt que compensés
+ * par des mouvements inverses : leurs identifiants déterministes redeviennent
+ * libres, si bien qu'une nouvelle déduction recrée exactement les mêmes — et
+ * fusionne avec celle qu'un autre appareil aurait faite entre-temps. La
+ * suppression se propage aux appareils par pierre tombale, comme n'importe
+ * quelle autre.
+ */
 export function revertDocumentFromStock(documentId: ID): StockApplyReport {
   const doc = store.db.documents.find((d) => d.id === documentId);
   if (!doc) throw new Error('Document introuvable.');
@@ -219,20 +264,16 @@ export function revertDocumentFromStock(documentId: ID): StockApplyReport {
     return { documentId, applied: 0, unmatched: [], moves: [], message: 'Ce document n’a pas impacté le stock.' };
   }
 
-  const related = store.db.stockMoves.filter((m) => m.documentId === documentId);
-  const moves: StockMove[] = [];
+  const removed = store.db.stockMoves.filter((m) => m.documentId === documentId);
 
-  store.mutate(() => {
-    for (const move of related) {
-      const product = store.db.products.find((p) => p.id === move.productId);
-      if (!product) continue;
-      moves.push(
-        recordMove(product, -move.qty, 'adjust', {
-          documentId: doc.id,
-          documentNumber: doc.number,
-          note: `Annulation ${doc.number}`,
-        }),
-      );
+  store.mutate((db) => {
+    db.stockMoves = db.stockMoves.filter((m) => m.documentId !== documentId);
+    for (const move of removed) {
+      const product = db.products.find((p) => p.id === move.productId);
+      if (product) {
+        recomputeProductQty(product);
+        product.updatedAt = nowIso();
+      }
     }
     doc.stockApplied = false;
     doc.stockAppliedAt = undefined;
@@ -241,10 +282,10 @@ export function revertDocumentFromStock(documentId: ID): StockApplyReport {
 
   return {
     documentId,
-    applied: moves.length,
+    applied: removed.length,
     unmatched: [],
-    moves,
-    message: `Déduction annulée : ${moves.length} mouvement(s) inverse(s) enregistré(s).`,
+    moves: removed,
+    message: `Déduction annulée : ${removed.length} mouvement(s) retiré(s) du journal.`,
   };
 }
 

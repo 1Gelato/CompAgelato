@@ -2,6 +2,7 @@ import type { Address, Client, ID, ImportClientsReport, Product } from '@shared/
 import { newId, nowIso, store } from '../store';
 import { normalize, parseNumber, round2, similarity } from './text';
 import { CLIENT_FIELDS, PRODUCT_FIELDS, guessMapping, readTable } from './tabular';
+import { adjustStock, registerOpeningStock } from './stock';
 
 const FUZZY_ACCEPT = 0.82;
 
@@ -35,7 +36,8 @@ export function upsertClient(input: Partial<Client> & { id?: ID }): Client {
       return existing;
     }
     const client: Client = {
-      id: newId('cli'),
+      // Une fiche créée hors ligne pré-assigne son identifiant : on le respecte.
+      id: input.id ?? newId('cli'),
       code: input.code?.trim() || nextClientCode(),
       name: input.name?.trim() || 'Client sans nom',
       legalName: input.legalName,
@@ -412,10 +414,15 @@ export async function importProductsFile(
           Object.assign(existing, {
             ...payload,
             sku: existing.sku,
-            qtyOnHand: mapping.qtyOnHand ? round2(payload.qtyOnHand) : existing.qtyOnHand,
+            qtyOnHand: existing.qtyOnHand,
             aliases: [...new Set([...existing.aliases, ...aliases])],
             updatedAt: nowIso(),
           });
+          // La quantité passe par un mouvement : le total repart toujours de
+          // la somme du journal, jamais d'un nombre écrit directement.
+          if (mapping.qtyOnHand && round2(payload.qtyOnHand) !== round2(existing.qtyOnHand)) {
+            adjustStock(existing.id, round2(payload.qtyOnHand), 'Import du stock');
+          }
           updated++;
         } else {
           const product: Product = {
@@ -425,7 +432,7 @@ export async function importProductsFile(
             type: 'consumable',
             category: payload.category,
             unit: payload.unit,
-            qtyOnHand: round2(payload.qtyOnHand),
+            qtyOnHand: 0,
             minQty: round2(payload.minQty),
             unitCost: payload.unitCost,
             supplier: payload.supplier,
@@ -435,6 +442,7 @@ export async function importProductsFile(
             updatedAt: nowIso(),
           };
           db.products.push(product);
+          registerOpeningStock(product, round2(payload.qtyOnHand), 'Import du stock');
           created++;
         }
       } catch (err) {

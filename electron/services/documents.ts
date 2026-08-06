@@ -22,6 +22,7 @@ import {
   matchClient,
   rememberClientAlias,
 } from './clients';
+import { recomputeProductQty } from './stock';
 import { applyDocumentToStock, resolveDocumentLines } from './stock';
 import { storePath } from './paths';
 
@@ -594,7 +595,7 @@ export function upsertDocument(input: Partial<AccountingDocument> & { id?: ID })
       return existing;
     }
     const doc: AccountingDocument = {
-      id: newId('doc'),
+      id: input.id ?? newId('doc'),
       kind: input.kind ?? 'invoice',
       number: input.number ?? 'SANS-NUMERO',
       date: input.date ?? today(),
@@ -623,15 +624,16 @@ export function upsertDocument(input: Partial<AccountingDocument> & { id?: ID })
 
 export function removeDocument(id: ID): void {
   store.mutate((db) => {
-    const doc = db.documents.find((d) => d.id === id);
-    // Le stock déjà déduit doit être rendu avant de supprimer la pièce.
-    if (doc?.stockApplied) {
-      for (const move of db.stockMoves.filter((m) => m.documentId === id)) {
-        const product = db.products.find((p) => p.id === move.productId);
-        if (product) product.qtyOnHand = round2(product.qtyOnHand - move.qty);
-      }
-    }
+    // Le stock est la somme des mouvements : retirer ceux du document rend la
+    // marchandise. Une soustraction manuelle en plus compterait double.
+    const affected = new Set(
+      db.stockMoves.filter((m) => m.documentId === id).map((m) => m.productId),
+    );
     db.stockMoves = db.stockMoves.filter((m) => m.documentId !== id);
     db.documents = db.documents.filter((d) => d.id !== id);
+    for (const productId of affected) {
+      const product = db.products.find((p) => p.id === productId);
+      if (product) recomputeProductQty(product);
+    }
   });
 }

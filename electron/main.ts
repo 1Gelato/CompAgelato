@@ -13,6 +13,16 @@ import {
   useLocalForThisRun,
 } from './connection';
 import { remoteCall, subscribeEvents } from './remote';
+import {
+  backOnline,
+  hasMirror,
+  initOffline,
+  isOffline,
+  markOffline,
+  pullNow,
+  schedulePull,
+  setTransitionListener,
+} from './offline';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
@@ -198,10 +208,12 @@ function buildMenu(): void {
 }
 
 /**
- * Serveur configuré mais muet. L'application doit s'ouvrir quand même : une
- * panne du boîtier ne doit jamais empêcher de travailler. On laisse le choix
- * plutôt que de basculer en douce — écrire dans la base locale en croyant
- * écrire sur le serveur serait bien pire qu'un message.
+ * Serveur configuré mais muet au démarrage.
+ *
+ * Avec une copie locale, la réponse est simple : **on s'ouvre dessus**, en mode
+ * hors-ligne — c'est tout l'objet du miroir, l'application marche en zone
+ * blanche et se rattrape ensuite. Le dialogue ne subsiste que pour un poste
+ * jamais synchronisé, qui n'a réellement rien à montrer.
  */
 async function ensureServerReachable(): Promise<void> {
   for (;;) {
@@ -210,6 +222,10 @@ async function ensureServerReachable(): Promise<void> {
     // L'application s'ouvre et affiche son écran de connexion.
     if (ok && authRequired && !authenticated) return;
     if (ok) return;
+    if (hasMirror()) {
+      markOffline();
+      return;
+    }
     const choice = dialog.showMessageBoxSync({
       type: 'warning',
       title: 'CompaGelato',
@@ -219,6 +235,7 @@ async function ensureServerReachable(): Promise<void> {
         '',
         error ?? '',
         '',
+        'Ce poste n’a pas encore de copie locale : une première synchronisation est nécessaire.',
         'Vous pouvez réessayer, ou travailler sur les données de ce poste.',
         'Attention : ces données-là ne sont pas partagées avec les autres appareils.',
       ].join('\n'),
@@ -250,7 +267,10 @@ app.whenReady().then(async () => {
     })(),
   });
   initConnection(dataDir);
-  if (isRemote()) await ensureServerReachable();
+  if (isRemote()) {
+    initOffline(dataDir);
+    await ensureServerReachable();
+  }
 
   // En mode branché, le dossier surveillé est celui du serveur : rien à créer
   // ni à analyser ici, c'est lui qui s'en charge pour tout le monde.
@@ -262,10 +282,61 @@ app.whenReady().then(async () => {
   setMainWindow(mainWindow);
 
   if (isRemote()) {
-    // Les mêmes trois canaux qu'en local, mais poussés par le serveur.
-    stopEvents = subscribeEvents((channel, payload) => {
+    const toWindow = (channel: string, payload: unknown) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+    };
+
+    // Les transitions hors-ligne / en ligne se racontent à l'écran, et le
+    // retour du réseau rafraîchit les tableaux (le miroir vient de changer).
+    setTransitionListener((online, replayed, failed) => {
+      if (!online) {
+        toWindow('toast', {
+          tone: 'warn',
+          title: 'Serveur injoignable — travail hors ligne',
+          text: 'Vos modifications sont conservées sur ce poste et seront rejouées à la reconnexion.',
+        });
+        return;
+      }
+      toWindow('documents-changed', {});
+      if (replayed || failed) {
+        toWindow('toast', {
+          tone: failed ? 'warn' : 'success',
+          title: 'Connexion au serveur rétablie',
+          text: [
+            replayed ? `${replayed} modification(s) rejouée(s).` : '',
+            failed
+              ? `${failed} refusée(s) — voir Réglages → Synchronisation.`
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+        });
+      }
     });
+
+    // Les mêmes trois canaux qu'en local, mais poussés par le serveur. Chaque
+    // événement signale que la base a bougé : le miroir suit.
+    stopEvents = subscribeEvents(
+      (channel, payload) => {
+        schedulePull();
+        toWindow(channel, payload);
+      },
+      {
+        // Flux rouvert = serveur revenu : rejouer la file, resynchroniser.
+        onOpen: () => {
+          if (isOffline()) void backOnline();
+        },
+      },
+    );
+
+    // Synchronisation de départ, puis d'entretien — un delta vide est minuscule.
+    if (!isOffline()) {
+      void pullNow().catch(() => markOffline());
+    }
+    const upkeep = setInterval(() => {
+      if (!isOffline()) schedulePull();
+    }, 5 * 60_000);
+    upkeep.unref();
   } else {
     folderWatcher.setNotifier((channel, payload) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);

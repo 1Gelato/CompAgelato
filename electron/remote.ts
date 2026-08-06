@@ -20,8 +20,24 @@ import { connectionConfig } from './connection';
  * fichier depuis le serveur.
  */
 
-/** Erreur venue du serveur : le message est celui que l'interface affichera. */
-export class RemoteError extends Error {}
+/**
+ * Erreur venue du serveur : le message est celui que l'interface affichera.
+ * `network` distingue la coupure (serveur injoignable, délai dépassé) du refus
+ * métier : seule la première autorise le passage en mode hors-ligne — mettre en
+ * file une intention que le serveur vient de refuser la rejouerait pour rien.
+ */
+export class RemoteError extends Error {
+  network = false;
+}
+
+function networkError(message: string): RemoteError {
+  const error = new RemoteError(message);
+  error.network = true;
+  return error;
+}
+
+/** Au-delà, on considère le serveur injoignable plutôt que de laisser l'interface pendre. */
+const CALL_TIMEOUT_MS = 10_000;
 
 function authHeaders(): Record<string, string> {
   const { token } = connectionConfig();
@@ -40,17 +56,24 @@ export async function remoteCall(
   method: string,
   args: unknown[],
 ): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(`${base()}/api/${namespace}/${method}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ args }),
+      signal: controller.signal,
     });
   } catch (err) {
-    throw new RemoteError(
-      `Serveur injoignable (${base()}) : ${(err as Error).message ?? String(err)}`,
+    throw networkError(
+      (err as Error).name === 'AbortError'
+        ? `Le serveur (${base()}) n'a pas répondu à temps.`
+        : `Serveur injoignable (${base()}) : ${(err as Error).message ?? String(err)}`,
     );
+  } finally {
+    clearTimeout(timer);
   }
 
   let payload: { ok?: boolean; result?: unknown; error?: string };
@@ -89,7 +112,7 @@ export async function downloadToCache(route: string, fileName: string): Promise<
   try {
     response = await fetch(`${base()}${route}`, { headers: authHeaders() });
   } catch (err) {
-    throw new RemoteError(`Serveur injoignable : ${(err as Error).message ?? String(err)}`);
+    throw networkError(`Serveur injoignable : ${(err as Error).message ?? String(err)}`);
   }
   if (!response.ok) {
     // Le serveur explique lui-même les cas courants (fichier déplacé, inconnu).
@@ -122,7 +145,7 @@ export async function uploadFile(kind: string, filePath: string): Promise<unknow
       body: fs.readFileSync(filePath),
     });
   } catch (err) {
-    throw new RemoteError(`Serveur injoignable : ${(err as Error).message ?? String(err)}`);
+    throw networkError(`Serveur injoignable : ${(err as Error).message ?? String(err)}`);
   }
   const payload = (await response.json().catch(() => ({}))) as {
     ok?: boolean;
@@ -146,6 +169,7 @@ export async function uploadFile(kind: string, filePath: string): Promise<unknow
  */
 export function subscribeEvents(
   notify: (channel: string, payload: unknown) => void,
+  hooks: { onOpen?: () => void } = {},
 ): () => void {
   let stopped = false;
   let controller: AbortController | null = null;
@@ -161,6 +185,9 @@ export function subscribeEvents(
         });
         if (!response.ok || !response.body) throw new Error(`Erreur ${response.status}.`);
         attempt = 0;
+        // Le flux est ouvert : le serveur est là. C'est le signal de reprise
+        // qu'attend la file d'attente hors-ligne.
+        hooks.onOpen?.();
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();

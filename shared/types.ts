@@ -5,6 +5,66 @@
 
 export type ID = string;
 
+/**
+ * Enregistrement synchronisable entre appareils.
+ *
+ * `rev` est un numéro de version **attribué par le serveur**, strictement
+ * croissant sur toute la base : un appareil qui connaît la révision N demande
+ * « tout ce qui a changé depuis N » et reçoit exactement le delta. Les
+ * enregistrements créés avant la synchronisation n'en ont pas encore — ils en
+ * reçoivent un à leur première modification, et les synchronisations complètes
+ * les emportent de toute façon.
+ */
+export interface Syncable {
+  rev?: number;
+}
+
+/** Pierre tombale : un enregistrement supprimé, à propager aux appareils. */
+export interface Tombstone {
+  id: ID;
+  rev: number;
+  deletedAt: string;
+}
+
+/**
+ * Collections répliquées sur les appareils. Les comptes et les sessions n'en
+ * font jamais partie : ils appartiennent au serveur.
+ */
+export const SYNCED_COLLECTIONS = [
+  'clients',
+  'documents',
+  'products',
+  'stockMoves',
+  'routes',
+  'vehicles',
+  'attachments',
+  'bankTransactions',
+  'registerEntries',
+  'eventMachines',
+] as const;
+
+export type SyncedCollection = (typeof SYNCED_COLLECTIONS)[number];
+
+/** État de synchronisation de la base, tenu par le serveur. */
+export interface SyncMeta {
+  /**
+   * Identité de cette lignée de données. Elle change à chaque restauration de
+   * sauvegarde : les appareils comprennent alors « repars de zéro » au lieu de
+   * garder des fiches ressuscitées ou fantômes.
+   */
+  generation: string;
+  /** Dernière révision attribuée. */
+  maxRev: number;
+  /** Révision des réglages, tenue à part : c'est un objet unique, sans id. */
+  settingsRev?: number;
+  /**
+   * En deçà de cette révision, les pierres tombales ont été purgées : un
+   * appareil plus en retard doit refaire une synchronisation complète.
+   */
+  floorRev: number;
+  tombstones: Partial<Record<SyncedCollection, Tombstone[]>>;
+}
+
 export type DocumentKind = 'invoice' | 'quote' | 'credit';
 
 export type DocumentStatus =
@@ -28,7 +88,7 @@ export interface Address {
   lon?: number;
 }
 
-export interface Client {
+export interface Client extends Syncable {
   id: ID;
   code: string; // référence interne, ex: "CLI-0007"
   name: string;
@@ -64,7 +124,7 @@ export interface DocumentLine {
   matchScore?: number;
 }
 
-export interface AccountingDocument {
+export interface AccountingDocument extends Syncable {
   id: ID;
   kind: DocumentKind;
   number: string;
@@ -122,7 +182,7 @@ export type ProductType = 'consumable' | 'mixLiquid' | 'mixPowder' | 'machine' |
  */
 export type InvoicedAs = 'unit' | 'case' | 'measure';
 
-export interface Product {
+export interface Product extends Syncable {
   id: ID;
   sku: string;
   name: string;
@@ -152,7 +212,7 @@ export interface Product {
 
 export type StockMoveType = 'in' | 'out' | 'adjust';
 
-export interface StockMove {
+export interface StockMove extends Syncable {
   id: ID;
   productId: ID;
   qty: number; // signé : positif = entrée, négatif = sortie
@@ -170,7 +230,7 @@ export interface StockMove {
  * Pièce jointe réutilisable (flyer, plaquette, conditions générales…) que l'on
  * coche pour l'ajouter à un envoi par e-mail.
  */
-export interface Attachment {
+export interface Attachment extends Syncable {
   id: ID;
   name: string;
   filePath: string;
@@ -194,7 +254,7 @@ export interface EmailDraft {
   attachmentIds: ID[];
 }
 
-export interface Vehicle {
+export interface Vehicle extends Syncable {
   id: ID;
   name: string;
   /** Consommation moyenne en L/100 km. */
@@ -243,7 +303,7 @@ export interface RouteComputation {
   computedAt: string;
 }
 
-export interface DeliveryRoute {
+export interface DeliveryRoute extends Syncable {
   id: ID;
   name: string;
   date: string;
@@ -295,7 +355,7 @@ export interface RegisterItem {
   qty: number;
 }
 
-export interface RegisterEntry {
+export interface RegisterEntry extends Syncable {
   id: ID;
   kind: RegisterKind;
   clientId?: ID;
@@ -322,7 +382,7 @@ export interface RegisterEntry {
 }
 
 /** Machine du parc événementiel (machine à glace italienne, vitrine…). */
-export interface EventMachine {
+export interface EventMachine extends Syncable {
   id: ID;
   name: string;
   reference?: string;
@@ -361,7 +421,7 @@ export type BankCategory =
   | 'transfer'
   | 'other';
 
-export interface BankTransaction {
+export interface BankTransaction extends Syncable {
   id: ID;
   /** Date d'opération (ISO yyyy-mm-dd). */
   date: string;
@@ -592,6 +652,8 @@ export interface Database {
   registerEntries: RegisterEntry[];
   eventMachines: EventMachine[];
   settings: Settings;
+  /** État de synchronisation multi-appareils, créé à la migration. */
+  sync?: SyncMeta;
   /**
    * Comptes et sessions. Tant que la liste est vide, le serveur reste dans son
    * fonctionnement d'origine (jeton partagé) : créer le premier compte est un

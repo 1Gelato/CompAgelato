@@ -13,12 +13,15 @@ import {
   pingServer,
   saveConnection,
 } from './connection';
+import { RemoteError, downloadToCache, remoteCall, uploadFile } from './remote';
 import {
-  createRemoteRegistry,
-  downloadToCache,
-  remoteCall,
-  uploadFile,
-} from './remote';
+  createOfflineRegistry,
+  discardIntent,
+  markOffline,
+  mirrorSettings,
+  retryNow,
+  syncStatus,
+} from './offline';
 import { nowIso, store } from './store';
 import { resolvePath } from './services/paths';
 import { ensureWatchFolder } from './services/documents';
@@ -403,11 +406,7 @@ async function pickThenUpload(
 const remoteDesktopHandlers: Registry = {
   app: {
     async info(): Promise<AppInfo> {
-      const remote = (await remoteCall('app', 'info', [])) as AppInfo;
-      return {
-        ...remote,
-        // Les dossiers et la base restent ceux du serveur ; l'exécution, elle,
-        // est bien celle de ce poste.
+      const local: Omit<AppInfo, 'userDataPath' | 'watchFolder' | 'documentsPath' | 'watchFolderInsideApp'> = {
         version: app.getVersion(),
         electron: process.versions.electron,
         node: process.versions.node,
@@ -416,6 +415,22 @@ const remoteDesktopHandlers: Registry = {
         mode: 'remote',
         localFolders: false,
       };
+      try {
+        const remote = (await remoteCall('app', 'info', [])) as AppInfo;
+        // Les dossiers et la base restent ceux du serveur ; l'exécution, elle,
+        // est bien celle de ce poste.
+        return { ...remote, ...local };
+      } catch (err) {
+        // Serveur muet : l'écran s'ouvre quand même, sur ce qu'on sait du miroir.
+        if (!(err instanceof RemoteError) || !err.network) throw err;
+        markOffline();
+        return {
+          ...local,
+          userDataPath: app.getPath('userData'),
+          watchFolder: mirrorSettings()?.watchFolder ?? '',
+          documentsPath: '',
+        };
+      }
     },
     async openPath(target: string) {
       onServer(`Ce dossier (${target})`);
@@ -620,6 +635,20 @@ const remoteDesktopHandlers: Registry = {
         filters: [{ name: 'Sauvegarde CompaGelato', extensions: ['json'] }],
       }),
   },
+
+  sync: {
+    // L'état de la file d'attente est celui de ce poste : il se lit ici, sans
+    // aller-retour — y compris, et surtout, quand le serveur ne répond pas.
+    async status() {
+      return syncStatus();
+    },
+    async retry() {
+      return retryNow();
+    },
+    async discard(intentId: ID) {
+      return discardIntent(intentId);
+    },
+  },
 };
 
 /* ------------------------------------------------------------------ */
@@ -629,7 +658,7 @@ const remoteDesktopHandlers: Registry = {
 /** Le montage retenu au démarrage, selon la liaison enregistrée. */
 function buildHandlers(): Registry {
   return isRemote()
-    ? mergeRegistries(createRemoteRegistry(), remoteDesktopHandlers)
+    ? mergeRegistries(createOfflineRegistry(), remoteDesktopHandlers)
     : mergeRegistries(coreHandlers, desktopHandlers);
 }
 

@@ -7,12 +7,15 @@ import type {
   AuthIdentity,
   AuthStatus,
   Connection,
+  SyncPullRequest,
+  SyncPullResult,
   EmailOutcome,
   EmailPreparation,
   PrintOutcome,
   ProductSuggestion,
   RouteQr,
 } from '@shared/api';
+import { COLLECTION_CHANNEL, mayCall } from '@shared/api';
 import type {
   AccountingDocument,
   Attachment,
@@ -30,6 +33,7 @@ import type {
   UserSummary,
   Vehicle,
 } from '@shared/types';
+import { SYNCED_COLLECTIONS } from '@shared/types';
 import { currentContext, currentIdentity, currentRole } from './context';
 import {
   accountsConfigured,
@@ -64,6 +68,7 @@ import {
 import {
   adjustStock,
   applyAllPending,
+  registerOpeningStock,
   applyDocumentToStock,
   linkLineToProduct,
   resolveDocumentLines,
@@ -696,7 +701,9 @@ export const coreHandlers: Registry = {
           return existing;
         }
         const product: Product = {
-          id: newId('prd'),
+          // Un identifiant fourni est respecté : une fiche créée hors ligne le
+          // pré-assigne, pour que ses références tiennent au rejeu.
+          id: input.id ?? newId('prd'),
           sku: input.sku?.trim() || nextProductSku(),
           name: input.name?.trim() || 'Nouvel article',
           type: input.type ?? 'consumable',
@@ -706,7 +713,7 @@ export const coreHandlers: Registry = {
           packMeasure: input.packMeasure,
           unitsPerCase: input.unitsPerCase,
           invoicedAs: input.invoicedAs,
-          qtyOnHand: round2(input.qtyOnHand ?? 0),
+          qtyOnHand: 0,
           minQty: round2(input.minQty ?? 0),
           unitCost: input.unitCost,
           supplier: input.supplier,
@@ -716,6 +723,9 @@ export const coreHandlers: Registry = {
           updatedAt: nowIso(),
         };
         db.products.push(product);
+        // Le stock de départ passe par un mouvement : sans lui, le total ne
+        // repartirait pas de la somme du journal.
+        registerOpeningStock(product, round2(input.qtyOnHand ?? 0));
         return product;
       });
 
@@ -764,10 +774,24 @@ export const coreHandlers: Registry = {
 
   stock: {
     async moves(productId?: ID) {
+      // Le solde après mouvement se recalcule à la lecture : des mouvements
+      // venus de plusieurs appareils s'entrelacent, toute valeur figée à
+      // l'écriture serait fausse. Les enregistrements ne sont pas modifiés —
+      // on renvoie des copies portant le solde du moment.
+      const balances = new Map<ID, number>();
+      const computed = new Map<ID, number>();
+      const chronological = [...store.db.stockMoves].sort((a, b) =>
+        a.createdAt.localeCompare(b.createdAt),
+      );
+      for (const move of chronological) {
+        const balance = round2((balances.get(move.productId) ?? 0) + move.qty);
+        balances.set(move.productId, balance);
+        computed.set(move.id, balance);
+      }
       const moves = productId
         ? store.db.stockMoves.filter((m) => m.productId === productId)
         : store.db.stockMoves;
-      return moves.slice(0, 500);
+      return moves.slice(0, 500).map((m) => ({ ...m, balanceAfter: computed.get(m.id) ?? m.balanceAfter }));
     },
     async apply(documentId: ID) {
       const report = applyDocumentToStock(documentId);
@@ -885,7 +909,7 @@ export const coreHandlers: Registry = {
           return existing;
         }
         const created: Vehicle = {
-          id: newId('veh'),
+          id: input.id ?? newId('veh'),
           name: input.name?.trim() || 'Nouveau véhicule',
           consumption: input.consumption ?? 9,
           fuelType: input.fuelType ?? 'gazole',
@@ -1193,6 +1217,76 @@ export const coreHandlers: Registry = {
 
     async revokeSession(id: ID) {
       revokeSession(id);
+    },
+  },
+
+  /* ------------------------------------------------------------------ */
+  /* Synchronisation                                                     */
+  /* ------------------------------------------------------------------ */
+
+  sync: {
+    /**
+     * Descend l'état : les enregistrements modifiés depuis la révision connue
+     * de l'appareil, ou la base entière quand un delta ne suffit plus. Le poste
+     * remplace et supprime — il n'a aucune logique de fusion à écrire.
+     */
+    async pull(input: SyncPullRequest = {}): Promise<SyncPullResult> {
+      // Les révisions s'attribuent à l'écriture : on force le passage pour que
+      // tout ce qui vient de muter soit numéroté avant de répondre.
+      store.flushSync();
+      const sync = store.db.sync;
+      if (!sync) throw new Error('Synchronisation non initialisée.');
+
+      const role = currentRole() ?? 'gerant';
+      const identity = currentIdentity();
+      const since = input.since ?? 0;
+      const full =
+        !input.generation ||
+        input.generation !== sync.generation ||
+        since < sync.floorRev;
+
+      const changes: SyncPullResult['changes'] = {};
+      const removed: SyncPullResult['removed'] = {};
+
+      for (const collection of SYNCED_COLLECTIONS) {
+        // Le filtre par rôle s'applique ici, à la source. Une collection
+        // interdite est absente de la réponse — pas vide : absente.
+        if (!mayCall(role, COLLECTION_CHANNEL[collection])) continue;
+        const rows = store.db[collection] as ({ rev?: number } & { id: ID })[];
+        changes[collection] = full
+          ? [...rows]
+          : rows.filter((row) => (row.rev ?? 0) > since);
+        if (!full) {
+          const graves = sync.tombstones[collection] ?? [];
+          const ids = graves.filter((g) => g.rev > since).map((g) => g.id);
+          if (ids.length) removed[collection] = ids;
+        }
+      }
+
+      const settingsChanged = full || (sync.settingsRev ?? 0) > since;
+      return {
+        generation: sync.generation,
+        maxRev: sync.maxRev,
+        role,
+        identity,
+        full,
+        changes,
+        removed,
+        ...(settingsChanged && mayCall(role, 'settings:get')
+          ? { settings: store.settings }
+          : {}),
+      };
+    },
+
+    /* L'état de la file d'attente vit sur le poste, pas ici. */
+    async status(): Promise<never> {
+      localOnly();
+    },
+    async retry(): Promise<never> {
+      localOnly();
+    },
+    async discard(): Promise<never> {
+      localOnly();
     },
   },
 };

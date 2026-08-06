@@ -17,4 +17,5 @@ export * from '../electron/services/updater';
 // de vérifier le mode branché de l'application de bureau contre un vrai serveur.
 export * from '../electron/connection';
 export * from '../electron/remote';
+export * from '../electron/offline';
 export { CHANNELS } from '../shared/api';
