@@ -46,8 +46,8 @@ const PAGES: {
     id: 'stock',
     label: 'Stock',
     icon: Icons.stock,
-    title: 'Stock de consommables',
-    subtitle: 'Déduit automatiquement des lignes de vos factures',
+    title: 'Stock',
+    subtitle: 'Consommables, machines et pièces détachées — déduit de vos factures',
   },
   {
     id: 'routes',

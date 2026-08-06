@@ -107,12 +107,17 @@ test('une demande (non validée) ne déclenche jamais le garde-fou', () => {
 
 test('le message d’ajout nomme le cahier, le client et l’objet', () => {
   const note = notificationFor(
-    entry({ kind: 'sav', title: 'Machine en panne', parts: 'joint de cuve', status: 'open' }),
+    entry({
+      kind: 'sav',
+      title: 'Machine en panne',
+      items: [{ productId: 'p1', label: 'Joint de cuve', qty: 2 }],
+      status: 'open',
+    }),
     'Restaurant La Dune',
   );
   assert.equal(note.title, 'SAV — Restaurant La Dune');
   assert.match(note.message, /Machine en panne/);
-  assert.match(note.message, /joint de cuve/);
+  assert.match(note.message, /2 × Joint de cuve/);
 });
 
 test('le message de devis validé signale la réservation des machines', () => {

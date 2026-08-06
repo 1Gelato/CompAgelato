@@ -78,6 +78,7 @@ import {
   updateTransaction,
 } from './services/bank';
 import {
+  addRegisterEntryToRoute,
   listMachineAvailability,
   listRegisterEntries,
   removeMachine,
@@ -680,7 +681,8 @@ const handlers: Registry = {
         const product: Product = {
           id: newId('prd'),
           sku: input.sku?.trim() || nextProductSku(),
-          name: input.name?.trim() || 'Nouveau consommable',
+          name: input.name?.trim() || 'Nouvel article',
+          type: input.type ?? 'consumable',
           category: input.category,
           unit: input.unit || 'pièce',
           qtyOnHand: round2(input.qtyOnHand ?? 0),
@@ -927,6 +929,11 @@ const handlers: Registry = {
       const entry = setRegisterStatus(id, status);
       store.flushSync();
       return entry;
+    },
+    async addToRoute(entryId: ID, routeId?: ID) {
+      const result = addRegisterEntryToRoute(entryId, routeId);
+      store.flushSync();
+      return result;
     },
   },
 

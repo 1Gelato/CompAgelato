@@ -49,7 +49,7 @@ export const CHANNELS = {
   stock: ['moves', 'apply', 'revert', 'applyAll', 'linkLine', 'suggestions'],
   routes: ['list', 'save', 'remove', 'compute', 'optimize', 'link', 'qr', 'exportCsv'],
   vehicles: ['list', 'save', 'remove'],
-  registers: ['list', 'save', 'remove', 'setStatus'],
+  registers: ['list', 'save', 'remove', 'setStatus', 'addToRoute'],
   machines: ['list', 'save', 'remove'],
   notify: ['test'],
   bank: [
@@ -238,6 +238,8 @@ export interface Api {
     remove(id: ID): Promise<void>;
     /** Passer un devis événementiel en « validé » réserve les machines. */
     setStatus(id: ID, status: RegisterStatus): Promise<RegisterEntry>;
+    /** Ajoute l'écriture comme arrêt d'une tournée ; sans `routeId`, en crée une. */
+    addToRoute(entryId: ID, routeId?: ID): Promise<{ route: DeliveryRoute; entry: RegisterEntry }>;
   };
   machines: {
     /** Parc avec disponibilité calculée et prochaines sorties. */

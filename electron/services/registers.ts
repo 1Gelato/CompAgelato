@@ -1,11 +1,12 @@
 import type {
+  DeliveryRoute,
   EventMachine,
   ID,
   MachineAvailability,
   RegisterEntry,
   RegisterStatus,
 } from '@shared/types';
-import { newId, nowIso, store } from '../store';
+import { newId, nowIso, store, today } from '../store';
 import {
   checkMachineAvailability,
   entryReservesMachines,
@@ -84,7 +85,7 @@ export function upsertRegisterEntry(
       clientId: input.clientId,
       clientName: input.clientName?.trim() || undefined,
       title: input.title?.trim() || 'Sans titre',
-      parts: input.parts?.trim() || undefined,
+      items: input.items?.filter((i) => i.qty > 0 && i.label.trim()),
       details: input.details?.trim() || undefined,
       eventDate: input.eventDate || undefined,
       machines: input.machines?.filter((m) => m.qty > 0),
@@ -104,6 +105,86 @@ export function upsertRegisterEntry(
 
 export function setRegisterStatus(id: ID, status: RegisterStatus): RegisterEntry {
   return upsertRegisterEntry({ id, status });
+}
+
+/**
+ * Ajoute l'écriture comme arrêt d'une tournée de livraison. `routeId` vide
+ * crée une tournée du jour. L'adresse vient de la fiche client : sans fiche ni
+ * adresse, on refuse plutôt que de créer un arrêt qu'aucun calcul ne pourra
+ * placer.
+ */
+export function addRegisterEntryToRoute(
+  entryId: ID,
+  routeId?: ID,
+): { route: DeliveryRoute; entry: RegisterEntry } {
+  return store.mutate((db) => {
+    const entry = db.registerEntries.find((e) => e.id === entryId);
+    if (!entry) throw new Error('Écriture introuvable.');
+
+    const client = entry.clientId ? db.clients.find((c) => c.id === entry.clientId) : undefined;
+    if (!client) {
+      throw new Error(
+        'Cette écriture n’est rattachée à aucune fiche client : créez la fiche pour pouvoir l’ajouter à une tournée.',
+      );
+    }
+    if (!client.address?.label?.trim()) {
+      throw new Error(`La fiche « ${client.name} » n’a pas d’adresse : complétez-la depuis l’onglet Clients.`);
+    }
+
+    let route = routeId ? db.routes.find((r) => r.id === routeId) : undefined;
+    if (routeId && !route) throw new Error('Tournée introuvable.');
+
+    if (!route) {
+      const date = entry.eventDate || today();
+      route = {
+        id: newId('rte'),
+        name: `Tournée du ${date}`,
+        date,
+        vehicleId: db.settings.defaultVehicleId,
+        start: {
+          id: newId('stp'),
+          label: 'Dépôt',
+          address: db.settings.depot ?? { label: '', country: 'France' },
+          pinned: false,
+          serviceMinutes: 0,
+        },
+        stops: [],
+        returnToStart: true,
+        end: null,
+        tollCost: 0,
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+      };
+      db.routes.unshift(route);
+    }
+
+    // Un même client déjà présent n'est pas ajouté deux fois : on complète sa note.
+    const existingStop = route.stops.find((s) => s.clientId === client.id);
+    if (existingStop) {
+      const mention = entry.title.trim();
+      if (mention && !(existingStop.notes ?? '').includes(mention)) {
+        existingStop.notes = [existingStop.notes, mention].filter(Boolean).join(' · ');
+      }
+    } else {
+      route.stops.push({
+        id: newId('stp'),
+        clientId: client.id,
+        label: client.name,
+        address: { ...client.address },
+        pinned: false,
+        serviceMinutes: 15,
+        notes: [entry.title, entry.details].filter(Boolean).join(' · ') || undefined,
+      });
+    }
+
+    // Le calcul précédent ne vaut plus rien avec un arrêt de plus.
+    route.computation = undefined;
+    route.updatedAt = nowIso();
+
+    entry.routeId = route.id;
+    entry.updatedAt = nowIso();
+    return { route, entry };
+  });
 }
 
 export function removeRegisterEntry(id: ID): void {

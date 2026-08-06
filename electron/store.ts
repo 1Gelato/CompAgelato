@@ -180,6 +180,21 @@ class Store {
     for (const attachment of db.attachments) {
       if (!attachment.updatedAt) attachment.updatedAt = attachment.createdAt ?? nowIso();
     }
+    // Le stock ne contenait que des consommables avant d'accueillir machines et
+    // pièces détachées : les articles déjà saisis le restent.
+    for (const product of db.products) {
+      if (!product.type) product.type = 'consumable';
+    }
+    // Les pièces SAV étaient une simple ligne de texte ; elles deviennent des
+    // articles, rattachables au stock. Le texte déjà saisi est conservé tel quel
+    // en libellé libre.
+    for (const entry of db.registerEntries) {
+      const legacy = (entry as { parts?: string }).parts;
+      if (legacy?.trim() && !entry.items?.length) {
+        entry.items = [{ label: legacy.trim(), qty: 1 }];
+      }
+      delete (entry as { parts?: string }).parts;
+    }
     // Le dossier surveillé doit toujours pointer quelque part de valide.
     if (!db.settings.watchFolder) db.settings.watchFolder = defaultWatchFolder();
     // Un dépôt sans coordonnées empêche tout calcul de tournée : on rétablit

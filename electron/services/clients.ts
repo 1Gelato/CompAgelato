@@ -422,6 +422,7 @@ export async function importProductsFile(
             id: newId('prd'),
             sku: payload.sku,
             name: payload.name,
+            type: 'consumable',
             category: payload.category,
             unit: payload.unit,
             qtyOnHand: round2(payload.qtyOnHand),

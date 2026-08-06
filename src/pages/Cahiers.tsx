@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
   Client,
+  DeliveryRoute,
   EventMachine,
   MachineAvailability,
+  Product,
+  ProductType,
   RegisterEntry,
+  RegisterItem,
   RegisterKind,
   RegisterStatus,
 } from '@shared/types';
@@ -33,7 +37,9 @@ import {
   useClientIndex,
   useClients,
   useMachines,
+  useProducts,
   useRegisterEntries,
+  useRoutes,
 } from '../lib/data';
 import {
   dateFr,
@@ -64,6 +70,7 @@ export function Cahiers() {
   const { data: entries, loading } = useRegisterEntries();
   const { data: machines } = useMachines();
   const { data: clients } = useClients();
+  const { data: routes } = useRoutes();
   const clientIndex = useClientIndex(clients);
   const toast = useToast();
 
@@ -74,6 +81,7 @@ export function Cahiers() {
   const [removing, setRemoving] = useState<RegisterEntry | null>(null);
   const [machineEditing, setMachineEditing] = useState<EventMachine | 'new' | null>(null);
   const [machineRemoving, setMachineRemoving] = useState<EventMachine | null>(null);
+  const [routing, setRouting] = useState<RegisterEntry | null>(null);
   const [busy, setBusy] = useState(false);
 
   // La fiche ouverte doit refléter les données rechargées après chaque écriture.
@@ -94,7 +102,7 @@ export function Cahiers() {
       if (statusFilter === 'active' && (e.status === 'done' || e.status === 'cancelled')) return false;
       if (!search) return true;
       return matches(
-        [clientLabel(e), e.title, e.parts ?? '', e.details ?? ''].join(' '),
+        [clientLabel(e), e.title, (e.items ?? []).map((i) => i.label).join(' '), e.details ?? ''].join(' '),
         search,
       );
     });
@@ -209,7 +217,7 @@ export function Cahiers() {
                 )}
                 <Th sortKey="client" sort={sort} onSort={toggle}>Client</Th>
                 <Th sortKey="title" sort={sort} onSort={toggle}>{KIND_TITLE[kind]}</Th>
-                {kind === 'sav' && <Th>Pièces demandées</Th>}
+                {kind !== 'event' && <Th>{kind === 'sav' ? 'Pièces demandées' : 'Articles'}</Th>}
                 {kind === 'event' && <Th>Machines</Th>}
                 <Th sortKey="status" sort={sort} onSort={toggle}>Statut</Th>
                 <Th />
@@ -234,8 +242,14 @@ export function Cahiers() {
                     <span className="truncate">{entry.title}</span>
                     {entry.details && <div className="tiny muted truncate">{entry.details}</div>}
                   </td>
-                  {kind === 'sav' && (
-                    <td className="tiny">{entry.parts || <span className="muted">—</span>}</td>
+                  {kind !== 'event' && (
+                    <td className="tiny">
+                      {entry.items?.length ? (
+                        entry.items.map((i) => `${i.qty} × ${i.label}`).join(', ')
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
                   )}
                   {kind === 'event' && (
                     <td className="tiny">
@@ -266,10 +280,23 @@ export function Cahiers() {
                       ))}
                     </Select>
                   </td>
-                  <td style={{ width: 44 }} onClick={(e) => e.stopPropagation()}>
-                    <IconButton title="Supprimer" danger onClick={() => setRemoving(entry)}>
-                      <Icons.trash size={15} />
-                    </IconButton>
+                  <td style={{ width: 78 }} onClick={(e) => e.stopPropagation()}>
+                    <div className="row" style={{ gap: 2, justifyContent: 'flex-end' }}>
+                      <IconButton
+                        title={
+                          entry.routeId
+                            ? 'Déjà dans une tournée — cliquer pour l’ajouter à une autre'
+                            : 'Ajouter à une tournée de livraison'
+                        }
+                        active={Boolean(entry.routeId)}
+                        onClick={() => setRouting(entry)}
+                      >
+                        <Icons.routes size={15} />
+                      </IconButton>
+                      <IconButton title="Supprimer" danger onClick={() => setRemoving(entry)}>
+                        <Icons.trash size={15} />
+                      </IconButton>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -350,6 +377,10 @@ export function Cahiers() {
         />
       )}
 
+      {routing && (
+        <RouteDialog entry={routing} routes={routes} onClose={() => setRouting(null)} />
+      )}
+
       {machineEditing && (
         <MachineDialog
           machine={machineEditing === 'new' ? null : machineEditing}
@@ -426,7 +457,7 @@ function EntryDialog({
   const [clientId, setClientId] = useState<string | undefined>(entry?.clientId);
   const [clientName, setClientName] = useState(entry?.clientName ?? '');
   const [title, setTitle] = useState(entry?.title ?? '');
-  const [parts, setParts] = useState(entry?.parts ?? '');
+  const [items, setItems] = useState<RegisterItem[]>(entry?.items ?? []);
   const [details, setDetails] = useState(entry?.details ?? '');
   const [eventDate, setEventDate] = useState(entry?.eventDate ?? '');
   const [status, setStatus] = useState<RegisterStatus>(entry?.status ?? 'open');
@@ -448,7 +479,7 @@ function EntryDialog({
         clientId,
         clientName: clientId ? undefined : clientName.trim() || undefined,
         title,
-        parts: kind === 'sav' ? parts : undefined,
+        items: kind === 'event' ? undefined : items,
         details,
         eventDate: kind === 'event' ? eventDate || undefined : undefined,
         machines:
@@ -516,17 +547,22 @@ function EntryDialog({
               ))}
             </Select>
           </Field>
-          {kind === 'sav' && (
-            <Field label="Pièces demandées" hint="Références ou description libre">
-              <Input value={parts} onChange={(e) => setParts(e.target.value)} />
-            </Field>
-          )}
+
           {kind === 'event' && (
             <Field label="Date de la prestation">
               <Input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} />
             </Field>
           )}
         </div>
+
+        {kind !== 'event' && (
+          <ItemPicker
+            label={kind === 'sav' ? 'Pièces demandées' : 'Articles commandés'}
+            preferredType={kind === 'sav' ? 'part' : 'consumable'}
+            items={items}
+            onChange={setItems}
+          />
+        )}
 
         {kind === 'event' && (
           <Field
@@ -564,6 +600,146 @@ function EntryDialog({
         </Field>
       </div>
     </Modal>
+  );
+}
+
+/* ================================================================== */
+/* Sélecteur d'articles, rattachés au stock                            */
+/* ================================================================== */
+
+const TYPE_LABEL: Record<ProductType, string> = {
+  consumable: 'Consommable',
+  machine: 'Machine',
+  part: 'Pièce détachée',
+};
+
+function ItemPicker({
+  label,
+  preferredType,
+  items,
+  onChange,
+}: {
+  label: string;
+  /** Nature mise en avant : pièces détachées en SAV, consommables ailleurs. */
+  preferredType: ProductType;
+  items: RegisterItem[];
+  onChange: (items: RegisterItem[]) => void;
+}) {
+  const { data: products } = useProducts();
+  const [query, setQuery] = useState('');
+
+  const productIndex = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
+
+  // Les articles de la nature attendue d'abord, mais tout le stock reste
+  // accessible : une commande peut mélanger un consommable et une pièce.
+  const results = useMemo(() => {
+    if (!query.trim()) return [];
+    const taken = new Set(items.map((i) => i.productId).filter(Boolean));
+    return products
+      .filter((p) => !p.archived && !taken.has(p.id))
+      .filter((p) => matches(`${p.sku} ${p.name} ${p.category ?? ''}`, query))
+      .sort((a, b) => {
+        const rank = (p: Product) => (p.type === preferredType ? 0 : 1);
+        return rank(a) - rank(b) || a.name.localeCompare(b.name, 'fr');
+      })
+      .slice(0, 6);
+  }, [products, query, items, preferredType]);
+
+  const add = (item: RegisterItem) => {
+    onChange([...items, item]);
+    setQuery('');
+  };
+
+  return (
+    <Field
+      label={label}
+      hint="Piochez dans le stock, ou tapez un libellé libre si l’article n’y figure pas encore"
+    >
+      <div className="col" style={{ gap: 8 }}>
+        {items.length > 0 && (
+          <div className="list">
+            {items.map((item, index) => {
+              const product = item.productId ? productIndex.get(item.productId) : undefined;
+              return (
+                <div key={`${item.productId ?? item.label}-${index}`} className="list__item">
+                  <NumberInput
+                    value={item.qty}
+                    onValueChange={(v) => {
+                      const next = [...items];
+                      next[index] = { ...item, qty: Math.max(1, Math.round(v)) };
+                      onChange(next);
+                    }}
+                    style={{ width: 76 }}
+                  />
+                  <span className="truncate">{item.label}</span>
+                  {product ? (
+                    <Badge tone="badge--blue">
+                      {TYPE_LABEL[product.type]} · {product.qtyOnHand} en stock
+                    </Badge>
+                  ) : (
+                    <Badge>hors stock</Badge>
+                  )}
+                  <div className="spacer" />
+                  <IconButton
+                    title="Retirer"
+                    danger
+                    onClick={() => onChange(items.filter((_, i) => i !== index))}
+                  >
+                    <Icons.close size={14} />
+                  </IconButton>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <Input
+          placeholder="Rechercher dans le stock…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+
+        {results.length > 0 && (
+          <div className="list">
+            {results.map((product) => (
+              <div
+                key={product.id}
+                className="list__item"
+                style={{ cursor: 'default' }}
+                onClick={() => add({ productId: product.id, label: product.name, qty: 1 })}
+              >
+                <span className="mono tiny muted" style={{ minWidth: 78 }}>
+                  {product.sku}
+                </span>
+                <span className="truncate">{product.name}</span>
+                <div className="spacer" />
+                <Badge tone={product.type === preferredType ? 'badge--blue' : ''}>
+                  {TYPE_LABEL[product.type]}
+                </Badge>
+                <span className="tiny muted">{product.qtyOnHand} en stock</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {query.trim() && !results.some((p) => p.name.toLowerCase() === query.trim().toLowerCase()) && (
+          <Button
+            size="sm"
+            icon={<Icons.plus size={13} />}
+            onClick={() => add({ label: query.trim(), qty: 1 })}
+          >
+            Ajouter « {query.trim()} » hors stock
+          </Button>
+        )}
+
+        {!products.length && (
+          <p className="tiny muted" style={{ margin: 0 }}>
+            Votre stock est vide : ajoutez vos consommables, machines et pièces depuis l’onglet
+            Stock pour les retrouver ici.
+          </p>
+        )}
+      </div>
+    </Field>
   );
 }
 
@@ -747,6 +923,86 @@ function MachineDialog({ machine, onClose }: { machine: EventMachine | null; onC
       <Field label="Notes">
         <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </Field>
+    </Modal>
+  );
+}
+
+/* ================================================================== */
+/* Ajout d'une écriture à une tournée de livraison                     */
+/* ================================================================== */
+
+function RouteDialog({
+  entry,
+  routes,
+  onClose,
+}: {
+  entry: RegisterEntry;
+  routes: DeliveryRoute[];
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const [routeId, setRouteId] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+
+  // Les tournées à venir d'abord : c'est là qu'on ajoute un arrêt en pratique.
+  const sortedRoutes = useMemo(
+    () => [...routes].sort((a, b) => b.date.localeCompare(a.date)),
+    [routes],
+  );
+
+  const add = async () => {
+    setSaving(true);
+    try {
+      const { route } = await window.api.registers.addToRoute(entry.id, routeId || undefined);
+      refreshAll();
+      toast.push({
+        tone: 'success',
+        title: 'Arrêt ajouté',
+        text: `« ${entry.title} » figure dans la tournée « ${route.name} ». Calculez le trajet depuis l’onglet Tournées.`,
+      });
+      onClose();
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Ajout impossible', text: errorMessage(err) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      title="Ajouter à une tournée"
+      subtitle={entry.title}
+      onClose={onClose}
+      footer={
+        <>
+          <div className="spacer" />
+          <Button onClick={onClose}>Annuler</Button>
+          <Button variant="primary" onClick={add} loading={saving}>
+            Ajouter l’arrêt
+          </Button>
+        </>
+      }
+    >
+      <div className="col" style={{ gap: 12 }}>
+        <Field label="Tournée">
+          <Select value={routeId} onChange={(e) => setRouteId(e.target.value)}>
+            <option value="">— Créer une nouvelle tournée —</option>
+            {sortedRoutes.map((route) => (
+              <option key={route.id} value={route.id}>
+                {route.name} ({dateFr(route.date)}, {route.stops.length} arrêt
+                {route.stops.length > 1 ? 's' : ''})
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <div className="infobox">
+          L’arrêt reprend l’adresse de la fiche client, avec la cause ou l’objet en note. Le
+          calcul du trajet est remis à zéro puisqu’un arrêt s’ajoute : relancez-le depuis
+          l’onglet Tournées.
+        </div>
+      </div>
     </Modal>
   );
 }

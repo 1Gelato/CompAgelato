@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { Product, StockMove } from '@shared/types';
+import type { Product, ProductType, StockMove } from '@shared/types';
 import {
   Badge,
   Button,
@@ -12,6 +12,7 @@ import {
   NumberInput,
   SearchInput,
   Segmented,
+  Select,
   Spinner,
   Stat,
   Th,
@@ -24,12 +25,25 @@ import { matchesAmount } from '../lib/search';
 
 type Filter = 'all' | 'low' | 'out';
 
+const TYPE_LABEL: Record<ProductType, string> = {
+  consumable: 'Consommable',
+  machine: 'Machine',
+  part: 'Pièce détachée',
+};
+
+const TYPE_TONE: Record<ProductType, string> = {
+  consumable: '',
+  machine: 'badge--purple',
+  part: 'badge--blue',
+};
+
 export function Stock() {
   const { data: products, loading } = useProducts();
   const toast = useToast();
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | ProductType>('all');
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [history, setHistory] = useState<Product | null>(null);
   const [importing, setImporting] = useState(false);
@@ -39,6 +53,7 @@ export function Stock() {
       products.filter((product) => {
         if (filter === 'low' && !(product.minQty > 0 && product.qtyOnHand < product.minQty)) return false;
         if (filter === 'out' && product.qtyOnHand > 0) return false;
+        if (typeFilter !== 'all' && (product.type ?? 'consumable') !== typeFilter) return false;
         return (
           matches(
             [product.sku, product.name, product.category ?? '', product.supplier ?? '', product.aliases.join(' ')].join(' '),
@@ -50,7 +65,7 @@ export function Stock() {
           ])
         );
       }),
-    [products, filter, search],
+    [products, filter, typeFilter, search],
   );
 
   const { sorted, sort, toggle } = useSort(
@@ -59,6 +74,7 @@ export function Stock() {
       () => ({
         sku: (p: Product) => p.sku,
         name: (p: Product) => p.name,
+        type: (p: Product) => TYPE_LABEL[p.type ?? 'consumable'],
         category: (p: Product) => p.category ?? null,
         qtyOnHand: (p: Product) => p.qtyOnHand,
         minQty: (p: Product) => p.minQty,
@@ -135,6 +151,16 @@ export function Stock() {
             { value: 'out', label: 'Rupture' },
           ]}
         />
+        <Segmented
+          value={typeFilter}
+          onChange={setTypeFilter}
+          options={[
+            { value: 'all', label: 'Toutes natures' },
+            { value: 'consumable', label: 'Consommables' },
+            { value: 'machine', label: 'Machines' },
+            { value: 'part', label: 'Pièces' },
+          ]}
+        />
         <div className="spacer" />
         <div className="row">
           <Button icon={<Icons.download size={14} />} onClick={exportCsv} title="Exporter en CSV" />
@@ -142,7 +168,7 @@ export function Stock() {
             Importer
           </Button>
           <Button variant="primary" icon={<Icons.plus size={14} />} onClick={() => setEditing('new')}>
-            Nouveau consommable
+            Nouvel article
           </Button>
         </div>
       </div>
@@ -159,13 +185,13 @@ export function Stock() {
             text={
               products.length
                 ? 'Modifiez les filtres ou la recherche.'
-                : 'Saisissez vos consommables (coupelles, cuillères, cornets…) ou importez-les depuis un fichier CSV/Excel. Les quantités seront ensuite déduites automatiquement à partir des lignes de vos factures.'
+                : 'Saisissez vos consommables (coupelles, cuillères, cornets…), vos machines (glace, granité…) et vos pièces détachées, ou importez-les depuis un fichier CSV/Excel. Les quantités des consommables seront déduites automatiquement à partir des lignes de vos factures.'
             }
             action={
               !products.length ? (
                 <div className="row" style={{ marginTop: 8 }}>
                   <Button variant="primary" icon={<Icons.plus size={14} />} onClick={() => setEditing('new')}>
-                    Ajouter un consommable
+                    Ajouter un article
                   </Button>
                   <Button icon={<Icons.upload size={14} />} onClick={runImport} loading={importing}>
                     Importer un fichier
@@ -182,6 +208,7 @@ export function Stock() {
               <tr>
                 <Th sortKey="sku" sort={sort} onSort={toggle}>Référence</Th>
                 <Th sortKey="name" sort={sort} onSort={toggle}>Désignation</Th>
+                <Th sortKey="type" sort={sort} onSort={toggle}>Nature</Th>
                 <Th sortKey="category" sort={sort} onSort={toggle}>Catégorie</Th>
                 <Th sortKey="qtyOnHand" sort={sort} onSort={toggle} className="num">Stock</Th>
                 <Th sortKey="minQty" sort={sort} onSort={toggle} className="num">Seuil</Th>
@@ -203,6 +230,11 @@ export function Stock() {
                         {product.archived && <Badge>archivé</Badge>}
                       </div>
                       {product.supplier && <div className="tiny muted">{product.supplier}</div>}
+                    </td>
+                    <td>
+                      <Badge tone={TYPE_TONE[product.type ?? 'consumable']}>
+                        {TYPE_LABEL[product.type ?? 'consumable']}
+                      </Badge>
                     </td>
                     <td className="muted">{product.category ?? '—'}</td>
                     <td className="num">
@@ -315,6 +347,21 @@ function ProductEditor({ product, onClose }: { product: Product | null; onClose:
                 placeholder="attribuée automatiquement"
                 onChange={(e) => set('sku', e.target.value)}
               />
+            </Field>
+            <Field
+              label="Nature"
+              hint="Les pièces sont proposées en priorité dans le cahier SAV, les consommables dans les commandes"
+            >
+              <Select
+                value={draft.type ?? 'consumable'}
+                onChange={(e) => set('type', e.target.value as ProductType)}
+              >
+                {(['consumable', 'machine', 'part'] as ProductType[]).map((t) => (
+                  <option key={t} value={t}>
+                    {TYPE_LABEL[t]}
+                  </option>
+                ))}
+              </Select>
             </Field>
             <Field label="Catégorie">
               <Input value={draft.category ?? ''} onChange={(e) => set('category', e.target.value)} />

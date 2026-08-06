@@ -106,10 +106,19 @@ export interface AccountingDocument {
   updatedAt: string;
 }
 
+/**
+ * Nature d'un article du stock. Le stock ne contient pas que des consommables :
+ * on y suit aussi les machines vendues (glace, granité…) et les pièces
+ * détachées utilisées en SAV.
+ */
+export type ProductType = 'consumable' | 'machine' | 'part';
+
 export interface Product {
   id: ID;
   sku: string;
   name: string;
+  /** Consommable par défaut : c'est ce qu'étaient tous les articles existants. */
+  type: ProductType;
   category?: string;
   unit: string; // pièce, kg, L, carton…
   qtyOnHand: number;
@@ -257,6 +266,17 @@ export interface RegisterMachineLine {
   qty: number;
 }
 
+/**
+ * Article d'une écriture : pièce SAV, consommable commandé…
+ * Rattaché au stock quand l'article y figure, libellé libre sinon — on ne
+ * bloque jamais la prise de note parce qu'une référence manque au catalogue.
+ */
+export interface RegisterItem {
+  productId?: ID;
+  label: string;
+  qty: number;
+}
+
 export interface RegisterEntry {
   id: ID;
   kind: RegisterKind;
@@ -265,10 +285,15 @@ export interface RegisterEntry {
   clientName?: string;
   /** Cause de la panne (SAV), objet de la commande, nom de l'événement. */
   title: string;
-  /** SAV : pièces demandées. */
-  parts?: string;
+  /**
+   * Articles concernés : pièces demandées en SAV, consommables commandés.
+   * Rattachés au stock quand c'est possible.
+   */
+  items?: RegisterItem[];
   /** Commentaire libre. */
   details?: string;
+  /** Tournée de livraison à laquelle cette écriture a été rattachée. */
+  routeId?: ID;
   /** Événementiel : date de la prestation. */
   eventDate?: string;
   /** Événementiel : machines demandées. */

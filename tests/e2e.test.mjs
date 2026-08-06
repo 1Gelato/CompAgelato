@@ -444,8 +444,10 @@ test('navigation dans l’interface : chaque écran s’affiche', async () => {
   const screens = [
     ['Documents', /Factures et devis/],
     ['Clients', /Clients/],
-    ['Stock', /Stock de consommables/],
+    ['Stock', /^Stock$/],
     ['Tournées', /Tournées de livraison/],
+    ['Cahiers', /Cahiers/],
+    ['Banque', /Relevés de compte/],
     ['Réglages', /Réglages/],
     ['Tableau de bord', /Tableau de bord/],
   ];
@@ -1128,13 +1130,13 @@ test('cahier SAV : écriture avec fiche client créée à la volée', async () =
         kind: 'sav',
         clientId,
         title: 'Machine à glace en panne',
-        parts: 'Joint de cuve + courroie',
+        items: [{ label: 'Joint de cuve', qty: 1 }, { label: 'Courroie', qty: 1 }],
         details: 'Bruit anormal depuis mardi',
       }),
     client.id,
   );
   assert.equal(entry.status, 'open', 'une écriture démarre « À traiter »');
-  assert.equal(entry.parts, 'Joint de cuve + courroie');
+  assert.deepEqual(entry.items.map((i) => i.label), ['Joint de cuve', 'Courroie']);
 
   // Un client sans fiche reste possible : le nom est simplement noté.
   const noted = await page.evaluate(() =>
@@ -1238,4 +1240,106 @@ test('l’onglet Cahiers s’affiche avec ses trois cahiers et le parc', async (
   assert.ok(await page.isVisible('text=Nom de l’événement'));
   await page.locator('.modal .modal__header .iconbtn').last().click();
   await page.waitForTimeout(200);
+});
+
+test('le stock accueille consommables, machines et pièces détachées', async () => {
+  const created = await page.evaluate(async () => {
+    const machine = await window.api.products.save({
+      sku: 'MAC-TEST', name: 'Machine à granité 2 bols', type: 'machine', qtyOnHand: 3, unitCost: 1850,
+    });
+    const part = await window.api.products.save({
+      sku: 'PIE-TEST', name: 'Joint de cuve', type: 'part', qtyOnHand: 8, unitCost: 24.9,
+    });
+    return { machine, part };
+  });
+  assert.equal(created.machine.type, 'machine');
+  assert.equal(created.part.type, 'part');
+
+  // Un article existant sans nature reste un consommable.
+  const products = await page.evaluate(() => window.api.products.list());
+  const cup = products.find((p) => p.sku === 'CUP-100');
+  assert.equal(cup.type, 'consumable', 'les articles déjà saisis restent des consommables');
+});
+
+test('les écritures des cahiers sont rattachées aux articles du stock', async () => {
+  const products = await page.evaluate(() => window.api.products.list());
+  const part = products.find((p) => p.sku === 'PIE-TEST');
+
+  const entry = await page.evaluate(
+    (productId) =>
+      window.api.registers.save({
+        kind: 'sav',
+        clientName: 'Glacier du Port',
+        title: 'Fuite sous la cuve',
+        items: [
+          { productId, label: 'Joint de cuve', qty: 2 },
+          { label: 'Vis inox 4x20 (hors stock)', qty: 6 },
+        ],
+      }),
+    part.id,
+  );
+
+  assert.equal(entry.items.length, 2);
+  assert.equal(entry.items[0].productId, part.id, 'la pièce doit pointer sur l’article du stock');
+  assert.equal(entry.items[0].qty, 2);
+  // Un article absent du catalogue reste notable en libellé libre.
+  assert.equal(entry.items[1].productId, undefined);
+
+  // Les lignes vides ou à quantité nulle ne sont pas conservées.
+  const clean = await page.evaluate(() =>
+    window.api.registers.save({
+      kind: 'consumables',
+      clientName: 'Test',
+      title: 'Commande',
+      items: [{ label: 'Mix vanille', qty: 3 }, { label: '   ', qty: 2 }, { label: 'Ignoré', qty: 0 }],
+    }),
+  );
+  assert.equal(clean.items.length, 1);
+  assert.equal(clean.items[0].label, 'Mix vanille');
+});
+
+test('une écriture s’ajoute à une tournée de livraison', async () => {
+  const clients = await page.evaluate(() => window.api.clients.list());
+  const client = clients.find((c) => c.name.includes('COMPTOIR'));
+  assert.ok(client?.address?.label, 'client de test sans adresse');
+
+  const entry = await page.evaluate(
+    (clientId) =>
+      window.api.registers.save({
+        kind: 'sav',
+        clientId,
+        title: 'Révision annuelle',
+        details: 'Prévoir 30 min',
+      }),
+    client.id,
+  );
+
+  // Sans tournée précisée, une tournée du jour est créée.
+  const first = await page.evaluate((id) => window.api.registers.addToRoute(id), entry.id);
+  assert.equal(first.route.stops.length, 1);
+  assert.equal(first.route.stops[0].clientId, client.id);
+  assert.match(first.route.stops[0].notes, /Révision annuelle/);
+  assert.equal(first.entry.routeId, first.route.id, 'l’écriture retient sa tournée');
+
+  // Une seconde écriture pour le même client complète l'arrêt au lieu de le doubler.
+  const second = await page.evaluate(
+    async (payload) => {
+      const e = await window.api.registers.save({
+        kind: 'consumables', clientId: payload.clientId, title: 'Livraison gobelets',
+      });
+      return window.api.registers.addToRoute(e.id, payload.routeId);
+    },
+    { clientId: client.id, routeId: first.route.id },
+  );
+  assert.equal(second.route.stops.length, 1, 'le même client ne doit pas créer deux arrêts');
+  assert.match(second.route.stops[0].notes, /Livraison gobelets/);
+
+  // Une écriture sans fiche client est refusée, avec un message explicite.
+  const noClient = await page.evaluate(() =>
+    window.api.registers.save({ kind: 'sav', clientName: 'Passage', title: 'Sans fiche' }),
+  );
+  await assert.rejects(
+    page.evaluate((id) => window.api.registers.addToRoute(id), noClient.id),
+    /aucune fiche client/,
+  );
 });

@@ -54,8 +54,14 @@ seules à la bonne fiche — par SIRET, par nom exact, puis par ressemblance. Qu
 vous corrigez un rattachement, le nom lu sur la facture est mémorisé : la fois
 suivante, c'est automatique.
 
-**Stock de consommables**
-Vous saisissez ou importez vos articles (coupelles, cornets, cuillères…). À
+**Stock**
+Le stock ne contient pas que des consommables : chaque article porte une
+**nature** — consommable (mix, coupelles, cornets…), **machine** (glace,
+granité…) ou **pièce détachée**. Le tableau se filtre par nature, et les cahiers
+piochent dedans : les pièces sont proposées en priorité au SAV, les
+consommables dans les commandes.
+
+Vous saisissez ou importez vos articles. À
 chaque facture, les lignes sont rapprochées de vos articles — par référence, par
 libellé déjà connu, puis par ressemblance — et les quantités sont sorties du
 stock. L'opération est réversible et jamais appliquée deux fois. Chaque
@@ -115,6 +121,15 @@ choisit un client existant, crée sa fiche en un clic, ou note simplement un nom
 au vol. Le SAV enregistre la cause de la panne, les pièces demandées et un
 commentaire ; les consommables les commandes de mix, gobelets et pots ;
 l'événementiel la date de la prestation et les machines demandées.
+
+Les pièces et les articles commandés sont **rattachés au stock** : on les
+choisit dans le catalogue, avec la quantité et le niveau de stock affichés. Un
+article absent du catalogue reste notable en libellé libre — une prise de note
+ne doit jamais être bloquée par une référence manquante.
+
+Chaque écriture s'ajoute en un clic à une **tournée de livraison** : l'arrêt
+reprend l'adresse de la fiche client, avec la cause ou l'objet en note. Deux
+écritures pour le même client complètent le même arrêt au lieu d'en créer deux.
 
 Le parc de machines est suivi dans le même onglet, avec une règle stricte :
 **une simple demande ne réserve rien — seul le passage en « Devis validé »
@@ -333,7 +348,7 @@ npm run test:all
   encaissement antérieur à la facture, devis et pièces annulées exclus,
   décaissement rapproché d'un avoir et non d'une facture, et deux factures du
   même montant départagées par le nom du client.
-- **43 tests de bout en bout** — l'application réelle est lancée, pilotée et
+- **46 tests de bout en bout** — l'application réelle est lancée, pilotée et
   vérifiée : import d'une liste clients en Windows-1252, import du catalogue,
   analyse d'un dossier de PDF, rattachement automatique aux clients, association
   des lignes au stock, déduction puis annulation, idempotence, absence de

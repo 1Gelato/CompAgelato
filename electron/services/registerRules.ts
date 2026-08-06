@@ -126,6 +126,7 @@ export function notificationFor(
   const kind = REGISTER_KIND_LABEL[entry.kind];
   const who = clientName ?? entry.clientName ?? 'Client inconnu';
   const date = entry.eventDate ? ` — le ${frDate(entry.eventDate)}` : '';
+  const items = (entry.items ?? []).map((i) => `${i.qty} × ${i.label}`).join(', ');
 
   if (occasion === 'confirmed') {
     return {
@@ -136,7 +137,7 @@ export function notificationFor(
   }
   return {
     title: `${kind} — ${who}`,
-    message: `${entry.title}${date}${entry.parts ? ` (pièces : ${entry.parts})` : ''}`,
+    message: `${entry.title}${date}${items ? ` (${items})` : ''}`,
     tags: [KIND_TAGS[entry.kind]],
   };
 }
