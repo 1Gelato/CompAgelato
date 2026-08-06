@@ -379,8 +379,49 @@ Notes de fonctionnement :
   [Tailscale](https://tailscale.com) sur le serveur et sur vos appareils :
   l'adresse `http://<nom-tailscale>:4680` marche alors de partout, chiffrée,
   sans ouvrir le moindre port sur la box.
-- Le jeton protège les données, pas les personnes : les **comptes utilisateurs
-  et les rôles** (gérant, bureau, livreur) sont l'étape suivante du plan.
+### Comptes et rôles
+
+Le jeton partagé protège les données, pas les personnes : tous ceux qui le
+connaissent ont les mêmes droits. Les **comptes** y remédient.
+
+| | Tournées | Clients | Documents | Stock | Banque | Tableau de bord | Réglages / Comptes |
+|---|---|---|---|---|---|---|---|
+| **Gérant** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Bureau** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **Livreur** | ✅ | lecture | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+Le tableau de bord est refusé au livreur : il a l'air anodin, mais il expose le
+chiffre d'affaires et les meilleurs clients.
+
+**Rien ne change tant que vous ne créez pas de compte.** Un serveur déjà en
+service continue de fonctionner au jeton partagé. Dès que le premier compte
+existe, une connexion devient obligatoire et le jeton seul ne suffit plus —
+sinon le rôle de chacun ne voudrait rien dire.
+
+Pour démarrer : **Réglages → Comptes → Ajouter**, en gérant. Vous serez invité à
+vous connecter au rechargement suivant.
+
+Ce qui tient la sécurité :
+
+- Le contrôle vit à **un seul endroit**, l'aiguillage du serveur. Aucun service
+  métier ne vérifie quoi que ce soit.
+- Une table déclarative associe chaque canal à ses rôles, écrite pour que
+  **le compilateur exige qu'elle soit exhaustive** : ajouter un canal sans le
+  classer fait échouer `npm run typecheck`. Ce n'est pas une discipline à tenir,
+  c'est une impossibilité. Un contrôle au démarrage double la garantie.
+- Le **téléchargement des fichiers applique le même contrôle** : sans cela,
+  deviner un identifiant de document suffirait à récupérer une facture.
+- Les mots de passe sont hachés avec **scrypt**, inclus dans Node — aucune
+  dépendance nouvelle, l'installation du serveur reste `npm ci`.
+- Les jetons de session sont **opaques et révocables** (pas de JWT) : quand un
+  salarié part, son accès se coupe dans la seconde. Seule leur empreinte est
+  enregistrée, si bien qu'une copie de la base ne permet pas d'usurper une
+  session.
+- Les tentatives de connexion sont **limitées**, par compte et par appareil, et
+  un identifiant inconnu renvoie le même message qu'un mot de passe erroné.
+
+Ce qui n'est pas encore fait : la synchronisation hors-ligne filtrée par rôle
+(étape 3). Aujourd'hui l'accès distant exige le réseau.
 
 ## Ce qui sort de votre ordinateur
 
@@ -411,8 +452,10 @@ electron/                 Processus principal (Node)
                           registre sert le bureau (IPC) et le serveur (HTTP)
   ipc.ts                  Surcharges bureau (dialogues, impression, messagerie)
                           et enregistrement IPC — en local comme en branché
-  connection.ts           Liaison de l'appareil au serveur (adresse, jeton),
+  connection.ts           Liaison de l'appareil au serveur (adresse, session),
                           hors base : elle appartient à la machine
+  context.ts              Qui appelle, pour la durée d'une requête — sans
+                          toucher aux signatures des gestionnaires
   remote.ts               Proxy HTTP du processus principal : les canaux métier
                           renvoyés au serveur, fichiers rapatriés, flux SSE
   server.ts               Serveur HTTP zéro dépendance : API, SSE, fichiers,
@@ -420,6 +463,7 @@ electron/                 Processus principal (Node)
   serverMain.ts           Point d'entrée du mode serveur
   watcher.ts              Surveillance du dossier
   services/
+    auth.ts               Comptes, mots de passe scrypt, sessions révocables
     mail.ts               Brouillons .eml multipart avec pièces jointes
     printing.ts           Impression via la boîte de dialogue du système
     attachments.ts        Bibliothèque de flyers réutilisables
@@ -440,7 +484,7 @@ electron/                 Processus principal (Node)
     dashboard.ts          Agrégats
     exports.ts            Exports CSV
 src/                      Interface React
-shared/                   Types et contrat IPC partagés
+shared/                   Types, contrat IPC et table des droits par canal
 tests/                    Tests unitaires et de bout en bout
 ```
 
@@ -521,6 +565,17 @@ npm run test:all
   nom qui partira à l'imprimante, facture déposée depuis le poste puis analysée
   sur le serveur, fichier absent expliqué, et repli en local qui ne perd pas la
   liaison enregistrée.
+- **13 tests des comptes et des droits** — le jeton partagé continue de faire
+  foi tant qu'aucun compte n'existe, la création du premier gérant bascule le
+  serveur en connexion obligatoire, ni mot de passe ni jeton de session ne se
+  retrouvent en clair dans la base, un livreur atteint ses tournées et lit les
+  clients, mais se voit **refuser** banque, documents, stock, cahiers et tableau
+  de bord — vérifié sur la réponse du serveur, pas sur l'affichage — il ne peut
+  pas davantage récupérer une facture en devinant son identifiant ni téléverser
+  un relevé, un identifiant inconnu renvoie le même message qu'un mot de passe
+  erroné, une rafale de tentatives verrouille, révoquer une session coupe
+  l'accès dans la seconde, et le dernier gérant ne peut ni se rétrograder ni se
+  supprimer.
   Enfin le tri des colonnes dans les deux sens sur documents, clients et stock,
   le filtre des relevés sur une période donnée, et la recherche par montant
   qui retrouve une facture par son HT comme par son TTC et une opération

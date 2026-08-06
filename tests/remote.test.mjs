@@ -123,11 +123,17 @@ test('démarrage du serveur', async () => {
 });
 
 test('liaison : le bon jeton passe, le mauvais est refusé avec un message clair', async () => {
-  assert.deepEqual(await pingServer(connectionConfig()), { ok: true });
+  const bon = await pingServer(connectionConfig());
+  assert.equal(bon.ok, true);
+  assert.equal(bon.authenticated, true);
+  assert.equal(bon.error, undefined);
 
-  const refused = await pingServer({ serverUrl: BASE, token: 'mauvais-jeton' });
-  assert.equal(refused.ok, false);
-  assert.match(refused.error, /[Jj]eton/);
+  // Le serveur répond — c'est le jeton qui est mauvais. Confondre les deux
+  // enverrait l'utilisateur vérifier son réseau au lieu de son secret.
+  const refuse = await pingServer({ serverUrl: BASE, token: 'mauvais-jeton' });
+  assert.equal(refuse.ok, true, 'le serveur répond pourtant bien');
+  assert.equal(refuse.authenticated, false);
+  assert.match(refuse.error, /[Jj]eton/);
 });
 
 test('le registre distant couvre tous les canaux déclarés', () => {

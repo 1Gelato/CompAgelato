@@ -1379,3 +1379,63 @@ table.data tbody tr:last-child td {
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+/* ------------------------------------------------------------------ */
+/* Écran de connexion                                                   */
+/* ------------------------------------------------------------------ */
+
+.loginwrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.logincard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 380px;
+  padding: 28px;
+  border: 1px solid var(--separator);
+  border-radius: 14px;
+  background: var(--bg-elevated);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 12%);
+}
+
+.loginbrand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 4px;
+}
+
+.loginbrand h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.loginbrand p {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.loginlogo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}

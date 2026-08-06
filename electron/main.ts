@@ -205,7 +205,10 @@ function buildMenu(): void {
  */
 async function ensureServerReachable(): Promise<void> {
   for (;;) {
-    const { ok, error } = await pingServer();
+    const { ok, error, authRequired, authenticated } = await pingServer();
+    // Serveur joignable mais session à ouvrir : ce n'est pas une panne.
+    // L'application s'ouvre et affiche son écran de connexion.
+    if (ok && authRequired && !authenticated) return;
     if (ok) return;
     const choice = dialog.showMessageBoxSync({
       type: 'warning',

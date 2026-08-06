@@ -1,6 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Address, Attachment, Settings as SettingsType, Vehicle } from '@shared/types';
-import type { AppInfo, Connection, UpdateCheckResult } from '@shared/api';
+import type {
+  AppInfo,
+  AuthIdentity,
+  ChannelName,
+  Connection,
+  UpdateCheckResult,
+} from '@shared/api';
+import { mayCall } from '@shared/api';
+import { ROLE_LABEL, type Role, type UserSummary } from '@shared/types';
 import { AddressInput } from '../components/AddressInput';
 import {
   Badge,
@@ -104,11 +112,18 @@ export function Settings({
   onScan,
   scanning,
   onThemeChange,
+  identity,
+  onSignedOut,
 }: {
   onScan: (force?: boolean) => void;
   scanning: boolean;
   onThemeChange: (theme: SettingsType['theme']) => void;
+  identity: AuthIdentity | null;
+  onSignedOut: () => void;
 }) {
+  // Sans compte (application de bureau sur ses propres données), tout reste
+  // accessible : il n'y a personne d'autre à protéger.
+  const isManager = !identity || identity.role === 'gerant';
   const { data: settings, loading } = useSettings();
   const { data: vehicles } = useVehicles();
   const toast = useToast();
@@ -232,6 +247,9 @@ export function Settings({
   return (
     <>
       <div className="col" style={{ gap: 14, maxWidth: 940 }}>
+        {identity && <AccountCard identity={identity} onSignedOut={onSignedOut} />}
+        {identity?.role === 'gerant' && <UsersCard currentUserId={identity.userId} />}
+
         {/* Servie par le serveur : la question ne se pose pas, on y est déjà. */}
         {connection && connection.mode !== 'server' && (
           <Card
@@ -241,8 +259,20 @@ export function Settings({
             <div className="col" style={{ gap: 13 }}>
               <div className="row" style={{ gap: 8, alignItems: 'center' }}>
                 {connection.mode === 'remote' ? (
-                  <Badge tone={connection.reachable ? 'success' : 'danger'}>
-                    {connection.reachable ? 'Branché' : 'Serveur injoignable'}
+                  <Badge
+                    tone={
+                      !connection.reachable
+                        ? 'danger'
+                        : connection.authenticated
+                          ? 'success'
+                          : 'warn'
+                    }
+                  >
+                    {!connection.reachable
+                      ? 'Serveur injoignable'
+                      : connection.authenticated
+                        ? 'Branché'
+                        : 'Connexion requise'}
                   </Badge>
                 ) : (
                   <Badge>Données de ce poste</Badge>
@@ -264,23 +294,33 @@ export function Settings({
                 />
               </Field>
 
-              <Field
-                label="Jeton d’accès"
-                hint={
-                  connection.hasToken
-                    ? 'Un jeton est déjà enregistré : laissez vide pour le conserver.'
-                    : 'Le secret défini par COMPAGELATO_TOKEN sur le serveur.'
-                }
-              >
-                <Input
-                  type="password"
-                  value={tokenDraft}
-                  placeholder={connection.hasToken ? '••••••••' : ''}
-                  spellCheck={false}
-                  onChange={(e) => setTokenDraft(e.target.value)}
-                  style={MONO}
-                />
-              </Field>
+              {/* Serveur passé aux comptes : c'est un identifiant qu'on saisit,
+                  plus un secret partagé. Les deux cas coexistent le temps que
+                  les installations existantes basculent. */}
+              {connection.authRequired ? (
+                <div className="infobox">
+                  Ce serveur demande un <strong>compte</strong>. Enregistrez d’abord l’adresse,
+                  redémarrez, puis connectez-vous avec votre identifiant.
+                </div>
+              ) : (
+                <Field
+                  label="Jeton d’accès"
+                  hint={
+                    connection.hasToken
+                      ? 'Un jeton est déjà enregistré : laissez vide pour le conserver.'
+                      : 'Le secret défini par COMPAGELATO_TOKEN sur le serveur.'
+                  }
+                >
+                  <Input
+                    type="password"
+                    value={tokenDraft}
+                    placeholder={connection.hasToken ? '••••••••' : ''}
+                    spellCheck={false}
+                    onChange={(e) => setTokenDraft(e.target.value)}
+                    style={MONO}
+                  />
+                </Field>
+              )}
 
               <div className="row" style={{ gap: 8 }}>
                 <Button
@@ -331,6 +371,11 @@ export function Settings({
           </Card>
         )}
 
+        {/* Réglages de l'entreprise : réservés au gérant, comme les comptes.
+            Le serveur refuse de toute façon ces écritures ; masquer évite
+            d'offrir des boutons qui ne feraient qu'échouer. */}
+        {isManager && (
+          <>
         <Card
           title="Dossier surveillé"
           subtitle="Déposez-y les factures et devis produits par votre logiciel de comptabilité"
@@ -742,6 +787,8 @@ export function Settings({
         </Card>
 
         <AttachmentLibrary />
+          </>
+        )}
 
         <Card title="Apparence">
           <Field label="Thème">
@@ -757,6 +804,8 @@ export function Settings({
           </Field>
         </Card>
 
+        {isManager && (
+          <>
         <Card title="Données" subtitle="Sauvegarde, restauration et jeu de démonstration">
           <div className="col" style={{ gap: 13 }}>
             {dbStats && (
@@ -935,6 +984,8 @@ export function Settings({
             )}
           </div>
         </Card>
+          </>
+        )}
 
         {info && (
           <Card title="À propos">
@@ -983,6 +1034,298 @@ export function Settings({
 /* ================================================================== */
 /* Bibliothèque de pièces jointes (flyers, plaquettes…)                */
 /* ================================================================== */
+
+/* ------------------------------------------------------------------ */
+/* Comptes                                                             */
+/* ------------------------------------------------------------------ */
+
+/** Qui suis-je, changer mon mot de passe, me déconnecter. */
+function AccountCard({
+  identity,
+  onSignedOut,
+}: {
+  identity: AuthIdentity;
+  onSignedOut: () => void;
+}) {
+  const toast = useToast();
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <Card title="Mon compte" subtitle="Identité, mot de passe et déconnexion">
+      <div className="col" style={{ gap: 13 }}>
+        <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+          <Badge tone="info">{ROLE_LABEL[identity.role]}</Badge>
+          <strong>{identity.displayName}</strong>
+          <span className="muted mono" style={{ fontSize: 12 }}>
+            {identity.username}
+          </span>
+          <div className="spacer" />
+          <Button
+            onClick={async () => {
+              try {
+                await window.api.auth.logout();
+              } finally {
+                onSignedOut();
+              }
+            }}
+          >
+            Se déconnecter
+          </Button>
+        </div>
+
+        <div className="row" style={{ gap: 8, alignItems: 'flex-end' }}>
+          <Field label="Mot de passe actuel" style={{ flex: 1 }}>
+            <Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+          </Field>
+          <Field label="Nouveau mot de passe" hint="8 caractères minimum." style={{ flex: 1 }}>
+            <Input type="password" value={next} onChange={(e) => setNext(e.target.value)} />
+          </Field>
+          <Button
+            disabled={busy || !current || next.length < 8}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await window.api.auth.changePassword({ current, next });
+                setCurrent('');
+                setNext('');
+                // Le changement ferme les autres sessions, y compris celle-ci.
+                toast.push({
+                  tone: 'success',
+                  title: 'Mot de passe changé',
+                  text: 'Vos autres appareils devront se reconnecter.',
+                });
+                onSignedOut();
+              } catch (err) {
+                toast.push({ tone: 'error', title: 'Échec', text: errorMessage(err) });
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? <Spinner size={14} /> : 'Changer'}
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+const ROLE_HINT: Record<Role, string> = {
+  gerant: 'Tout, y compris les réglages et les comptes.',
+  bureau: 'Le travail quotidien, sans les réglages ni les comptes.',
+  livreur: 'Ses tournées et les clients en lecture — ni comptabilité, ni banque, ni stock.',
+};
+
+/** Création, modification et révocation des comptes. Gérant seulement. */
+function UsersCard({ currentUserId }: { currentUserId: string }) {
+  const toast = useToast();
+  const [users, setUsers] = useState<UserSummary[] | null>(null);
+  const [editing, setEditing] = useState<UserSummary | 'new' | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<UserSummary | null>(null);
+
+  const load = useCallback(() => {
+    window.api.auth
+      .users()
+      .then(setUsers)
+      .catch((err) => toast.push({ tone: 'error', title: 'Échec', text: errorMessage(err) }));
+  }, [toast]);
+
+  useEffect(load, [load]);
+
+  return (
+    <>
+      <Card
+        title="Comptes"
+        subtitle="Qui accède à quoi"
+        padded={false}
+        actions={
+          <Button size="sm" variant="primary" icon={<Icons.plus size={12} />} onClick={() => setEditing('new')}>
+            Ajouter
+          </Button>
+        }
+      >
+        {!users ? (
+          <div className="empty">
+            <Spinner size={18} />
+          </div>
+        ) : (
+          <div className="list">
+            {users.map((user) => (
+              <div key={user.id} className="list__item">
+                <Badge tone={user.disabled ? undefined : 'info'}>{ROLE_LABEL[user.role]}</Badge>
+                <div className="col" style={{ gap: 2, minWidth: 0, flex: 1 }}>
+                  <div className="truncate">
+                    <strong>{user.displayName}</strong>{' '}
+                    <span className="muted mono" style={{ fontSize: 12 }}>
+                      {user.username}
+                    </span>
+                    {user.disabled && <Badge tone="warn"> désactivé</Badge>}
+                  </div>
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    {user.lastLoginAt
+                      ? `Dernière connexion le ${new Date(user.lastLoginAt).toLocaleDateString('fr-FR')}`
+                      : 'Jamais connecté'}
+                    {user.sessions > 0 && ` · ${user.sessions} appareil(s) connecté(s)`}
+                  </span>
+                </div>
+                <Button size="sm" onClick={() => setEditing(user)}>
+                  Modifier
+                </Button>
+                {user.id !== currentUserId && (
+                  <IconButton
+                    title="Supprimer"
+                    onClick={() => setConfirmRemove(user)}
+                  >
+                    <Icons.trash size={14} />
+                  </IconButton>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {editing && (
+        <UserEditor
+          user={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            load();
+          }}
+        />
+      )}
+
+      <ConfirmDialog
+        open={Boolean(confirmRemove)}
+        title="Supprimer ce compte ?"
+        message={`« ${confirmRemove?.displayName} » ne pourra plus se connecter. Ses sessions ouvertes sont fermées immédiatement.`}
+        confirmLabel="Supprimer"
+        danger
+        onCancel={() => setConfirmRemove(null)}
+        onConfirm={async () => {
+          const target = confirmRemove;
+          setConfirmRemove(null);
+          if (!target) return;
+          try {
+            await window.api.auth.removeUser(target.id);
+            toast.push({ tone: 'success', title: 'Compte supprimé' });
+            load();
+          } catch (err) {
+            toast.push({ tone: 'error', title: 'Échec', text: errorMessage(err) });
+          }
+        }}
+      />
+    </>
+  );
+}
+
+function UserEditor({
+  user,
+  onClose,
+  onSaved,
+}: {
+  user: UserSummary | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [username, setUsername] = useState(user?.username ?? '');
+  const [displayName, setDisplayName] = useState(user?.displayName ?? '');
+  const [role, setRole] = useState<Role>(user?.role ?? 'livreur');
+  const [password, setPassword] = useState('');
+  const [disabled, setDisabled] = useState(Boolean(user?.disabled));
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <Modal
+      open
+      title={user ? `Modifier « ${user.displayName} »` : 'Nouveau compte'}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Annuler</Button>
+          <div className="spacer" />
+          <Button
+            variant="primary"
+            disabled={busy || !username.trim() || (!user && password.length < 8)}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await window.api.auth.saveUser({
+                  id: user?.id,
+                  username: username.trim(),
+                  displayName: displayName.trim() || username.trim(),
+                  role,
+                  // Champ vide sur un compte existant : mot de passe inchangé.
+                  ...(password ? { password } : {}),
+                  disabled,
+                });
+                toast.push({ tone: 'success', title: user ? 'Compte modifié' : 'Compte créé' });
+                onSaved();
+              } catch (err) {
+                toast.push({ tone: 'error', title: 'Échec', text: errorMessage(err) });
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? <Spinner size={14} /> : 'Enregistrer'}
+          </Button>
+        </>
+      }
+    >
+      <div className="col" style={{ gap: 13 }}>
+        <Field label="Identifiant" hint="Lettres non accentuées, chiffres, point, tiret.">
+          <Input
+            value={username}
+            autoCapitalize="none"
+            spellCheck={false}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="karim"
+          />
+        </Field>
+        <Field label="Nom affiché">
+          <Input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Karim"
+          />
+        </Field>
+        <Field label="Rôle" hint={ROLE_HINT[role]}>
+          <Segmented
+            value={role}
+            onChange={(value) => setRole(value as Role)}
+            options={[
+              { value: 'livreur', label: ROLE_LABEL.livreur },
+              { value: 'bureau', label: ROLE_LABEL.bureau },
+              { value: 'gerant', label: ROLE_LABEL.gerant },
+            ]}
+          />
+        </Field>
+        <Field
+          label={user ? 'Nouveau mot de passe' : 'Mot de passe'}
+          hint={user ? 'Laissez vide pour le conserver.' : '8 caractères minimum.'}
+        >
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </Field>
+        {user && (
+          <Switch
+            checked={disabled}
+            onChange={setDisabled}
+            label="Compte désactivé (ne peut plus se connecter)"
+          />
+        )}
+      </div>
+    </Modal>
+  );
+}
 
 function AttachmentLibrary() {
   const { data: attachments, loading } = useAttachments();

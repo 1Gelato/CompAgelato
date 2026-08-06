@@ -3,10 +3,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CHANNELS } from '@shared/api';
+import { CHANNELS, CHANNEL_ACCESS, mayCall } from '@shared/api';
+import type { AuthIdentity, ChannelName } from '@shared/api';
+import type { Role } from '@shared/types';
 import { coreHandlers, emlFilePath, setBroadcast } from './handlers';
 import { store, newId } from './store';
 import { resolvePath } from './services/paths';
+import { withContext } from './context';
+import { accountsConfigured, identityOf, resolveSession } from './services/auth';
 
 /**
  * Serveur CompaGelato : le même registre de gestionnaires que l'application de
@@ -111,6 +115,15 @@ function streamFile(
   fs.createReadStream(file).pipe(res);
 }
 
+/**
+ * D'où vient l'appel. Sert à limiter les tentatives de connexion par appareil
+ * plutôt que globalement : sans cela, un seul poste qui se trompe verrouillerait
+ * le compte pour toute l'entreprise.
+ */
+function clientAddress(req: http.IncomingMessage): string {
+  return req.socket.remoteAddress ?? 'inconnu';
+}
+
 /** Adresses IPv4 de la machine, pour afficher où se connecter. */
 export function lanAddresses(): string[] {
   const out: string[] = [];
@@ -129,7 +142,30 @@ export interface RunningServer {
   close(): Promise<void>;
 }
 
+/**
+ * Tout canal déclaré est-il classé dans la table des droits ?
+ *
+ * Le type `Record<ChannelName, …>` l'impose déjà à la compilation. Ce contrôle
+ * au démarrage double la garantie côté exécution : un bundle produit sans
+ * `npm run typecheck` ne doit pas pouvoir servir un canal non classé.
+ */
+function assertAccessTableComplete(): void {
+  const missing: string[] = [];
+  for (const [namespace, methods] of Object.entries(CHANNELS)) {
+    for (const method of methods as readonly string[]) {
+      const channel = `${namespace}:${method}` as ChannelName;
+      if (!CHANNEL_ACCESS[channel]) missing.push(channel);
+    }
+  }
+  if (missing.length) {
+    throw new Error(
+      `Canaux sans droits déclarés : ${missing.join(', ')}. Complétez CHANNEL_ACCESS dans shared/api.ts.`,
+    );
+  }
+}
+
 export function createCompaServer(options: ServerOptions = {}): Promise<RunningServer> {
+  assertAccessTableComplete();
   const token = options.token?.trim() || '';
   const rendererDir =
     options.rendererDir ??
@@ -204,16 +240,63 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
     }
   }
 
-  /* ---------------- Autorisation ---------------- */
+  /* ---------------- Qui appelle, et a-t-il le droit ? ---------------- */
 
-  function authorized(req: http.IncomingMessage, url: URL): boolean {
-    if (!token) return true;
+  /**
+   * Le contrôle des droits vit **ici et nulle part ailleurs**. Aucun service
+   * métier ne vérifie quoi que ce soit : tout appel distant passe par cet
+   * aiguillage, y compris le téléchargement des fichiers. Sans cela, deviner un
+   * identifiant de document suffirait à récupérer n'importe quelle facture.
+   */
+  interface Caller {
+    identity: AuthIdentity | null;
+    /** `null` : appelant non authentifié. */
+    role: Role | null;
+    token: string;
+  }
+
+  function credentialFrom(req: http.IncomingMessage, url: URL): string {
     const header = req.headers.authorization;
-    if (header === `Bearer ${token}`) return true;
-    if (req.headers['x-auth-token'] === token) return true;
+    if (typeof header === 'string' && header.startsWith('Bearer ')) return header.slice(7);
+    const custom = req.headers['x-auth-token'];
+    if (typeof custom === 'string' && custom) return custom;
     // EventSource et les liens de téléchargement ne peuvent pas poser d'en-tête.
-    if (url.searchParams.get('token') === token) return true;
-    return false;
+    return url.searchParams.get('token') ?? '';
+  }
+
+  function resolveCaller(req: http.IncomingMessage, url: URL): Caller {
+    const presented = credentialFrom(req, url);
+
+    const session = resolveSession(presented);
+    if (session) {
+      return { identity: identityOf(session.user), role: session.user.role, token: presented };
+    }
+
+    // Des comptes existent : seule une session ouverte donne accès. Le jeton
+    // partagé ne suffit plus — sinon le rôle de chacun ne voudrait rien dire.
+    if (accountsConfigured()) return { identity: null, role: null, token: presented };
+
+    // Aucun compte : fonctionnement d'origine, jeton partagé et pleins droits.
+    // C'est ce qui permet de créer le premier compte, et ce qui garantit qu'un
+    // serveur déjà installé continue de marcher après mise à jour.
+    if (!token || presented === token) {
+      return { identity: null, role: 'gerant', token: presented };
+    }
+    return { identity: null, role: null, token: presented };
+  }
+
+  /** Canaux joignables sans session : ceux qui servent justement à en ouvrir une. */
+  const PUBLIC_CHANNELS = new Set<ChannelName>(['auth:status', 'auth:login']);
+
+  function refuse(res: http.ServerResponse, caller: Caller, what: string): void {
+    if (!caller.role) {
+      sendJson(res, 401, { ok: false, error: 'Connexion requise.', authRequired: true });
+      return;
+    }
+    sendJson(res, 403, {
+      ok: false,
+      error: `Votre rôle ne donne pas accès à ${what}.`,
+    });
   }
 
   /* ---------------- Statique ---------------- */
@@ -252,8 +335,20 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
     try {
       const isProtected =
         segments[0] === 'api' || segments[0] === 'files' || segments[0] === 'upload';
-      if (isProtected && !authorized(req, url)) {
-        sendJson(res, 401, { ok: false, error: 'Jeton d’accès manquant ou invalide.' });
+      const caller = isProtected
+        ? resolveCaller(req, url)
+        : { identity: null, role: null as Role | null, token: '' };
+
+      // Seuls `auth:status` et `auth:login` échappent à la connexion : ce sont
+      // eux qui permettent de l'obtenir.
+      const isPublicCall =
+        req.method === 'POST' &&
+        segments[0] === 'api' &&
+        segments.length === 3 &&
+        PUBLIC_CHANNELS.has(`${segments[1]}:${segments[2]}` as ChannelName);
+
+      if (isProtected && !caller.role && !isPublicCall) {
+        sendJson(res, 401, { ok: false, error: 'Connexion requise.', authRequired: true });
         return;
       }
 
@@ -280,10 +375,29 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
           sendJson(res, 404, { ok: false, error: `Canal inconnu : ${namespace}:${method}` });
           return;
         }
+
+        const channel = `${namespace}:${method}` as ChannelName;
+        // Une liste vide veut dire « propre au poste ». On laisse alors le
+        // gestionnaire répondre lui-même : son message explique quoi faire,
+        // là où un refus de droits induirait en erreur.
+        const desktopOnly = CHANNEL_ACCESS[channel]?.length === 0;
+        if (!isPublicCall && !desktopOnly && !(caller.role && mayCall(caller.role, channel))) {
+          refuse(res, caller, `« ${namespace} »`);
+          return;
+        }
+
         const raw = await readBody(req, JSON_LIMIT);
         const args: unknown[] = raw.length ? (JSON.parse(raw.toString('utf8')).args ?? []) : [];
         try {
-          const result = await handler(...args);
+          const result = await withContext(
+            {
+              identity: caller.identity,
+              role: caller.role,
+              token: caller.token,
+              from: clientAddress(req),
+            },
+            () => handler(...args),
+          );
           sendJson(res, 200, { ok: true, result: result ?? null });
         } catch (err) {
           const message = (err as Error).message ?? String(err);
@@ -296,6 +410,25 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
       // --- Fichiers ---
       if (req.method === 'GET' && segments[0] === 'files' && segments.length === 3) {
         const [, kind, id] = segments;
+
+        // Le même contrôle que sur les canaux : sans cela, deviner un
+        // identifiant suffirait à récupérer une facture qu'on n'a pas le droit
+        // de lire. Cacher le bouton dans l'interface ne protège rien.
+        const needed: Record<string, ChannelName> = {
+          document: 'documents:openFile',
+          attachment: 'attachments:open',
+          eml: 'documents:sendEmail',
+        };
+        const channel = needed[kind];
+        if (!channel) {
+          sendJson(res, 404, { ok: false, error: 'Type de fichier inconnu.' });
+          return;
+        }
+        if (!caller.role || !mayCall(caller.role, channel)) {
+          refuse(res, caller, 'ce fichier');
+          return;
+        }
+
         if (kind === 'document') {
           const doc = store.db.documents.find((d) => d.id === id);
           if (!doc?.sourceFile) {
@@ -330,6 +463,27 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
       // --- Téléversements ---
       if (req.method === 'POST' && segments[0] === 'upload' && segments.length === 2) {
         const kind = segments[1];
+
+        // Un téléversement appelle un gestionnaire : il exige donc le droit de
+        // ce gestionnaire, pas moins.
+        const needed: Record<string, ChannelName> = {
+          clients: 'clients:importFrom',
+          products: 'products:importFrom',
+          bank: 'bank:importFrom',
+          attachments: 'attachments:addFiles',
+          documents: 'documents:addFiles',
+          restore: 'db:restore',
+        };
+        const channel = needed[kind];
+        if (!channel) {
+          sendJson(res, 400, { ok: false, error: `Type de téléversement inconnu : ${kind}` });
+          return;
+        }
+        if (!caller.role || !mayCall(caller.role, channel)) {
+          refuse(res, caller, 'ce téléversement');
+          return;
+        }
+
         const fileName = decodeURIComponent(String(req.headers['x-file-name'] ?? ''));
         const body = await readBody(req, UPLOAD_LIMIT);
         if (!body.length) {

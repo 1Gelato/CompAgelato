@@ -11,11 +11,13 @@ import type {
   MachineAvailability,
   RegisterEntry,
   Product,
+  Role,
   Settings,
   StockMove,
   Vehicle,
 } from '@shared/types';
-import type { AppInfo } from '@shared/api';
+import type { AppInfo, ChannelName } from '@shared/api';
+import { mayCall } from '@shared/api';
 
 /**
  * Chargement des données depuis le processus principal.
@@ -29,10 +31,31 @@ export function refreshAll(): void {
   for (const listener of listeners) listener();
 }
 
+/**
+ * Rôle de l'utilisateur connecté, `null` quand il n'y a pas de compte
+ * (application de bureau sur ses propres données).
+ *
+ * Sert à ne pas *demander* ce à quoi on n'a pas droit. Le serveur refuserait de
+ * toute façon, mais les compteurs de la barre latérale interrogent documents,
+ * stock et cahiers depuis n'importe quel écran : un livreur récolterait une
+ * volée de refus à chaque chargement.
+ */
+let currentRole: Role | null = null;
+
+export function setCurrentRole(role: Role | null): void {
+  currentRole = role;
+}
+
+function allowed(channel?: ChannelName): boolean {
+  return !channel || !currentRole || mayCall(currentRole, channel);
+}
+
 export function useResource<T>(
   loader: () => Promise<T>,
   initial: T,
   deps: unknown[] = [],
+  /** Canal exigé. Sans droit dessus, la ressource reste à sa valeur initiale. */
+  channel?: ChannelName,
 ): { data: T; loading: boolean; refreshing: boolean; error: string | null; reload: () => void } {
   const [data, setData] = useState<T>(initial);
   // `loading` ne vaut true que tant que rien n'a encore été chargé. Un
@@ -54,6 +77,12 @@ export function useResource<T>(
   }, [reload]);
 
   useEffect(() => {
+    // Pas le droit : on n'appelle pas. L'écran correspondant est de toute façon
+    // masqué ; seuls les compteurs transverses passaient encore par ici.
+    if (!allowed(channel)) {
+      setLoaded(true);
+      return;
+    }
     let cancelled = false;
     setRefreshing(true);
     loader()
@@ -79,25 +108,30 @@ export function useResource<T>(
   return { data, loading: !loaded, refreshing, error, reload };
 }
 
-export const useClients = () => useResource<Client[]>(() => window.api.clients.list(), []);
-export const useDocuments = () => useResource<AccountingDocument[]>(() => window.api.documents.list(), []);
-export const useProducts = () => useResource<Product[]>(() => window.api.products.list(), []);
-export const useRoutes = () => useResource<DeliveryRoute[]>(() => window.api.routes.list(), []);
-export const useVehicles = () => useResource<Vehicle[]>(() => window.api.vehicles.list(), []);
+export const useClients = () => useResource<Client[]>(() => window.api.clients.list(), [], [], 'clients:list');
+export const useDocuments = () => useResource<AccountingDocument[]>(() => window.api.documents.list(), [], [], 'documents:list');
+export const useProducts = () => useResource<Product[]>(() => window.api.products.list(), [], [], 'products:list');
+export const useRoutes = () => useResource<DeliveryRoute[]>(() => window.api.routes.list(), [], [], 'routes:list');
+export const useVehicles = () => useResource<Vehicle[]>(() => window.api.vehicles.list(), [], [], 'vehicles:list');
 export const useAttachments = () =>
-  useResource<(Attachment & { exists: boolean })[]>(() => window.api.attachments.list(), []);
+  useResource<(Attachment & { exists: boolean })[]>(
+    () => window.api.attachments.list(),
+    [],
+    [],
+    'attachments:list',
+  );
 export const useStockMoves = (productId?: string) =>
-  useResource<StockMove[]>(() => window.api.stock.moves(productId), [], [productId]);
+  useResource<StockMove[]>(() => window.api.stock.moves(productId), [], [productId], 'stock:moves');
 export const useRegisterEntries = () =>
-  useResource<RegisterEntry[]>(() => window.api.registers.list(), []);
+  useResource<RegisterEntry[]>(() => window.api.registers.list(), [], [], 'registers:list');
 export const useMachines = () =>
-  useResource<MachineAvailability[]>(() => window.api.machines.list(), []);
+  useResource<MachineAvailability[]>(() => window.api.machines.list(), [], [], 'machines:list');
 export const useBankTransactions = () =>
-  useResource<BankTransaction[]>(() => window.api.bank.list(), []);
+  useResource<BankTransaction[]>(() => window.api.bank.list(), [], [], 'bank:list');
 export const useBankSummary = () =>
-  useResource<BankSummary | null>(() => window.api.bank.summary(), null);
+  useResource<BankSummary | null>(() => window.api.bank.summary(), null, [], 'bank:summary');
 export const useDashboard = () =>
-  useResource<DashboardStats | null>(() => window.api.stats.dashboard(), null);
+  useResource<DashboardStats | null>(() => window.api.stats.dashboard(), null, [], 'stats:dashboard');
 export const useSettings = () => useResource<Settings | null>(() => window.api.settings.get(), null);
 
 /**

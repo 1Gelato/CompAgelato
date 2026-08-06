@@ -124,6 +124,8 @@ function emptyDatabase(): Database {
     registerEntries: [],
     eventMachines: [],
     settings: { ...defaultSettings(), defaultVehicleId: vehicle.id },
+    users: [],
+    sessions: [],
   };
 }
 
@@ -187,6 +189,10 @@ export class Store {
       registerEntries: parsed.registerEntries ?? [],
       eventMachines: parsed.eventMachines ?? [],
       settings: { ...base.settings, ...(parsed.settings ?? {}) },
+      // Base antérieure aux comptes : elle en repart sans, donc en jeton
+      // partagé. Aucune bascule automatique vers une connexion obligatoire.
+      users: parsed.users ?? [],
+      sessions: parsed.sessions ?? [],
     };
     if (!db.settings.defaultVehicleId && db.vehicles[0]) {
       db.settings.defaultVehicleId = db.vehicles[0].id;

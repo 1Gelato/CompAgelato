@@ -22,6 +22,9 @@ import type {
   Product,
   RegisterEntry,
   RegisterStatus,
+  Role,
+  Session,
+  UserSummary,
   RouteComputation,
   RouteStop,
   ScanReport,
@@ -63,9 +66,188 @@ export const CHANNELS = {
   stats: ['dashboard'],
   db: ['backup', 'restore', 'exportAll', 'stats', 'seedDemo', 'wipeDemo'],
   updates: ['check', 'apply'],
+  auth: ['status', 'login', 'logout', 'me', 'changePassword', 'users', 'saveUser', 'removeUser', 'sessions', 'revokeSession'],
 } as const;
 
 export type ChannelMap = typeof CHANNELS;
+
+/** `"clients:list"`, `"bank:summary"`… — tous les canaux, un par un. */
+export type ChannelName = {
+  [N in keyof ChannelMap]: `${N & string}:${ChannelMap[N][number] & string}`;
+}[keyof ChannelMap];
+
+/**
+ * Qui a le droit d'appeler quoi.
+ *
+ * Le type `Record<ChannelName, …>` est ce qui compte ici : **ajouter un canal
+ * sans le classer fait échouer `npm run typecheck`**. Ce n'est donc pas une
+ * discipline à tenir, c'est une impossibilité — la seule façon fiable de ne pas
+ * ouvrir un trou en ajoutant une fonctionnalité.
+ *
+ * Une liste vide signifie « personne » : le canal n'est jamais joignable à
+ * distance (gestes propres au poste, arrêt du serveur…).
+ *
+ * Deux classements méritent qu'on s'y arrête :
+ *
+ * - Le **tableau de bord** est refusé au livreur. Il a l'air anodin, mais il
+ *   expose le chiffre d'affaires et les meilleurs clients.
+ * - Les fonctions de **démonstration et d'effacement** sont réservées au
+ *   gérant : elles détruisent des données.
+ */
+const ALL: readonly Role[] = ['gerant', 'bureau', 'livreur'];
+const BUREAU: readonly Role[] = ['gerant', 'bureau'];
+const GERANT: readonly Role[] = ['gerant'];
+/** Réservé au poste : jamais servi à distance, quel que soit le rôle. */
+const LOCAL: readonly Role[] = [];
+
+export const CHANNEL_ACCESS: Record<ChannelName, readonly Role[]> = {
+  /* Application ------------------------------------------------------ */
+  'app:info': ALL,
+  'app:openPath': LOCAL,
+  'app:openExternal': LOCAL,
+  'app:chooseFolder': LOCAL,
+  'app:chooseFile': LOCAL,
+  'app:revealFile': LOCAL,
+  'app:quit': LOCAL,
+  'app:relaunch': GERANT,
+  'app:connection': LOCAL,
+  'app:setConnection': LOCAL,
+
+  /* Réglages de l'entreprise ----------------------------------------- */
+  'settings:get': ALL,
+  'settings:update': GERANT,
+  'settings:resetFolder': GERANT,
+
+  /* Clients — le livreur les lit pour retrouver ses arrêts ------------ */
+  'clients:list': ALL,
+  'clients:save': BUREAU,
+  'clients:remove': BUREAU,
+  'clients:importFrom': BUREAU,
+  'clients:pickAndImport': BUREAU,
+  'clients:exportCsv': BUREAU,
+  'clients:merge': BUREAU,
+  'clients:geocodeMissing': BUREAU,
+
+  /* Documents comptables --------------------------------------------- */
+  'documents:list': BUREAU,
+  'documents:get': BUREAU,
+  'documents:save': BUREAU,
+  'documents:remove': BUREAU,
+  'documents:scan': BUREAU,
+  'documents:rescanFile': BUREAU,
+  'documents:setClient': BUREAU,
+  'documents:setStatus': BUREAU,
+  'documents:exportCsv': BUREAU,
+  'documents:openFile': BUREAU,
+  'documents:print': BUREAU,
+  'documents:setPrinted': BUREAU,
+  'documents:prepareEmail': BUREAU,
+  'documents:sendEmail': BUREAU,
+  'documents:addFiles': BUREAU,
+  'documents:pickAndAdd': BUREAU,
+
+  /* Pièces jointes ---------------------------------------------------- */
+  'attachments:list': BUREAU,
+  'attachments:pickAndAdd': BUREAU,
+  'attachments:addFiles': BUREAU,
+  'attachments:update': BUREAU,
+  'attachments:remove': BUREAU,
+  'attachments:open': BUREAU,
+  'attachments:sync': BUREAU,
+  'attachments:openFolder': LOCAL,
+
+  /* Stock ------------------------------------------------------------- */
+  'products:list': BUREAU,
+  'products:save': BUREAU,
+  'products:remove': BUREAU,
+  'products:importFrom': BUREAU,
+  'products:pickAndImport': BUREAU,
+  'products:exportCsv': BUREAU,
+  'products:adjust': BUREAU,
+  'stock:moves': BUREAU,
+  'stock:apply': BUREAU,
+  'stock:revert': BUREAU,
+  'stock:applyAll': BUREAU,
+  'stock:linkLine': BUREAU,
+  'stock:suggestions': BUREAU,
+
+  /* Tournées — le cœur du métier du livreur --------------------------- */
+  'routes:list': ALL,
+  'routes:save': ALL,
+  'routes:remove': BUREAU,
+  'routes:compute': ALL,
+  'routes:optimize': ALL,
+  'routes:link': ALL,
+  'routes:qr': ALL,
+  'routes:exportCsv': ALL,
+  'vehicles:list': ALL,
+  'vehicles:save': BUREAU,
+  'vehicles:remove': BUREAU,
+
+  /* Cahiers ----------------------------------------------------------- */
+  'registers:list': BUREAU,
+  'registers:save': BUREAU,
+  'registers:remove': BUREAU,
+  'registers:setStatus': BUREAU,
+  'registers:addToRoute': BUREAU,
+  'machines:list': BUREAU,
+  'machines:save': BUREAU,
+  'machines:remove': BUREAU,
+
+  /* Divers ------------------------------------------------------------ */
+  'notify:test': BUREAU,
+  'geo:autocomplete': ALL,
+  'geo:reverse': ALL,
+  'geo:fuelPrice': ALL,
+
+  /* Banque — jamais pour le livreur ----------------------------------- */
+  'bank:list': BUREAU,
+  'bank:scan': BUREAU,
+  'bank:pickAndImport': BUREAU,
+  'bank:importFrom': BUREAU,
+  'bank:update': BUREAU,
+  'bank:remove': BUREAU,
+  'bank:suggestions': BUREAU,
+  'bank:reconcile': BUREAU,
+  'bank:autoReconcile': BUREAU,
+  'bank:summary': BUREAU,
+  'bank:exportCsv': BUREAU,
+  'bank:openFolder': LOCAL,
+  'bank:chooseFolder': LOCAL,
+
+  /* Tableau de bord — chiffre d'affaires et meilleurs clients ---------- */
+  'stats:dashboard': BUREAU,
+
+  /* Base de données --------------------------------------------------- */
+  'db:backup': GERANT,
+  'db:restore': GERANT,
+  'db:exportAll': GERANT,
+  'db:stats': GERANT,
+  'db:seedDemo': GERANT,
+  'db:wipeDemo': GERANT,
+  'updates:check': GERANT,
+  'updates:apply': GERANT,
+
+  /* Comptes ------------------------------------------------------------ */
+  // `status` et `login` répondent forcément avant toute connexion : c'est
+  // l'aiguillage qui les laisse passer sans session, pas cette table.
+  'auth:status': ALL,
+  'auth:login': ALL,
+  'auth:logout': ALL,
+  'auth:me': ALL,
+  'auth:changePassword': ALL,
+  'auth:users': GERANT,
+  'auth:saveUser': GERANT,
+  'auth:removeUser': GERANT,
+  'auth:sessions': GERANT,
+  'auth:revokeSession': GERANT,
+};
+
+/** Ce rôle peut-il appeler ce canal ? */
+export function mayCall(role: Role, channel: string): boolean {
+  const allowed = CHANNEL_ACCESS[channel as ChannelName];
+  return Boolean(allowed?.includes(role));
+}
 
 export interface AppInfo {
   version: string;
@@ -109,6 +291,11 @@ export interface Connection {
   reachable?: boolean;
   /** Détail de l'échec quand le serveur ne répond pas. */
   error?: string;
+  /** Le serveur exige-t-il une connexion par compte ? */
+  authRequired?: boolean;
+  /** La session enregistrée sur ce poste est-elle encore valable ? */
+  authenticated?: boolean;
+  identity?: AuthIdentity | null;
 }
 
 export interface RouteQr {
@@ -169,6 +356,39 @@ export interface EmailOutcome {
    * adresse permet de le télécharger pour l'ouvrir dans sa messagerie.
    */
   fileUrl?: string;
+}
+
+/** État de l'authentification, consultable avant toute connexion. */
+export interface AuthStatus {
+  /** Des comptes existent-ils ? Sinon le serveur reste au jeton partagé. */
+  configured: boolean;
+  /** Une session est-elle exigée pour aller plus loin ? */
+  required: boolean;
+  /** Identité en cours, si une session est ouverte. */
+  identity: AuthIdentity | null;
+  /**
+   * L'appelant peut-il travailler en l'état ?
+   *
+   * Distinct de `identity` : en jeton partagé il n'y a pas d'identité, mais un
+   * jeton correct suffit. C'est ce drapeau qui permet à un poste de distinguer
+   * « il me manque un mot de passe » de « mon jeton est mauvais » — deux
+   * situations qu'un simple « serveur joignable » confondrait.
+   */
+  authorized: boolean;
+}
+
+export interface AuthIdentity {
+  userId: ID;
+  username: string;
+  displayName: string;
+  role: Role;
+}
+
+export interface LoginOutcome {
+  identity: AuthIdentity;
+  /** Jeton de session à présenter ensuite. Remis une seule fois. */
+  token: string;
+  expiresAt: string;
 }
 
 export interface ProductSuggestion {
@@ -348,6 +568,31 @@ export interface Api {
      * poste avant d'installer. Sans conséquence sur les données.
      */
     apply(options?: { discardLocalChanges?: boolean }): Promise<UpdateApplyResult>;
+  };
+  auth: {
+    /** Interrogeable sans être connecté : y a-t-il des comptes, faut-il ouvrir une session ? */
+    status(): Promise<AuthStatus>;
+    login(input: { username: string; password: string; label?: string }): Promise<LoginOutcome>;
+    logout(): Promise<void>;
+    /** Qui suis-je ? `null` quand aucune session n'est ouverte. */
+    me(): Promise<AuthIdentity | null>;
+    changePassword(input: { current: string; next: string }): Promise<void>;
+    users(): Promise<UserSummary[]>;
+    /**
+     * Crée ou modifie un compte. Le mot de passe n'est écrit que s'il est
+     * fourni ; l'omettre laisse l'ancien en place.
+     */
+    saveUser(input: {
+      id?: ID;
+      username: string;
+      displayName: string;
+      role: Role;
+      password?: string;
+      disabled?: boolean;
+    }): Promise<UserSummary>;
+    removeUser(id: ID): Promise<void>;
+    sessions(): Promise<(Session & { username: string })[]>;
+    revokeSession(id: ID): Promise<void>;
   };
   /** Événements poussés par le processus principal (scan de dossier, alertes…). */
   on(event: 'documents-changed' | 'scan-progress' | 'toast', handler: (payload: any) => void): () => void;

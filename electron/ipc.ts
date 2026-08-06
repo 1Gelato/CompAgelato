@@ -1,5 +1,6 @@
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { AppInfo, Connection, EmailOutcome, PrintOutcome } from '@shared/api';
 import { CHANNELS } from '@shared/api';
@@ -73,14 +74,12 @@ export function setMainWindow(window: BrowserWindow): void {
 const connectionHandlers = {
   async connection(): Promise<Connection> {
     if (!isRemote()) return describeConnection();
-    const { ok, error } = await pingServer(connectionConfig(), 2500);
-    return describeConnection(ok, error);
+    return describeConnection(await pingServer(connectionConfig(), 2500));
   },
   async setConnection(input: { serverUrl: string; token?: string }): Promise<Connection> {
     const saved = saveConnection(input);
     if (!saved.serverUrl) return describeConnection();
-    const { ok, error } = await pingServer(saved);
-    return describeConnection(ok, error);
+    return describeConnection(await pingServer(saved));
   },
 };
 
@@ -529,6 +528,30 @@ const remoteDesktopHandlers: Registry = {
           fileUrl: undefined,
           message: `Le brouillon complet n'a pas pu être ouvert (${(err as Error).message}). Un message vide a été ouvert : ajoutez les fichiers à la main.`,
         };
+      }
+    },
+  },
+
+  auth: {
+    /**
+     * La session obtenue prend la place du jeton dans `connexion.json` : c'est
+     * elle qui portera le rôle de l'utilisateur à chaque appel suivant.
+     */
+    async login(input: { username: string; password: string; label?: string }) {
+      const outcome = (await remoteCall('auth', 'login', [
+        { ...input, label: input.label || `${os.hostname()} (application)` },
+      ])) as { token: string };
+      saveConnection({ serverUrl: connectionConfig().serverUrl, token: outcome.token });
+      return outcome;
+    },
+
+    async logout() {
+      try {
+        await remoteCall('auth', 'logout', []);
+      } finally {
+        // Le jeton local part dans tous les cas : garder une session que le
+        // serveur a peut-être déjà oubliée n'aiderait personne.
+        saveConnection({ serverUrl: connectionConfig().serverUrl, token: '' });
       }
     },
   },

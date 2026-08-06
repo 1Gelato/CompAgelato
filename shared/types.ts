@@ -514,6 +514,71 @@ export interface Settings {
   emailBodyTemplate?: string;
 }
 
+/* ------------------------------------------------------------------ */
+/* Comptes et droits                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Trois rôles suffisent à l'entreprise :
+ *
+ * - `gerant`  : tout, y compris les réglages et les comptes ;
+ * - `bureau`  : tout le travail quotidien, sans toucher aux réglages ;
+ * - `livreur` : ses tournées, et les clients en lecture seule pour les
+ *   retrouver — ni comptabilité, ni banque, ni stock.
+ */
+export type Role = 'gerant' | 'bureau' | 'livreur';
+
+export const ROLE_LABEL: Record<Role, string> = {
+  gerant: 'Gérant',
+  bureau: 'Bureau',
+  livreur: 'Livreur',
+};
+
+export interface User {
+  id: ID;
+  /** Identifiant de connexion, comparé sans tenir compte de la casse. */
+  username: string;
+  displayName: string;
+  role: Role;
+  /** `sel:empreinte` en hexadécimal, produit par scrypt. */
+  passwordHash: string;
+  /** Un compte désactivé ne peut plus se connecter, sans être effacé. */
+  disabled?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt?: string;
+}
+
+/**
+ * Session ouverte sur un appareil. Le jeton n'est jamais stocké en clair :
+ * seule son empreinte l'est, si bien qu'une copie de la base ne permet pas
+ * d'usurper une session en cours.
+ */
+export interface Session {
+  id: ID;
+  userId: ID;
+  /** Empreinte SHA-256 du jeton remis à l'appareil. */
+  tokenHash: string;
+  /** Nom lisible de l'appareil, pour que le gérant sache quoi révoquer. */
+  label: string;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+}
+
+/** Vue d'un compte destinée à l'interface : jamais d'empreinte de mot de passe. */
+export interface UserSummary {
+  id: ID;
+  username: string;
+  displayName: string;
+  role: Role;
+  disabled?: boolean;
+  createdAt: string;
+  lastLoginAt?: string;
+  /** Nombre de sessions ouvertes, pour repérer un appareil oublié. */
+  sessions: number;
+}
+
 export interface Database {
   version: number;
   clients: Client[];
@@ -527,6 +592,13 @@ export interface Database {
   registerEntries: RegisterEntry[];
   eventMachines: EventMachine[];
   settings: Settings;
+  /**
+   * Comptes et sessions. Tant que la liste est vide, le serveur reste dans son
+   * fonctionnement d'origine (jeton partagé) : créer le premier compte est un
+   * geste explicite, jamais une surprise au redémarrage.
+   */
+  users: User[];
+  sessions: Session[];
 }
 
 /* ------------------------------------------------------------------ */

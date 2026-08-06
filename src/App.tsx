@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import type { ScanReport, Settings as SettingsType } from '@shared/types';
-import { Icons, ToastProvider, useToast } from './components/ui';
+import type { AuthIdentity, ChannelName } from '@shared/api';
+import { mayCall } from '@shared/api';
+import { Icons, Spinner, ToastProvider, useToast } from './components/ui';
+import { setSessionLostHandler } from './lib/httpApi';
+import { Login } from './pages/Login';
 import {
   refreshAll,
+  setCurrentRole,
   useAppInfo,
   useDocuments,
   useProducts,
@@ -96,7 +101,34 @@ function applyTheme(theme: SettingsType['theme']): void {
   }
 }
 
-function Shell() {
+/**
+ * Le canal qui décide de la visibilité de chaque écran.
+ *
+ * Le masquage n'est qu'un confort : le serveur refuse de toute façon les appels
+ * non autorisés. Mais afficher au livreur un onglet « Banque » qui n'affiche
+ * que des erreurs serait une mauvaise façon de lui dire qu'il n'y a pas droit.
+ *
+ * Les Réglages restent visibles pour tous : c'est là qu'on change son mot de
+ * passe et qu'on se déconnecte. Les cartes sensibles y sont masquées une à une.
+ */
+const PAGE_CHANNEL: Record<Page, ChannelName | null> = {
+  dashboard: 'stats:dashboard',
+  documents: 'documents:list',
+  clients: 'clients:list',
+  stock: 'products:list',
+  routes: 'routes:list',
+  cahiers: 'registers:list',
+  banque: 'bank:list',
+  settings: null,
+};
+
+function Shell({
+  identity,
+  onSignedOut,
+}: {
+  identity: AuthIdentity | null;
+  onSignedOut: () => void;
+}) {
   const [page, setPage] = useState<Page>('dashboard');
   const [scanning, setScanning] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number; file: string } | null>(null);
@@ -185,7 +217,24 @@ function Shell() {
     return { documents: pending, stock: low, cahiers: open };
   }, [documents, products, registerEntries]);
 
-  const current = PAGES.find((p) => p.id === page) ?? PAGES[0];
+  // Sans identité (application de bureau sur ses propres données), tout est
+  // visible : il n'y a ni compte ni rôle, l'utilisateur est chez lui.
+  const visiblePages = useMemo(
+    () =>
+      PAGES.filter((item) => {
+        if (!identity) return true;
+        const channel = PAGE_CHANNEL[item.id];
+        return !channel || mayCall(identity.role, channel);
+      }),
+    [identity],
+  );
+
+  // Le tableau de bord est refusé au livreur : il faut donc atterrir ailleurs.
+  useEffect(() => {
+    if (!visiblePages.some((p) => p.id === page)) setPage(visiblePages[0]?.id ?? 'settings');
+  }, [visiblePages, page]);
+
+  const current = visiblePages.find((p) => p.id === page) ?? visiblePages[0] ?? PAGES[0];
 
   return (
     <div className="app">
@@ -198,7 +247,7 @@ function Shell() {
         </div>
 
         <nav className="sidebar__nav">
-          {PAGES.map((item) => {
+          {visiblePages.map((item) => {
             const Icon = item.icon;
             const badge =
               item.id === 'documents'
@@ -287,7 +336,13 @@ function Shell() {
           {page === 'cahiers' && <Cahiers />}
           {page === 'banque' && <Banque />}
           {page === 'settings' && (
-            <Settings onScan={scan} scanning={scanning} onThemeChange={applyTheme} />
+            <Settings
+              onScan={scan}
+              scanning={scanning}
+              onThemeChange={applyTheme}
+              identity={identity}
+              onSignedOut={onSignedOut}
+            />
           )}
         </div>
       </main>
@@ -303,10 +358,85 @@ function shortenPath(path: string): string {
   return `${parts[0]}…${parts.slice(-2).join('\\')}`;
 }
 
+/**
+ * Porte d'entrée.
+ *
+ * Trois situations, distinguées par le serveur lui-même :
+ *
+ * - aucun compte n'existe (application de bureau locale, ou serveur resté au
+ *   jeton partagé) : on entre directement, comme avant ;
+ * - des comptes existent et une session est ouverte : on entre avec un rôle ;
+ * - des comptes existent sans session : écran de connexion.
+ *
+ * Un échec de cet appel n'est jamais bloquant : si le serveur ne répond pas,
+ * l'application s'ouvre quand même et affichera ses erreurs écran par écran.
+ * Une porte close sur un diagnostic incertain serait pire.
+ */
+function Gate() {
+  const [identity, setIdentity] = useState<AuthIdentity | null>(null);
+  const [state, setState] = useState<'checking' | 'login' | 'open'>('checking');
+
+  const check = useCallback(async () => {
+    try {
+      const status = await window.api.auth.status();
+      // Le rôle est posé avant tout rendu : les écrans ne demanderont pas ce à
+      // quoi ils n'ont pas droit.
+      setCurrentRole(status.identity?.role ?? null);
+      setIdentity(status.identity);
+      setState(status.required && !status.identity ? 'login' : 'open');
+    } catch {
+      setState('open');
+    }
+  }, []);
+
+  useEffect(() => {
+    void check();
+    // Session expirée ou révoquée pendant l'utilisation : retour à l'écran de
+    // connexion plutôt qu'une cascade d'erreurs incompréhensibles.
+    setSessionLostHandler(() => {
+      setCurrentRole(null);
+      setIdentity(null);
+      setState('login');
+    });
+  }, [check]);
+
+  if (state === 'checking') {
+    return (
+      <div className="loginwrap">
+        <Spinner size={22} />
+      </div>
+    );
+  }
+
+  if (state === 'login') {
+    return (
+      <Login
+        onDone={(next) => {
+          setCurrentRole(next.role);
+          setIdentity(next);
+          setState('open');
+          refreshAll();
+        }}
+      />
+    );
+  }
+
+  return (
+    <Shell
+      identity={identity}
+      onSignedOut={() => {
+        setCurrentRole(null);
+        setIdentity(null);
+        setState('login');
+      }}
+    />
+  );
+}
+
 export function App() {
   return (
     <ToastProvider>
-      <Shell />
+      <Gate />
     </ToastProvider>
   );
 }

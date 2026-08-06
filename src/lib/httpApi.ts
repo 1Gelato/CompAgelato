@@ -52,16 +52,34 @@ async function call(namespace: string, method: string, args: unknown[]): Promise
     },
     body: JSON.stringify({ args }),
   });
-  let payload: { ok?: boolean; result?: unknown; error?: string };
+  let payload: { ok?: boolean; result?: unknown; error?: string; authRequired?: boolean };
   try {
     payload = await response.json();
   } catch {
     throw new Error(`Le serveur a répondu ${response.status} sans détail.`);
   }
   if (!response.ok || !payload.ok) {
+    // Session expirée ou révoquée : l'écran de connexion doit revenir, sinon
+    // l'utilisateur ne verrait qu'une cascade d'erreurs sans savoir quoi faire.
+    if (payload.authRequired) {
+      token = '';
+      try {
+        localStorage.removeItem(TOKEN_KEY);
+      } catch {
+        /* stockage indisponible : le jeton en mémoire suffit à cette session */
+      }
+      onSessionLost?.();
+    }
     throw new Error(payload.error ?? `Erreur ${response.status}.`);
   }
   return payload.result;
+}
+
+/** Prévient l'application qu'il faut réafficher l'écran de connexion. */
+let onSessionLost: (() => void) | null = null;
+
+export function setSessionLostHandler(handler: () => void): void {
+  onSessionLost = handler;
 }
 
 /* ------------------------------------------------------------------ */
@@ -127,6 +145,14 @@ type EventHandler = (payload: unknown) => void;
 const listeners = new Map<string, Set<EventHandler>>();
 let source: EventSource | null = null;
 
+/** Referme le flux : le jeton a changé, l'ancien n'est plus accepté. */
+function closeEventSource(): void {
+  source?.close();
+  source = null;
+  // Rouvert aussitôt s'il y a des abonnés, avec le nouveau jeton.
+  if (listeners.size) ensureEventSource();
+}
+
 function ensureEventSource(): void {
   if (source) return;
   source = new EventSource(withToken('/api/events'));
@@ -187,6 +213,36 @@ export function createHttpApi(): Api {
 
   api.attachments.open = async (id) => {
     window.open(withToken(`/files/attachment/${id}`), '_blank', 'noopener');
+  };
+
+  // La session obtenue remplace le jeton partagé : c'est elle qui portera le
+  // rôle. Le flux d'événements est rouvert, l'ancien ayant été refusé.
+  api.auth.login = async (input) => {
+    const outcome = (await call('auth', 'login', [
+      { ...(input as object), label: navigator.userAgent.slice(0, 60) },
+    ])) as { token: string };
+    token = outcome.token;
+    try {
+      localStorage.setItem(TOKEN_KEY, outcome.token);
+    } catch {
+      /* mode privé : la session vaudra pour cet onglet seulement */
+    }
+    closeEventSource();
+    return outcome;
+  };
+
+  api.auth.logout = async () => {
+    try {
+      await call('auth', 'logout', []);
+    } finally {
+      token = '';
+      try {
+        localStorage.removeItem(TOKEN_KEY);
+      } catch {
+        /* ignore */
+      }
+      closeEventSource();
+    }
   };
 
   api.documents.pickAndAdd = async () => {

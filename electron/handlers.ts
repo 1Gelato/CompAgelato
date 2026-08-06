@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   AppInfo,
+  AuthIdentity,
+  AuthStatus,
   Connection,
   EmailOutcome,
   EmailPreparation,
@@ -23,9 +25,23 @@ import type {
   Product,
   RegisterEntry,
   RegisterStatus,
+  Role,
   Settings,
+  UserSummary,
   Vehicle,
 } from '@shared/types';
+import { currentContext, currentIdentity, currentRole } from './context';
+import {
+  accountsConfigured,
+  changePassword,
+  listSessions,
+  login,
+  logout,
+  removeUser,
+  revokeSession,
+  saveUser,
+  summarize,
+} from './services/auth';
 import { defaultWatchFolder, newId, nowIso, store } from './store';
 import { folderWatcher } from './watcher';
 import { resolvePath } from './services/paths';
@@ -1105,6 +1121,78 @@ export const coreHandlers: Registry = {
         (step) => send('toast', { tone: 'info', title: step }),
         { discardLocalChanges: options?.discardLocalChanges },
       );
+    },
+  },
+
+  /* ------------------------------------------------------------------ */
+  /* Comptes et sessions                                                 */
+  /* ------------------------------------------------------------------ */
+
+  auth: {
+    async status(): Promise<AuthStatus> {
+      const configured = accountsConfigured();
+      return {
+        configured,
+        // Tant qu'aucun compte n'existe, le serveur reste sur son jeton
+        // partagé : créer le premier compte est un geste explicite.
+        required: configured,
+        identity: currentIdentity(),
+        authorized: currentRole() !== null,
+      };
+    },
+
+    async login(input: { username: string; password: string; label?: string }) {
+      const context = currentContext();
+      return login({ ...input, from: context?.from });
+    },
+
+    async logout() {
+      const context = currentContext();
+      if (context?.token) logout(context.token);
+    },
+
+    async me(): Promise<AuthIdentity | null> {
+      return currentIdentity();
+    },
+
+    async changePassword(input: { current: string; next: string }) {
+      const identity = currentIdentity();
+      if (!identity) throw new Error('Aucune session ouverte.');
+      changePassword(identity.userId, input.current, input.next);
+    },
+
+    async users(): Promise<UserSummary[]> {
+      return store.db.users
+        .slice()
+        .sort((a, b) => a.username.localeCompare(b.username, 'fr'))
+        .map(summarize);
+    },
+
+    async saveUser(input: {
+      id?: ID;
+      username: string;
+      displayName: string;
+      role: Role;
+      password?: string;
+      disabled?: boolean;
+    }) {
+      return saveUser(input);
+    },
+
+    async removeUser(id: ID) {
+      const identity = currentIdentity();
+      // Se supprimer soi-même laisserait une session orpheline et un gérant de
+      // moins : le refus est plus clair qu'une déconnexion surprise.
+      if (identity?.userId === id) throw new Error('Vous ne pouvez pas supprimer votre propre compte.');
+      removeUser(id);
+    },
+
+    async sessions() {
+      return listSessions();
+    },
+
+    async revokeSession(id: ID) {
+      revokeSession(id);
     },
   },
 };

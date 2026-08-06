@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Connection, DataMode } from '@shared/api';
+import type { AuthIdentity, AuthStatus, Connection, DataMode } from '@shared/api';
 
 /**
  * Liaison de cet appareil au serveur CompaGelato.
@@ -103,16 +103,34 @@ export function saveConnection(input: { serverUrl: string; token?: string }): Co
   return next;
 }
 
-/** Le serveur répond-il ? Court délai : on ne bloque pas l'ouverture. */
+export interface PingResult {
+  /** Le serveur répond-il ? Indépendant de la question « suis-je connecté ». */
+  ok: boolean;
+  error?: string;
+  /** Le serveur exige-t-il un compte ? */
+  authRequired?: boolean;
+  /** La session enregistrée sur ce poste est-elle valable ? */
+  authenticated?: boolean;
+  identity?: AuthIdentity | null;
+}
+
+/**
+ * Le serveur répond-il, et où en est-on de la connexion ?
+ *
+ * On interroge `auth:status`, qui répond **sans session** : c'est le seul moyen
+ * de distinguer « serveur éteint » de « il faut se connecter ». Confondre les
+ * deux enverrait l'utilisateur vérifier son réseau alors qu'il lui manque
+ * seulement un mot de passe.
+ */
 export async function pingServer(
   config: ConnectionConfig = current,
   timeoutMs = 4000,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<PingResult> {
   if (!config.serverUrl) return { ok: false, error: 'Aucune adresse de serveur.' };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(`${config.serverUrl}/api/app/info`, {
+    const response = await fetch(`${config.serverUrl}/api/auth/status`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -121,13 +139,26 @@ export async function pingServer(
       body: JSON.stringify({ args: [] }),
       signal: controller.signal,
     });
-    if (response.status === 401) {
-      return { ok: false, error: 'Jeton d’accès refusé par le serveur.' };
-    }
     if (!response.ok) {
       return { ok: false, error: `Le serveur a répondu ${response.status}.` };
     }
-    return { ok: true };
+    const payload = (await response.json()) as { ok?: boolean; result?: AuthStatus };
+    const status = payload.result;
+    if (!status) return { ok: false, error: 'Réponse du serveur illisible.' };
+
+    // `authorized` couvre les deux régimes : session ouverte, ou jeton partagé
+    // correct. Un jeton faux se distingue donc d'un mot de passe manquant.
+    return {
+      ok: true,
+      authRequired: status.required,
+      authenticated: status.authorized,
+      identity: status.identity,
+      error: status.authorized
+        ? undefined
+        : status.required
+          ? 'Connexion à un compte requise.'
+          : 'Jeton d’accès refusé par le serveur.',
+    };
   } catch (err) {
     const message = (err as Error).name === 'AbortError'
       ? 'Le serveur n’a pas répondu à temps.'
@@ -139,12 +170,15 @@ export async function pingServer(
 }
 
 /** Vue destinée à l'interface : l'adresse et l'état, jamais le jeton. */
-export function describeConnection(reachable?: boolean, error?: string): Connection {
+export function describeConnection(ping?: PingResult): Connection {
   return {
     serverUrl: current.serverUrl,
     hasToken: Boolean(current.token),
     mode: currentMode(),
-    reachable,
-    error,
+    reachable: ping?.ok,
+    error: ping?.error,
+    authRequired: ping?.authRequired,
+    authenticated: ping?.authenticated,
+    identity: ping?.identity ?? null,
   };
 }
