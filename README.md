@@ -312,7 +312,7 @@ npm run test:all
   encaissement antérieur à la facture, devis et pièces annulées exclus,
   décaissement rapproché d'un avoir et non d'une facture, et deux factures du
   même montant départagées par le nom du client.
-- **37 tests de bout en bout** — l'application réelle est lancée, pilotée et
+- **40 tests de bout en bout** — l'application réelle est lancée, pilotée et
   vérifiée : import d'une liste clients en Windows-1252, import du catalogue,
   analyse d'un dossier de PDF, rattachement automatique aux clients, association
   des lignes au stock, déduction puis annulation, idempotence, absence de
