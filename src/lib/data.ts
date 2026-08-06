@@ -15,6 +15,7 @@ import type {
   StockMove,
   Vehicle,
 } from '@shared/types';
+import type { AppInfo } from '@shared/api';
 
 /**
  * Chargement des données depuis le processus principal.
@@ -98,6 +99,13 @@ export const useBankSummary = () =>
 export const useDashboard = () =>
   useResource<DashboardStats | null>(() => window.api.stats.dashboard(), null);
 export const useSettings = () => useResource<Settings | null>(() => window.api.settings.get(), null);
+
+/**
+ * Où tourne l'application et d'où viennent ses données. Sert notamment à savoir
+ * si les dossiers désignés sont sur cette machine : quand ils sont sur un
+ * serveur, les boutons « Ouvrir le dossier » n'ont plus de sens.
+ */
+export const useAppInfo = () => useResource<AppInfo | null>(() => window.api.app.info(), null);
 
 /** Index id → client, pour afficher un nom sans reparcourir la liste. */
 export function useClientIndex(clients: Client[]): Map<string, Client> {

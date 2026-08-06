@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Address, Attachment, Settings as SettingsType, Vehicle } from '@shared/types';
-import type { AppInfo, UpdateCheckResult } from '@shared/api';
+import type { AppInfo, Connection, UpdateCheckResult } from '@shared/api';
 import { AddressInput } from '../components/AddressInput';
 import {
   Badge,
@@ -20,8 +20,85 @@ import {
   Textarea,
   useToast,
 } from '../components/ui';
-import { errorMessage, refreshAll, useAttachments, useSettings, useVehicles } from '../lib/data';
+import {
+  errorMessage,
+  refreshAll,
+  useAppInfo,
+  useAttachments,
+  useSettings,
+  useVehicles,
+} from '../lib/data';
 import { euro, FUEL_LABEL, num } from '../lib/format';
+
+const MONO = { fontFamily: 'var(--font-mono)', fontSize: 12 } as const;
+
+/**
+ * Champ « dossier », dans les deux situations possibles.
+ *
+ * Sur le poste, le dossier se choisit dans un sélecteur natif et s'ouvre d'un
+ * clic. Quand les données viennent d'un serveur, ce dossier est sur l'autre
+ * machine : un sélecteur montrerait les dossiers du poste, et « Ouvrir » n'a
+ * plus de sens. Le chemin se saisit alors au clavier — sans quoi une base
+ * restaurée depuis un autre système garderait un chemin impossible à corriger.
+ */
+function FolderField({
+  value,
+  localFolders,
+  placeholder,
+  onPick,
+  onOpen,
+  onSave,
+}: {
+  value: string;
+  localFolders: boolean;
+  placeholder: string;
+  onPick: () => void;
+  onOpen: () => void;
+  onSave: (folder: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+
+  // Le champ suit la valeur enregistrée tant que l'utilisateur n'a rien tapé.
+  useEffect(() => setDraft(value), [value]);
+
+  if (localFolders) {
+    return (
+      <div className="row" style={{ gap: 8 }}>
+        <Input value={value} readOnly style={MONO} />
+        <Button icon={<Icons.folder size={14} />} onClick={onPick}>
+          Choisir…
+        </Button>
+        <Button onClick={onOpen}>Ouvrir</Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="row" style={{ gap: 8 }}>
+      <Input
+        value={draft}
+        placeholder={placeholder}
+        spellCheck={false}
+        onChange={(e) => setDraft(e.target.value)}
+        style={MONO}
+      />
+      <Button
+        disabled={saving || !draft.trim() || draft.trim() === value}
+        onClick={async () => {
+          setSaving(true);
+          try {
+            await onSave(draft.trim());
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        {saving ? <Spinner size={14} /> : 'Enregistrer'}
+      </Button>
+    </div>
+  );
+}
 
 export function Settings({
   onScan,
@@ -37,6 +114,10 @@ export function Settings({
   const toast = useToast();
 
   const [info, setInfo] = useState<AppInfo | null>(null);
+  const [connection, setConnection] = useState<Connection | null>(null);
+  const [serverDraft, setServerDraft] = useState('');
+  const [tokenDraft, setTokenDraft] = useState('');
+  const [linking, setLinking] = useState(false);
   const [dbStats, setDbStats] = useState<{ file: string; sizeKb: number; counts: Record<string, number> } | null>(null);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | 'new' | null>(null);
   const [fetchingFuel, setFetchingFuel] = useState(false);
@@ -55,6 +136,13 @@ export function Settings({
   useEffect(() => {
     window.api.app.info().then(setInfo).catch(() => {});
     window.api.db.stats().then(setDbStats).catch(() => {});
+    window.api.app
+      .connection()
+      .then((c) => {
+        setConnection(c);
+        setServerDraft(c.serverUrl);
+      })
+      .catch(() => {});
   }, [loading]);
 
   const checkUpdate = async () => {
@@ -144,18 +232,121 @@ export function Settings({
   return (
     <>
       <div className="col" style={{ gap: 14, maxWidth: 940 }}>
+        {/* Servie par le serveur : la question ne se pose pas, on y est déjà. */}
+        {connection && connection.mode !== 'server' && (
+          <Card
+            title="Serveur"
+            subtitle="Travailler sur les données partagées plutôt que sur celles de ce poste"
+          >
+            <div className="col" style={{ gap: 13 }}>
+              <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                {connection.mode === 'remote' ? (
+                  <Badge tone={connection.reachable ? 'success' : 'danger'}>
+                    {connection.reachable ? 'Branché' : 'Serveur injoignable'}
+                  </Badge>
+                ) : (
+                  <Badge>Données de ce poste</Badge>
+                )}
+                <span className="muted" style={{ fontSize: 12 }}>
+                  {connection.mode === 'remote'
+                    ? connection.error ?? 'Les données affichées sont celles du serveur.'
+                    : 'Les données ne sont partagées avec aucun autre appareil.'}
+                </span>
+              </div>
+
+              <Field label="Adresse du serveur" hint="Laissez vide pour travailler sur ce poste.">
+                <Input
+                  value={serverDraft}
+                  placeholder="192.168.1.99:4680"
+                  spellCheck={false}
+                  onChange={(e) => setServerDraft(e.target.value)}
+                  style={MONO}
+                />
+              </Field>
+
+              <Field
+                label="Jeton d’accès"
+                hint={
+                  connection.hasToken
+                    ? 'Un jeton est déjà enregistré : laissez vide pour le conserver.'
+                    : 'Le secret défini par COMPAGELATO_TOKEN sur le serveur.'
+                }
+              >
+                <Input
+                  type="password"
+                  value={tokenDraft}
+                  placeholder={connection.hasToken ? '••••••••' : ''}
+                  spellCheck={false}
+                  onChange={(e) => setTokenDraft(e.target.value)}
+                  style={MONO}
+                />
+              </Field>
+
+              <div className="row" style={{ gap: 8 }}>
+                <Button
+                  variant="primary"
+                  disabled={linking}
+                  onClick={async () => {
+                    setLinking(true);
+                    try {
+                      const next = await window.api.app.setConnection({
+                        serverUrl: serverDraft,
+                        // Champ laissé vide : le jeton déjà enregistré est conservé.
+                        ...(tokenDraft ? { token: tokenDraft } : {}),
+                      });
+                      setConnection(next);
+                      setTokenDraft('');
+                      if (next.mode === 'remote' && !next.reachable) {
+                        toast.push({
+                          tone: 'warn',
+                          title: 'Enregistré, mais le serveur ne répond pas',
+                          text: next.error,
+                        });
+                      } else {
+                        toast.push({
+                          tone: 'success',
+                          title: 'Liaison enregistrée',
+                          text: 'Redémarrez l’application pour l’appliquer.',
+                        });
+                      }
+                    } catch (err) {
+                      toast.push({ tone: 'error', title: 'Échec', text: errorMessage(err) });
+                    } finally {
+                      setLinking(false);
+                    }
+                  }}
+                >
+                  {linking ? <Spinner size={14} /> : 'Enregistrer'}
+                </Button>
+                <Button onClick={() => window.api.app.relaunch()}>Redémarrer maintenant</Button>
+              </div>
+
+              <div className="infobox">
+                Le changement prend effet <strong>au redémarrage</strong>. Une fois branché, ce
+                poste lit et écrit sur le serveur : les factures, clients et tournées sont les
+                mêmes que sur les autres appareils. L’impression, l’ouverture des PDF et les
+                brouillons d’e-mail continuent de se faire ici, sur cette machine.
+              </div>
+            </div>
+          </Card>
+        )}
+
         <Card
           title="Dossier surveillé"
           subtitle="Déposez-y les factures et devis produits par votre logiciel de comptabilité"
         >
           <div className="col" style={{ gap: 13 }}>
-            <div className="row" style={{ gap: 8 }}>
-              <Input value={settings.watchFolder} readOnly style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
-              <Button icon={<Icons.folder size={14} />} onClick={chooseFolder}>
-                Choisir…
-              </Button>
-              <Button onClick={() => window.api.app.openPath(settings.watchFolder)}>Ouvrir</Button>
-            </div>
+            <FolderField
+              value={settings.watchFolder}
+              localFolders={info?.localFolders ?? true}
+              placeholder="/home/oldpc/Documents/CompaGelato"
+              onPick={chooseFolder}
+              onOpen={() => void window.api.app.openPath(settings.watchFolder)}
+              onSave={async (folder) => {
+                await patch({ watchFolder: folder }, 'Dossier surveillé mis à jour');
+                onScan(true);
+              }}
+            />
 
             {info?.watchFolderInsideApp && (
               <div className="warnbox">
@@ -222,28 +413,26 @@ export function Settings({
           subtitle="Dossier où sont rangés les relevés exportés par votre banque"
         >
           <div className="col" style={{ gap: 13 }}>
-            <div className="row" style={{ gap: 8 }}>
-              <Input
-                value={settings.statementFolder || `${settings.watchFolder}\\Releves`}
-                readOnly
-                style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
-              />
-              <Button
-                icon={<Icons.folder size={14} />}
-                onClick={async () => {
-                  const folder = await window.api.bank.chooseFolder();
-                  if (folder) {
-                    refreshAll();
-                    toast.push({ tone: 'success', title: 'Dossier des relevés mis à jour' });
-                    await window.api.bank.scan();
-                    refreshAll();
-                  }
-                }}
-              >
-                Choisir…
-              </Button>
-              <Button onClick={() => window.api.bank.openFolder()}>Ouvrir</Button>
-            </div>
+            <FolderField
+              value={settings.statementFolder || ''}
+              localFolders={info?.localFolders ?? true}
+              placeholder={`${settings.watchFolder || ''}/Releves`}
+              onPick={async () => {
+                const folder = await window.api.bank.chooseFolder();
+                if (folder) {
+                  refreshAll();
+                  toast.push({ tone: 'success', title: 'Dossier des relevés mis à jour' });
+                  await window.api.bank.scan();
+                  refreshAll();
+                }
+              }}
+              onOpen={() => void window.api.bank.openFolder()}
+              onSave={async (folder) => {
+                await patch({ statementFolder: folder }, 'Dossier des relevés mis à jour');
+                await window.api.bank.scan();
+                refreshAll();
+              }}
+            />
 
             <div className="infobox">
               Déposez-y les relevés au format <strong>CSV</strong> ou <strong>Excel</strong> exportés
@@ -797,6 +986,7 @@ export function Settings({
 
 function AttachmentLibrary() {
   const { data: attachments, loading } = useAttachments();
+  const { data: info } = useAppInfo();
   const toast = useToast();
   const [adding, setAdding] = useState(false);
 
@@ -826,9 +1016,12 @@ function AttachmentLibrary() {
       padded={false}
       actions={
         <>
-          <Button size="sm" onClick={() => window.api.attachments.openFolder()}>
-            Ouvrir le dossier
-          </Button>
+          {/* La bibliothèque vit sur le serveur en mode branché : rien à ouvrir ici. */}
+          {(info?.localFolders ?? true) && (
+            <Button size="sm" onClick={() => window.api.attachments.openFolder()}>
+              Ouvrir le dossier
+            </Button>
+          )}
           <Button size="sm" variant="primary" icon={<Icons.plus size={12} />} onClick={add} loading={adding}>
             Ajouter
           </Button>

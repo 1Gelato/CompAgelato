@@ -1,9 +1,23 @@
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { AppInfo, EmailOutcome, PrintOutcome } from '@shared/api';
+import type { AppInfo, Connection, EmailOutcome, PrintOutcome } from '@shared/api';
 import { CHANNELS } from '@shared/api';
-import type { EmailDraft, ID } from '@shared/types';
+import type { AccountingDocument, EmailDraft, ID } from '@shared/types';
+import {
+  connectionConfig,
+  currentMode,
+  describeConnection,
+  isRemote,
+  pingServer,
+  saveConnection,
+} from './connection';
+import {
+  createRemoteRegistry,
+  downloadToCache,
+  remoteCall,
+  uploadFile,
+} from './remote';
 import { nowIso, store } from './store';
 import { resolvePath } from './services/paths';
 import { ensureWatchFolder } from './services/documents';
@@ -29,6 +43,17 @@ import {
  * Surcharges propres au bureau : tout ce qui ouvre une fenêtre, un dialogue ou
  * un programme sur le poste. Le reste — la logique métier — vit dans le
  * registre partagé (`handlers.ts`), le même que sert le serveur.
+ *
+ * Deux montages sont possibles, choisis au démarrage selon la liaison
+ * enregistrée pour l'appareil :
+ *
+ * - **local**  : gestionnaires partagés sur la base de la machine, calque
+ *   `desktopHandlers` par-dessus. C'est le fonctionnement d'origine.
+ * - **distant** : les mêmes canaux renvoyés au serveur (`remote.ts`), calque
+ *   `remoteDesktopHandlers` par-dessus pour rendre au poste ce qui lui revient —
+ *   imprimer, ouvrir un PDF, préparer un e-mail, choisir un fichier.
+ *
+ * Dans les deux cas l'interface ne voit qu'un `window.api` identique.
  */
 
 let mainWindow: BrowserWindow | null = null;
@@ -39,6 +64,25 @@ export function setMainWindow(window: BrowserWindow): void {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
   });
 }
+
+/**
+ * Réglage de la liaison au serveur : toujours traité sur le poste, dans les
+ * deux montages. Une application branchée sur un serveur injoignable doit
+ * pouvoir en changer l'adresse — demander au serveur serait absurde.
+ */
+const connectionHandlers = {
+  async connection(): Promise<Connection> {
+    if (!isRemote()) return describeConnection();
+    const { ok, error } = await pingServer(connectionConfig(), 2500);
+    return describeConnection(ok, error);
+  },
+  async setConnection(input: { serverUrl: string; token?: string }): Promise<Connection> {
+    const saved = saveConnection(input);
+    if (!saved.serverUrl) return describeConnection();
+    const { ok, error } = await pingServer(saved);
+    return describeConnection(ok, error);
+  },
+};
 
 const desktopHandlers: Registry = {
   app: {
@@ -62,6 +106,8 @@ const desktopHandlers: Registry = {
         // CompaGelato » et le dossier cloné « documents\compagelato » peuvent
         // être le même endroit. Les documents se retrouvent alors mêlés au code.
         watchFolderInsideApp: isInside(store.settings.watchFolder, projectRoot),
+        mode: 'local',
+        localFolders: true,
       };
     },
     async openPath(target: string) {
@@ -109,6 +155,7 @@ const desktopHandlers: Registry = {
       app.relaunch();
       app.exit(0);
     },
+    ...connectionHandlers,
   },
 
   clients: {
@@ -295,13 +342,236 @@ const desktopHandlers: Registry = {
   },
 };
 
-const handlers = mergeRegistries(coreHandlers, desktopHandlers);
+/* ------------------------------------------------------------------ */
+/* Mode distant : les données viennent du serveur, les gestes du poste  */
+/* ------------------------------------------------------------------ */
+
+/** Un dossier du serveur ne s'ouvre pas depuis ce poste : on le dit clairement. */
+function onServer(what: string): never {
+  throw new Error(
+    `${what} se trouve sur le serveur (${connectionConfig().serverUrl}), pas sur ce poste.`,
+  );
+}
+
+async function remoteDocument(documentId: ID): Promise<AccountingDocument> {
+  const doc = (await remoteCall('documents', 'get', [documentId])) as AccountingDocument | null;
+  if (!doc) throw new Error('Document introuvable sur le serveur.');
+  return doc;
+}
+
+/**
+ * Rapatrie le fichier d'origine d'une pièce sous un nom lisible : c'est ce nom
+ * que verra l'utilisateur dans sa visionneuse ou sa file d'impression.
+ */
+async function fetchDocumentFile(doc: AccountingDocument): Promise<string> {
+  if (!doc.sourceFile) {
+    throw new Error("Ce document n'a pas de fichier d'origine (saisie manuelle).");
+  }
+  const extension = path.extname(doc.sourceFile) || '.pdf';
+  const name = `${safeFileName(`${KIND_LABEL[doc.kind]} ${doc.number}`)}${extension}`;
+  return downloadToCache(`/files/document/${doc.id}`, name);
+}
+
+/** Choisit un fichier sur le poste, puis l'envoie au serveur qui l'importe. */
+async function pickThenUpload(
+  kind: string,
+  options: { title: string; filters: { name: string; extensions: string[] }[] },
+): Promise<unknown | null> {
+  const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+    title: options.title,
+    filters: [...options.filters, { name: 'Tous les fichiers', extensions: ['*'] }],
+    properties: ['openFile'],
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  return uploadFile(kind, result.filePaths[0]);
+}
+
+const remoteDesktopHandlers: Registry = {
+  app: {
+    async info(): Promise<AppInfo> {
+      const remote = (await remoteCall('app', 'info', [])) as AppInfo;
+      return {
+        ...remote,
+        // Les dossiers et la base restent ceux du serveur ; l'exécution, elle,
+        // est bien celle de ce poste.
+        version: app.getVersion(),
+        electron: process.versions.electron,
+        node: process.versions.node,
+        platform: process.platform,
+        isPackaged: app.isPackaged,
+        mode: 'remote',
+        localFolders: false,
+      };
+    },
+    async openPath(target: string) {
+      onServer(`Ce dossier (${target})`);
+    },
+    async openExternal(url: string) {
+      if (!/^https?:\/\//i.test(url)) throw new Error('Lien non autorisé.');
+      await shell.openExternal(url);
+    },
+    async chooseFolder() {
+      onServer('Le dossier surveillé');
+    },
+    async chooseFile(filters?: { name: string; extensions: string[] }[]) {
+      // Un fichier choisi ici sert à être téléversé : le chemin reste local.
+      const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+        title: 'Choisir un fichier',
+        filters: filters ?? [{ name: 'Tous les fichiers', extensions: ['*'] }],
+        properties: ['openFile'],
+      });
+      return result.canceled || !result.filePaths[0] ? null : result.filePaths[0];
+    },
+    async revealFile(target: string) {
+      // Les exports sont écrits par le serveur : rien à montrer sur ce poste.
+      // Le chemin est déjà affiché à l'utilisateur, on n'ajoute pas d'erreur.
+      if (target && fs.existsSync(target)) shell.showItemInFolder(target);
+    },
+    async quit() {
+      app.quit();
+    },
+    async relaunch() {
+      app.relaunch();
+      app.exit(0);
+    },
+    ...connectionHandlers,
+  },
+
+  documents: {
+    async openFile(documentId: ID) {
+      const file = await fetchDocumentFile(await remoteDocument(documentId));
+      const error = await shell.openPath(file);
+      if (error) throw new Error(error);
+    },
+
+    async print(documentId: ID): Promise<PrintOutcome> {
+      const doc = await remoteDocument(documentId);
+      const result = await printFile(await fetchDocumentFile(doc));
+      // La marque « imprimé » appartient à la donnée partagée : elle repart au
+      // serveur, pour que les autres postes la voient aussi.
+      if (result.printed) await remoteCall('documents', 'setPrinted', [documentId, true]);
+      return result;
+    },
+
+    async sendEmail(documentId: ID, draft: EmailDraft): Promise<EmailOutcome> {
+      const doc = await remoteDocument(documentId);
+      // Le serveur assemble le brouillon : c'est lui qui détient les pièces
+      // jointes. Ce poste ne fait que l'ouvrir dans la messagerie.
+      const outcome = (await remoteCall('documents', 'sendEmail', [
+        documentId,
+        draft,
+      ])) as EmailOutcome;
+      if (!outcome.fileUrl) return outcome;
+
+      const name = `${safeFileName(`${KIND_LABEL[doc.kind]} ${doc.number}`)}.eml`;
+      try {
+        const file = await downloadToCache(outcome.fileUrl, name);
+        const error = await shell.openPath(file);
+        if (error) throw new Error(error);
+        return {
+          ...outcome,
+          fileUrl: undefined,
+          message: outcome.message.replace(
+            'Brouillon téléchargé',
+            'Brouillon ouvert dans votre messagerie',
+          ),
+        };
+      } catch (err) {
+        // Repli : au moins le message part, sans les pièces jointes.
+        await shell.openExternal(
+          buildMailto({ to: draft.to, cc: draft.cc, subject: draft.subject, body: draft.body }),
+        );
+        return {
+          ...outcome,
+          method: 'mailto',
+          attachmentMb: 0,
+          fileUrl: undefined,
+          message: `Le brouillon complet n'a pas pu être ouvert (${(err as Error).message}). Un message vide a été ouvert : ajoutez les fichiers à la main.`,
+        };
+      }
+    },
+  },
+
+  attachments: {
+    async open(id: ID) {
+      const file = await downloadToCache(`/files/attachment/${id}`, `piece-jointe-${id}`);
+      const error = await shell.openPath(file);
+      if (error) throw new Error(error);
+    },
+    async openFolder() {
+      onServer('La bibliothèque de pièces jointes');
+    },
+    async pickAndAdd() {
+      const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+        title: 'Ajouter des pièces jointes (flyers, plaquettes…)',
+        filters: [
+          { name: 'Documents et images', extensions: ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'docx', 'xlsx', 'pptx'] },
+          { name: 'Tous les fichiers', extensions: ['*'] },
+        ],
+        properties: ['openFile', 'multiSelections'],
+      });
+      if (result.canceled || !result.filePaths.length) return null;
+      const added: unknown[] = [];
+      for (const file of result.filePaths) {
+        added.push(...((await uploadFile('attachments', file)) as unknown[]));
+      }
+      return added;
+    },
+  },
+
+  clients: {
+    pickAndImport: () =>
+      pickThenUpload('clients', {
+        title: 'Importer la liste clients',
+        filters: [{ name: 'Fichiers clients', extensions: ['csv', 'xlsx', 'xls', 'txt'] }],
+      }),
+  },
+
+  products: {
+    pickAndImport: () =>
+      pickThenUpload('products', {
+        title: 'Importer le stock de consommables',
+        filters: [{ name: 'Fichiers stock', extensions: ['csv', 'xlsx', 'xls', 'txt'] }],
+      }),
+  },
+
+  bank: {
+    pickAndImport: () =>
+      pickThenUpload('bank', {
+        title: 'Importer un relevé de compte',
+        filters: [{ name: 'Relevés de compte', extensions: ['csv', 'xlsx', 'xls', 'xlsm'] }],
+      }),
+    async openFolder() {
+      onServer('Le dossier des relevés');
+    },
+    async chooseFolder() {
+      onServer('Le dossier des relevés');
+    },
+  },
+
+  db: {
+    restore: () =>
+      pickThenUpload('restore', {
+        title: 'Restaurer une sauvegarde sur le serveur',
+        filters: [{ name: 'Sauvegarde CompaGelato', extensions: ['json'] }],
+      }),
+  },
+};
 
 /* ------------------------------------------------------------------ */
 /* Enregistrement                                                      */
 /* ------------------------------------------------------------------ */
 
+/** Le montage retenu au démarrage, selon la liaison enregistrée. */
+function buildHandlers(): Registry {
+  return isRemote()
+    ? mergeRegistries(createRemoteRegistry(), remoteDesktopHandlers)
+    : mergeRegistries(coreHandlers, desktopHandlers);
+}
+
 export function registerIpc(): void {
+  const handlers = buildHandlers();
+  console.log(`[ipc] mode ${currentMode()}${isRemote() ? ` → ${connectionConfig().serverUrl}` : ''}`);
   for (const [namespace, methods] of Object.entries(CHANNELS)) {
     for (const method of methods as readonly string[]) {
       const channel = `${namespace}:${method}`;

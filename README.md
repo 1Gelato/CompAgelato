@@ -301,11 +301,43 @@ prêt à ouvrir dans la messagerie). Seules les actions qui ouvrent une fenêtre
 sur le poste (sélecteur de dossier…) restent propres à l'application de bureau,
 avec un message clair.
 
+### Brancher l'application de bureau sur le serveur
+
+Le navigateur n'est pas la seule façon d'atteindre les données partagées :
+l'application de bureau sait s'y brancher, **en gardant les gestes du poste**.
+Dans **Réglages → Serveur**, saisissez l'adresse (`192.168.1.99:4680`) et le
+jeton, puis redémarrez.
+
+L'application lit et écrit alors sur le serveur — mêmes factures, mêmes clients,
+mêmes tournées que sur les autres appareils — mais **imprime sur votre
+imprimante**, ouvre les PDF dans **votre** lecteur, et prépare les brouillons
+d'e-mail dans **votre** messagerie avec leurs pièces jointes. Le fichier est
+rapatrié du serveur juste avant le geste, puis remis au poste.
+
+Ce qui change une fois branché :
+
+- Les **dossiers désignés sont ceux du serveur**. Le sélecteur natif laisserait
+  croire le contraire : les chemins se saisissent donc au clavier, et les
+  boutons « Ouvrir le dossier » disparaissent.
+- Les **exports CSV** sont écrits sur le serveur, à l'emplacement indiqué par le
+  message de confirmation.
+- La **mise à jour** depuis l'écran Réglages met à jour le serveur, pas le poste.
+- Serveur éteint au démarrage ? L'application le signale et propose de
+  réessayer, de travailler sur les données du poste, ou de quitter. Elle ne
+  bascule jamais en silence : croire qu'on écrit sur le serveur alors qu'on
+  écrit en local serait bien pire qu'un message.
+
+La liaison est enregistrée dans `connexion.json`, à côté de la base locale. Elle
+appartient à l'appareil et n'est jamais synchronisée — sinon chaque poste
+enverrait ses voisins chez lui. `COMPAGELATO_SERVER_URL` et
+`COMPAGELATO_SERVER_TOKEN` l'emportent, pour configurer un poste par script.
+
 Notes de fonctionnement :
 
-- **Une seule instance écrit.** Si le serveur détient les données, n'ouvrez pas
-  en même temps l'application de bureau sur le même dossier de données : le
-  magasin n'a pas de verrou, le dernier qui écrit gagne.
+- **Une seule instance écrit.** N'ouvrez pas l'application de bureau *en mode
+  local* pendant que le serveur tourne sur le même dossier de données : le
+  magasin n'a pas de verrou, le dernier qui écrit gagne. Branchez-la sur le
+  serveur (ci-dessus) — c'est précisément ce qui supprime le problème.
 - Service permanent sous Linux : créez `/etc/systemd/system/compagelato.service` :
 
   ```ini
@@ -362,7 +394,11 @@ electron/                 Processus principal (Node)
   handlers.ts             Les gestionnaires métier, sans Electron — le même
                           registre sert le bureau (IPC) et le serveur (HTTP)
   ipc.ts                  Surcharges bureau (dialogues, impression, messagerie)
-                          et enregistrement IPC
+                          et enregistrement IPC — en local comme en branché
+  connection.ts           Liaison de l'appareil au serveur (adresse, jeton),
+                          hors base : elle appartient à la machine
+  remote.ts               Proxy HTTP du processus principal : les canaux métier
+                          renvoyés au serveur, fichiers rapatriés, flux SSE
   server.ts               Serveur HTTP zéro dépendance : API, SSE, fichiers,
                           téléversements, interface web
   serverMain.ts           Point d'entrée du mode serveur
@@ -456,6 +492,17 @@ npm run test:all
   téléchargement du PDF d'origine, brouillon d'e-mail `.eml` téléchargeable et
   pièce marquée « envoyée », base écrite au bon endroit et arrêt propre sur
   SIGTERM.
+- **13 tests de l'application branchée sur le serveur** — le proxy du processus
+  principal est exercé tel quel contre un vrai serveur : formes acceptées pour
+  l'adresse, liaison enregistrée sur le poste puis relue au démarrage suivant,
+  jeton conservé quand seule l'adresse change et effacé au retour en local,
+  serveur éteint diagnostiqué sans plantage, mauvais jeton refusé avec un
+  message clair, couverture de **tous** les canaux déclarés, écriture depuis le
+  poste relue directement sur le serveur, message d'erreur du serveur qui
+  traverse le proxy intact, téléversement d'un fichier choisi sur le poste,
+  événements du serveur reçus par le poste, PDF rapatrié à l'octet près sous le
+  nom qui partira à l'imprimante, fichier absent expliqué, et repli en local qui
+  ne perd pas la liaison enregistrée.
   Enfin le tri des colonnes dans les deux sens sur documents, clients et stock,
   le filtre des relevés sur une période donnée, et la recherche par montant
   qui retrouve une facture par son HT comme par son TTC et une opération

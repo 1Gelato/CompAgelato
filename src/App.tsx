@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import type { ScanReport, Settings as SettingsType } from '@shared/types';
 import { Icons, ToastProvider, useToast } from './components/ui';
-import { refreshAll, useDocuments, useProducts, useRegisterEntries, useSettings } from './lib/data';
+import {
+  refreshAll,
+  useAppInfo,
+  useDocuments,
+  useProducts,
+  useRegisterEntries,
+  useSettings,
+} from './lib/data';
 import { Dashboard } from './pages/Dashboard';
 import { Documents } from './pages/Documents';
 import { Clients } from './pages/Clients';
@@ -94,6 +101,7 @@ function Shell() {
   const [scanning, setScanning] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number; file: string } | null>(null);
   const { data: settings } = useSettings();
+  const { data: appInfo } = useAppInfo();
   const { data: documents } = useDocuments();
   const { data: products } = useProducts();
   const { data: registerEntries } = useRegisterEntries();
@@ -238,14 +246,25 @@ function Shell() {
               <div className="truncate" title={settings?.watchFolder}>
                 {settings?.autoScan ? 'Dossier surveillé' : 'Surveillance désactivée'}
               </div>
-              <button
-                className="navitem tiny"
-                style={{ padding: '2px 0', color: 'var(--text-tertiary)' }}
-                onClick={() => settings && window.api.app.openPath(settings.watchFolder)}
-                title={settings?.watchFolder}
-              >
-                <span className="truncate">{shortenPath(settings?.watchFolder ?? '')}</span>
-              </button>
+              {appInfo && !appInfo.localFolders ? (
+                // Dossier situé sur le serveur : il n'y a rien à ouvrir ici.
+                <div
+                  className="truncate tiny"
+                  style={{ padding: '2px 0', color: 'var(--text-tertiary)' }}
+                  title={`${settings?.watchFolder ?? ''} (sur le serveur)`}
+                >
+                  {shortenPath(settings?.watchFolder ?? '')}
+                </div>
+              ) : (
+                <button
+                  className="navitem tiny"
+                  style={{ padding: '2px 0', color: 'var(--text-tertiary)' }}
+                  onClick={() => settings && window.api.app.openPath(settings.watchFolder)}
+                  title={settings?.watchFolder}
+                >
+                  <span className="truncate">{shortenPath(settings?.watchFolder ?? '')}</span>
+                </button>
+              )}
             </>
           )}
         </div>

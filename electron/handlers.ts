@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   AppInfo,
+  Connection,
   EmailOutcome,
   EmailPreparation,
   PrintOutcome,
@@ -244,6 +245,10 @@ export const coreHandlers: Registry = {
         documentsPath: path.join(os.homedir(), 'Documents'),
         isPackaged: false,
         watchFolderInsideApp: isInside(store.settings.watchFolder, projectRoot),
+        mode: 'server',
+        // Les dossiers désignés sont ceux du serveur : un sélecteur ouvert dans
+        // le navigateur montrerait ceux du poste, ce qui n'aurait aucun sens.
+        localFolders: false,
       };
     },
     async openPath() {
@@ -269,6 +274,16 @@ export const coreHandlers: Registry = {
       // Après une mise à jour : le superviseur (systemd) relance le service.
       store.flushSync();
       setTimeout(() => process.exit(0), 300);
+    },
+    async connection(): Promise<Connection> {
+      // Servie par le serveur : la question « à quel serveur se brancher »
+      // ne se pose pas, on y est déjà.
+      return { serverUrl: '', hasToken: false, mode: 'server', reachable: true };
+    },
+    async setConnection(): Promise<Connection> {
+      throw new Error(
+        'La liaison au serveur se règle dans l’application de bureau, pas depuis le navigateur.',
+      );
     },
   },
 

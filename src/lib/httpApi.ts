@@ -214,8 +214,3 @@ export function createHttpApi(): Api {
 
   return api as unknown as Api;
 }
-
-/** L'interface tourne-t-elle dans un navigateur, servie par le serveur ? */
-export function isBrowserMode(): boolean {
-  return typeof window !== 'undefined' && !window.api;
-}

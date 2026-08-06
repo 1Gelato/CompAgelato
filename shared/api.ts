@@ -37,7 +37,10 @@ import type {
  * canaux réellement exposés ne peuvent pas diverger.
  */
 export const CHANNELS = {
-  app: ['info', 'openPath', 'openExternal', 'chooseFolder', 'chooseFile', 'revealFile', 'quit', 'relaunch'],
+  app: [
+    'info', 'openPath', 'openExternal', 'chooseFolder', 'chooseFile', 'revealFile', 'quit',
+    'relaunch', 'connection', 'setConnection',
+  ],
   settings: ['get', 'update', 'resetFolder'],
   clients: ['list', 'save', 'remove', 'importFrom', 'pickAndImport', 'exportCsv', 'merge', 'geocodeMissing'],
   documents: [
@@ -79,6 +82,33 @@ export interface AppInfo {
    * séparer.
    */
   watchFolderInsideApp?: boolean;
+  /**
+   * D'où viennent les données affichées :
+   * - `local`  : application de bureau sur sa propre base ;
+   * - `remote` : application de bureau branchée sur un serveur ;
+   * - `server` : interface web servie par le serveur.
+   */
+  mode: DataMode;
+  /**
+   * Les dossiers désignés (surveillé, relevés, pièces jointes) sont-ils sur
+   * cette machine ? Sinon ils se saisissent au clavier et ne s'ouvrent pas ici.
+   */
+  localFolders: boolean;
+}
+
+export type DataMode = 'local' | 'remote' | 'server';
+
+/** Réglage de liaison au serveur, propre à cet appareil (jamais synchronisé). */
+export interface Connection {
+  /** Adresse du serveur, vide en mode local. */
+  serverUrl: string;
+  /** Jeton d'accès ; jamais renvoyé à l'interface, seule sa présence l'est. */
+  hasToken: boolean;
+  mode: DataMode;
+  /** Le serveur répond-il ? Renseigné après un test. */
+  reachable?: boolean;
+  /** Détail de l'échec quand le serveur ne répond pas. */
+  error?: string;
 }
 
 export interface RouteQr {
@@ -158,6 +188,13 @@ export interface Api {
     quit(): Promise<void>;
     /** Ferme puis relance l'application (utilisé après une mise à jour). */
     relaunch(): Promise<void>;
+    /** Liaison actuelle au serveur. */
+    connection(): Promise<Connection>;
+    /**
+     * Enregistre l'adresse du serveur pour cet appareil. Une adresse vide
+     * repasse en local. Le changement prend effet au redémarrage.
+     */
+    setConnection(input: { serverUrl: string; token?: string }): Promise<Connection>;
   };
   settings: {
     get(): Promise<Settings>;
