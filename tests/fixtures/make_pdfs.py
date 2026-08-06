@@ -8,7 +8,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+    PageBreak, SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
 )
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pdf")
@@ -85,7 +85,132 @@ def build(filename, *, kind, number, date, client_name, client_addr, lines,
     return {"file": filename, "ht": round(total_ht, 2), "tva": tva, "ttc": ttc}
 
 
+def build_two_pages(filename):
+    """Facture sur deux pages avec en-tête vendeur réimprimé et pied de page
+    légal — le gabarit qui faisait lire l'adresse comme des articles."""
+    path = os.path.join(OUT, filename)
+    doc = SimpleDocTemplate(path, pagesize=A4,
+                            leftMargin=18 * mm, rightMargin=18 * mm,
+                            topMargin=18 * mm, bottomMargin=18 * mm)
+    story = []
+
+    def entete(avec_client):
+        rows = [["EXEMPLE SARL", "FACTURE"],
+                ["27 RUE DU TEST", "N° : FA-2026-2PAGES"],
+                ["PA DE BRAIS", "Date : 03/07/2026"],
+                ["44600 - ST NAZAIRE CEDEX 4460", ""]]
+        if avec_client:
+            # Le bloc client n'apparaît que sur la première page, comme sur les
+            # vraies factures.
+            rows += [["", "Facturé à :"],
+                     ["", "GLACIER DE LA PLAGE"],
+                     ["", "5 BOULEVARD DES DUNES"],
+                     ["", "44500 LA BAULE"]]
+        t = Table(rows, colWidths=[85 * mm, 85 * mm])
+        t.setStyle(TableStyle([("FONTSIZE", (0, 0), (-1, -1), 9),
+                               ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        return t
+
+    def tableau(lignes):
+        data = [["Libellé", "Qté", "Unité", "PU HT", "Montant HT", "TVA"]] + lignes
+        t = Table(data, colWidths=[62 * mm, 16 * mm, 16 * mm, 22 * mm, 26 * mm, 16 * mm])
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ]))
+        return t
+
+    pied = ("EXEMPLE SARL - 27 RUE DU TEST PA DE BRAIS 44600 ST NAZAIRE - "
+            "IBAN FR7610000000000000000000000 - Code NAF (APE) 4669C - "
+            "RCS : NC - Siret : 00000000000000 - N° TVA FR00000000000")
+
+    story.append(entete(True))
+    story.append(Spacer(1, 8 * mm))
+    story.append(tableau([["Mix vanille poche 4,5 kg", "20,00", "pc", euro(17.20), euro(344.00), "5,50%"],
+                          ["Mix fraise poche 4,5 kg", "10,00", "pc", euro(17.80), euro(178.00), "5,50%"]]))
+    story.append(Spacer(1, 6 * mm))
+    story.append(Paragraph(pied, styles["Normal"]))
+    story.append(Paragraph("Page 1 de 2", styles["Normal"]))
+    story.append(PageBreak())
+
+    # Page 2 : en-tête réimprimé, puis la suite du tableau.
+    story.append(entete(False))
+    story.append(Spacer(1, 8 * mm))
+    story.append(tableau([["Cornets x120", "3,00", "carton", euro(49.00), euro(147.00), "5,50%"]]))
+    story.append(Spacer(1, 6 * mm))
+    story.append(Paragraph("Total HT   669,00 €", styles["Normal"]))
+    story.append(Paragraph("TVA 5,50%   36,80 €", styles["Normal"]))
+    story.append(Paragraph("Total TTC   705,80 €", styles["Normal"]))
+    story.append(Paragraph(pied, styles["Normal"]))
+    story.append(Paragraph("Page 2 de 2", styles["Normal"]))
+
+    doc.build(story)
+    print("écrit", path, "| HT attendu 669,00 sur 3 lignes, TTC 705,80")
+
+
+def build_watermarked(filename):
+    """Facture brouillon tamponnée : « BROUILLON » en diagonale par-dessus le
+    tableau, et « DUPLICATA » en gros à l'horizontale. Aucun des deux ne doit
+    se retrouver dans les libellés ni dans les montants."""
+    path = os.path.join(OUT, filename)
+
+    def filigrane(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica-Bold", 62)
+        canvas.setFillGray(0.85)
+        # En diagonale, en travers du tableau.
+        canvas.translate(105 * mm, 150 * mm)
+        canvas.rotate(38)
+        canvas.drawCentredString(0, 0, "BROUILLON")
+        canvas.restoreState()
+
+        canvas.saveState()
+        canvas.setFont("Helvetica-Bold", 44)
+        canvas.setFillGray(0.85)
+        canvas.drawCentredString(105 * mm, 200 * mm, "DUPLICATA")
+        canvas.restoreState()
+
+    doc = SimpleDocTemplate(path, pagesize=A4,
+                            leftMargin=18 * mm, rightMargin=18 * mm,
+                            topMargin=18 * mm, bottomMargin=18 * mm)
+    story = [
+        Paragraph("<b>EXEMPLE SARL</b>", styles["Heading2"]),
+        Paragraph("27 rue du Test — 44600 Saint-Nazaire", styles["Normal"]),
+        Spacer(1, 6 * mm),
+        Paragraph("<b>FACTURE N° FA-2026-0301</b>", styles["Heading1"]),
+        Paragraph("Date : 12/06/2026", styles["Normal"]),
+        Spacer(1, 4 * mm),
+        Paragraph("<b>Client :</b>", styles["Normal"]),
+        Paragraph("GLACIER DE LA PLAGE<br/>5 boulevard des Dunes — 44500 La Baule",
+                  styles["Normal"]),
+        Spacer(1, 8 * mm),
+    ]
+
+    lines = [("Mix vanille poche 4,5 kg", 4, "poche", 17.20, 68.80),
+             ("Gobelet carton 120 ml (x100)", 6, "carton", 9.50, 57.00)]
+    data = [["Désignation", "Qté", "Unité", "P.U. HT", "Total HT"]]
+    for label, qty, unit, pu, tot in lines:
+        data.append([label, f"{qty:g}", unit, euro(pu), euro(tot)])
+    t = Table(data, colWidths=[70 * mm, 16 * mm, 20 * mm, 26 * mm, 30 * mm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
+        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 6 * mm))
+    story.append(Paragraph("Total HT   125,80 €", styles["Normal"]))
+    story.append(Paragraph("TVA 5,50%   6,92 €", styles["Normal"]))
+    story.append(Paragraph("Total TTC   132,72 €", styles["Normal"]))
+
+    doc.build(story, onFirstPage=filigrane, onLaterPages=filigrane)
+    print("écrit", path, "| HT attendu 125,80 malgré le filigrane")
+
+
 if __name__ == "__main__":
+    build_two_pages("FA-2026-2PAGES.pdf")
+    build_watermarked("FA-2026-FILIGRANE.pdf")
     build("FA-2026-0142.pdf", kind="invoice", number="FA-2026-0142",
           date="14/03/2026", due="13/04/2026",
           client_name="LE COMPTOIR DES GLACES SARL",

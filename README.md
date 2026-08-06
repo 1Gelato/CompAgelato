@@ -61,6 +61,14 @@ granité…) ou **pièce détachée**. Le tableau se filtre par nature, et les c
 piochent dedans : les pièces sont proposées en priorité au SAV, les
 consommables dans les commandes.
 
+La fiche article s'adapte à ce que vous saisissez. Un **mix glace liquide** se
+vend au carton de deux poches de 4,5 kg ; un **mix poudre** se vend à la poche
+de 2,5 kg mais se facture **au kilo**. Vous renseignez donc le conditionnement
+(contenu d'une unité, nombre d'unités par carton, et ce que compte réellement la
+facture), et le logiciel fait la conversion tout seul : 12,5 kg de mix poudre
+facturés sortent **5 poches** du stock, pas 12,5. Machines et pièces détachées,
+qui se comptent à l'unité, n'affichent pas ces champs.
+
 Vous saisissez ou importez vos articles. À
 chaque facture, les lignes sont rapprochées de vos articles — par référence, par
 libellé déjà connu, puis par ressemblance — et les quantités sont sorties du
@@ -325,7 +333,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **94 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **105 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
@@ -336,7 +344,12 @@ npm run test:all
   liens Google Maps / Waze / Plans, lecture des réponses OSRM et Valhalla,
   construction des messages MIME avec pièces jointes accentuées, gabarit de
   facture à deux colonnes (vendeur/client sur les mêmes lignes, tableau
-  récapitulatif de TVA confondu avec un total), et le mécanisme de mise à
+  récapitulatif de TVA confondu avec un total), facture **sur deux pages**
+  (en-tête vendeur réimprimé en haut de la page 2, pied de page légal et total
+  répétés en bas de chaque page), facture **tamponnée** d'un filigrane
+  « BROUILLON » en diagonale et « DUPLICATA » en gros caractères,
+  conversion des unités de conditionnement (carton de deux poches, mix poudre
+  facturé au kilo), et le mécanisme de mise à
   jour git (détection, application, refus prudent si des fichiers locaux ont
   été modifiés) validé sur un vrai dépôt temporaire.
 - **21 de ces tests portent sur les relevés bancaires** — les trois mises en

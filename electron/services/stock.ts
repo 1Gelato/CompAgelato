@@ -6,6 +6,7 @@ import type {
   StockMove,
 } from '@shared/types';
 import { newId, nowIso, store, today } from '../store';
+import { invoiceQtyToStockUnits } from './packaging';
 import { normalize, round2, similarity } from './text';
 
 export interface ProductSuggestion {
@@ -176,13 +177,17 @@ export function applyDocumentToStock(documentId: ID): StockApplyReport {
 
   store.mutate(() => {
     for (const line of doc.lines) {
-      const qty = Number(line.qty) || 0;
-      if (qty <= 0) continue;
+      const invoiced = Number(line.qty) || 0;
+      if (invoiced <= 0) continue;
       const product = line.productId ? store.db.products.find((p) => p.id === line.productId) : undefined;
       if (!product) {
-        unmatched.push({ lineId: line.id, label: line.label, qty });
+        unmatched.push({ lineId: line.id, label: line.label, qty: invoiced });
         continue;
       }
+      // La facture ne compte pas toujours en unités de stock : 12,5 kg de mix
+      // poudre, ce sont 5 poches de 2,5 kg, pas 12,5.
+      const qty = round2(invoiceQtyToStockUnits(product, invoiced));
+      if (qty <= 0) continue;
       moves.push(
         recordMove(product, direction * qty, direction < 0 ? 'out' : 'in', {
           documentId: doc.id,

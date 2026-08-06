@@ -7,6 +7,8 @@ export interface PdfTextItem {
   width: number;
   height: number;
   page: number;
+  /** Texte incliné : un filigrane « BROUILLON » en diagonale, jamais une donnée. */
+  rotated?: boolean;
 }
 
 export interface PdfLine {
@@ -39,6 +41,28 @@ async function loadPdfjs(): Promise<PdfjsModule> {
   return pdfjsPromise;
 }
 
+/**
+ * Mots que l'on n'imprime en très gros que pour tamponner un document :
+ * « BROUILLON », « DUPLICATA », « SPÉCIMEN »… Une désignation d'article ne
+ * s'écrit jamais au double de la taille du reste de la page.
+ */
+const WATERMARK_WORDS =
+  /^(brouillon|provisoire|duplicata|copie|sp[ée]cimen|specimen|annul[ée]{1,2}|non\s*valable|sans\s*valeur|draft|void|paid)$/i;
+
+/**
+ * Décide si un fragment de texte est un filigrane décoratif plutôt qu'une
+ * donnée. Deux signatures, volontairement étroites pour ne rien perdre d'utile :
+ * le texte est incliné (un filigrane en diagonale), ou c'est un mot de tampon
+ * imprimé bien plus gros que le corps de la page.
+ */
+export function isWatermarkItem(item: PdfTextItem, medianHeight: number): boolean {
+  if (item.rotated) return true;
+  const text = item.str.trim();
+  if (!text) return false;
+  if (item.height < medianHeight * 1.8) return false;
+  return WATERMARK_WORDS.test(text.replace(/\s+/g, ' '));
+}
+
 /** Regroupe les fragments de texte en lignes visuelles, puis en colonnes lisibles. */
 function buildLines(items: PdfTextItem[]): PdfLine[] {
   const byPage = new Map<number, PdfTextItem[]>();
@@ -51,13 +75,25 @@ function buildLines(items: PdfTextItem[]): PdfLine[] {
 
   const lines: PdfLine[] = [];
   for (const [page, pageItems] of [...byPage.entries()].sort((a, b) => a[0] - b[0])) {
-    // Tolérance verticale proportionnelle à la taille de police médiane.
-    const heights = pageItems.map((i) => i.height).filter((h) => h > 0).sort((a, b) => a - b);
+    /*
+     * Une page entièrement inclinée n'est pas tamponnée : c'est une page en
+     * paysage produite par rotation. On ne retire le texte incliné que s'il
+     * reste minoritaire — sinon on viderait la page de son contenu.
+     */
+    const rotatedCount = pageItems.filter((i) => i.rotated).length;
+    const dropRotated = rotatedCount * 2 < pageItems.length;
+    const upright = dropRotated ? pageItems.filter((i) => !i.rotated) : pageItems;
+
+    // Tolérance verticale proportionnelle à la taille de police médiane, mesurée
+    // sur le corps du document (filigranes exclus, ils fausseraient la médiane).
+    const heights = upright.map((i) => i.height).filter((h) => h > 0).sort((a, b) => a - b);
     const medianH = heights.length ? heights[Math.floor(heights.length / 2)] : 10;
     const tol = Math.max(2, medianH * 0.55);
 
+    const kept = upright.filter((it) => !isWatermarkItem(it, medianH));
+
     const buckets: PdfTextItem[][] = [];
-    for (const it of [...pageItems].sort((a, b) => b.y - a.y || a.x - b.x)) {
+    for (const it of [...kept].sort((a, b) => b.y - a.y || a.x - b.x)) {
       const bucket = buckets.find((b) => Math.abs(b[0].y - it.y) <= tol);
       if (bucket) bucket.push(it);
       else buckets.push([it]);
@@ -103,6 +139,10 @@ export async function extractPdf(filePath: string): Promise<PdfExtract> {
     const content = await page.getTextContent();
     for (const raw of content.items as { str?: string; transform?: number[]; width?: number; height?: number }[]) {
       if (typeof raw.str !== 'string' || !raw.transform) continue;
+      // Matrice [a b c d e f] : b et c portent l'inclinaison. Un texte droit a
+      // b = c = 0 ; au-delà d'environ 5°, c'est un filigrane en diagonale.
+      const [a, b, c, d] = raw.transform;
+      const rotated = Math.abs(b) > Math.abs(a) * 0.09 || Math.abs(c) > Math.abs(d) * 0.09;
       items.push({
         str: raw.str,
         x: raw.transform[4],
@@ -110,6 +150,7 @@ export async function extractPdf(filePath: string): Promise<PdfExtract> {
         width: raw.width ?? 0,
         height: raw.height || Math.abs(raw.transform[3]) || 10,
         page: p,
+        rotated,
       });
     }
     page.cleanup();

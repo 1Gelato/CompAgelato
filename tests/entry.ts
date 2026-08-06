@@ -6,6 +6,7 @@ export * from '../electron/services/facturx';
 export * from '../electron/services/tabular';
 export * from '../electron/services/bankStatement';
 export * from '../electron/services/registerRules';
+export * from '../electron/services/packaging';
 export * from '../electron/services/notify';
 export * from '../electron/services/optimize';
 export * from '../electron/services/routing';

@@ -111,7 +111,16 @@ export interface AccountingDocument {
  * on y suit aussi les machines vendues (glace, granité…) et les pièces
  * détachées utilisées en SAV.
  */
-export type ProductType = 'consumable' | 'machine' | 'part';
+export type ProductType = 'consumable' | 'mixLiquid' | 'mixPowder' | 'machine' | 'part';
+
+/**
+ * Ce que compte la facture du fournisseur, qui ne correspond pas toujours à
+ * l'unité de stock :
+ * - `unit`    : l'unité elle-même (20 poches)
+ * - `case`    : le carton (10 cartons de 2 poches)
+ * - `measure` : le contenu (12,5 kg, facturés au kilo)
+ */
+export type InvoicedAs = 'unit' | 'case' | 'measure';
 
 export interface Product {
   id: ID;
@@ -120,7 +129,16 @@ export interface Product {
   /** Consommable par défaut : c'est ce qu'étaient tous les articles existants. */
   type: ProductType;
   category?: string;
-  unit: string; // pièce, kg, L, carton…
+  /** Unité de stock : ce que vous comptez sur l'étagère (poche, carton, pièce…). */
+  unit: string;
+  /** Contenu d'une unité : 4,5 pour une poche de 4,5 kg. */
+  packSize?: number;
+  /** Mesure du contenu (kg, L). */
+  packMeasure?: string;
+  /** Unités par carton : 2 poches liquides par carton. */
+  unitsPerCase?: number;
+  /** Ce que compte la facture, pour convertir en unités de stock. */
+  invoicedAs?: InvoicedAs;
   qtyOnHand: number;
   minQty: number;
   unitCost?: number;

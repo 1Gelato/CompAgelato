@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { Product, ProductType, StockMove } from '@shared/types';
+import type { InvoicedAs, Product, ProductType, StockMove } from '@shared/types';
 import {
   Badge,
   Button,
@@ -27,15 +27,47 @@ type Filter = 'all' | 'low' | 'out';
 
 const TYPE_LABEL: Record<ProductType, string> = {
   consumable: 'Consommable',
+  mixLiquid: 'Mix liquide',
+  mixPowder: 'Mix poudre',
   machine: 'Machine',
   part: 'Pièce détachée',
 };
 
 const TYPE_TONE: Record<ProductType, string> = {
   consumable: '',
+  mixLiquid: 'badge--blue',
+  mixPowder: 'badge--orange',
   machine: 'badge--purple',
-  part: 'badge--blue',
+  part: 'badge--green',
 };
+
+const INVOICED_LABEL: Record<InvoicedAs, string> = {
+  unit: 'À l’unité',
+  case: 'Au carton',
+  measure: 'À la mesure (kg, L)',
+};
+
+const ALL_TYPES: ProductType[] = ['consumable', 'mixLiquid', 'mixPowder', 'machine', 'part'];
+
+/** Le conditionnement n'a de sens que pour ce qui se conditionne. */
+function hasPackaging(type: ProductType): boolean {
+  return type === 'mixLiquid' || type === 'mixPowder' || type === 'consumable';
+}
+
+/** Valeurs de départ, tirées des conditionnements réels des factures. */
+function packagingDefaults(type: ProductType): Partial<Product> {
+  switch (type) {
+    case 'mixLiquid':
+      return { unit: 'poche', packSize: 4.5, packMeasure: 'kg', unitsPerCase: 2, invoicedAs: 'unit' };
+    case 'mixPowder':
+      return { unit: 'poche', packSize: 2.5, packMeasure: 'kg', unitsPerCase: undefined, invoicedAs: 'measure' };
+    case 'machine':
+    case 'part':
+      return { unit: 'pièce', packSize: undefined, packMeasure: undefined, unitsPerCase: undefined, invoicedAs: 'unit' };
+    default:
+      return { unit: 'pièce', invoicedAs: 'unit' };
+  }
+}
 
 export function Stock() {
   const { data: products, loading } = useProducts();
@@ -155,7 +187,9 @@ export function Stock() {
           value={typeFilter}
           onChange={setTypeFilter}
           options={[
-            { value: 'all', label: 'Toutes natures' },
+            { value: 'all', label: 'Toutes' },
+            { value: 'mixLiquid', label: 'Mix liquide' },
+            { value: 'mixPowder', label: 'Mix poudre' },
             { value: 'consumable', label: 'Consommables' },
             { value: 'machine', label: 'Machines' },
             { value: 'part', label: 'Pièces' },
@@ -354,9 +388,15 @@ function ProductEditor({ product, onClose }: { product: Product | null; onClose:
             >
               <Select
                 value={draft.type ?? 'consumable'}
-                onChange={(e) => set('type', e.target.value as ProductType)}
+                onChange={(e) => {
+                  const type = e.target.value as ProductType;
+                  // Changer de nature réapplique le conditionnement habituel de
+                  // cette nature : c'est ce qu'on attend en la choisissant, et
+                  // tout reste modifiable juste en dessous.
+                  setDraft((d) => ({ ...d, type, ...packagingDefaults(type) }));
+                }}
               >
-                {(['consumable', 'machine', 'part'] as ProductType[]).map((t) => (
+                {ALL_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {TYPE_LABEL[t]}
                   </option>
@@ -366,13 +406,54 @@ function ProductEditor({ product, onClose }: { product: Product | null; onClose:
             <Field label="Catégorie">
               <Input value={draft.category ?? ''} onChange={(e) => set('category', e.target.value)} />
             </Field>
-            <Field label="Unité">
+            <Field label="Unité de stock" hint="Ce que vous comptez sur l’étagère">
               <Input
                 value={draft.unit ?? ''}
-                placeholder="pièce, carton, kg…"
+                placeholder="poche, carton, pièce…"
                 onChange={(e) => set('unit', e.target.value)}
               />
             </Field>
+            {hasPackaging(draft.type ?? 'consumable') && (
+              <>
+                <Field label={`Contenu d’${(draft.unit ?? 'une unité').startsWith('u') ? 'une' : 'une'} ${draft.unit || 'unité'}`}>
+                  <div className="row" style={{ gap: 6 }}>
+                    <NumberInput
+                      value={draft.packSize}
+                      step={0.1}
+                      onValueChange={(v) => set('packSize', v)}
+                      style={{ flex: 1 }}
+                    />
+                    <Input
+                      value={draft.packMeasure ?? ''}
+                      placeholder="kg"
+                      onChange={(e) => set('packMeasure', e.target.value)}
+                      style={{ width: 70 }}
+                    />
+                  </div>
+                </Field>
+                <Field label="Unités par carton" hint="Laissez vide si l’article ne se vend pas au carton">
+                  <NumberInput
+                    value={draft.unitsPerCase}
+                    onValueChange={(v) => set('unitsPerCase', v || undefined)}
+                  />
+                </Field>
+                <Field
+                  label="Facturé par le fournisseur"
+                  hint="Détermine la conversion : 12,5 kg de mix poudre font 5 poches de 2,5 kg"
+                >
+                  <Select
+                    value={draft.invoicedAs ?? 'unit'}
+                    onChange={(e) => set('invoicedAs', e.target.value as InvoicedAs)}
+                  >
+                    {(['unit', 'case', 'measure'] as InvoicedAs[]).map((v) => (
+                      <option key={v} value={v}>
+                        {INVOICED_LABEL[v]}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </>
+            )}
             <Field label="Quantité en stock">
               <NumberInput
                 value={draft.qtyOnHand}

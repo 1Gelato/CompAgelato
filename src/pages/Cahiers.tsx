@@ -609,8 +609,17 @@ function EntryDialog({
 
 const TYPE_LABEL: Record<ProductType, string> = {
   consumable: 'Consommable',
+  mixLiquid: 'Mix liquide',
+  mixPowder: 'Mix poudre',
   machine: 'Machine',
   part: 'Pièce détachée',
+};
+
+/** Natures proposées en tête selon le cahier : pièces au SAV, mix et
+ *  consommables dans les commandes. */
+const PREFERRED_TYPES: Record<'part' | 'consumable', ProductType[]> = {
+  part: ['part', 'machine'],
+  consumable: ['consumable', 'mixLiquid', 'mixPowder'],
 };
 
 function ItemPicker({
@@ -639,7 +648,8 @@ function ItemPicker({
       .filter((p) => !p.archived && !taken.has(p.id))
       .filter((p) => matches(`${p.sku} ${p.name} ${p.category ?? ''}`, query))
       .sort((a, b) => {
-        const rank = (p: Product) => (p.type === preferredType ? 0 : 1);
+        const preferred = PREFERRED_TYPES[preferredType as 'part' | 'consumable'] ?? [preferredType];
+        const rank = (p: Product) => (preferred.includes(p.type ?? 'consumable') ? 0 : 1);
         return rank(a) - rank(b) || a.name.localeCompare(b.name, 'fr');
       })
       .slice(0, 6);
@@ -713,7 +723,7 @@ function ItemPicker({
                 </span>
                 <span className="truncate">{product.name}</span>
                 <div className="spacer" />
-                <Badge tone={product.type === preferredType ? 'badge--blue' : ''}>
+                <Badge tone={(PREFERRED_TYPES[preferredType as 'part' | 'consumable'] ?? []).includes(product.type ?? 'consumable') ? 'badge--blue' : ''}>
                   {TYPE_LABEL[product.type]}
                 </Badge>
                 <span className="tiny muted">{product.qtyOnHand} en stock</span>

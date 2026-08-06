@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { extractPdf, parsePdfDocument, parseEInvoiceXml, extractClient } from './build/services.mjs';
+import {
+  extractPdf,
+  parsePdfDocument,
+  parseEInvoiceXml,
+  extractClient,
+  isWatermarkItem,
+} from './build/services.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pdfDir = path.join(here, 'fixtures', 'pdf');
@@ -207,6 +213,73 @@ test('gabarit à deux colonnes (vendeur/client sur les mêmes lignes) : nom, adr
   assert.ok(Math.abs(sum - doc.totalHT) < 0.01, `somme des lignes ${sum} ≠ total HT ${doc.totalHT}`);
   assert.equal(doc.warnings.length, 0, JSON.stringify(doc.warnings));
   assert.equal(doc.confidence, 1);
+});
+
+test('facture sur deux pages : les articles de la page 2 sont lus, pas l’en-tête réimprimé', async () => {
+  const file = path.join(pdfDir, 'FA-2026-2PAGES.pdf');
+  const doc = parsePdfDocument(await extractPdf(file), file);
+
+  // Le tableau continue page 2 : les trois articles doivent être présents, et
+  // seulement eux. Le bloc vendeur réimprimé en haut de page 2 (adresse, « N° »,
+  // « Date : 03/07/2026 ») ne doit produire aucune ligne fantôme — c'est la date
+  // lue comme un montant qui gonflait le total à plus de trois millions d'euros.
+  assert.equal(doc.lines.length, 3);
+  assert.deepEqual(
+    doc.lines.map((l) => l.label),
+    ['Mix vanille poche 4,5 kg', 'Mix fraise poche 4,5 kg', 'Cornets x120'],
+  );
+  assert.equal(doc.lines[2].qty, 3);
+  assert.equal(doc.lines[2].unitPriceHT, 49);
+  assert.equal(doc.lines[2].totalHT, 147);
+
+  // Le pied de page légal et le total, répétés en bas de *chaque* page, ne
+  // doivent pas arrêter la lecture avant la fin du tableau.
+  assert.equal(doc.totalHT, 669);
+  assert.equal(doc.totalTTC, 705.8);
+  const sum = doc.lines.reduce((s, l) => s + l.totalHT, 0);
+  assert.ok(Math.abs(sum - doc.totalHT) < 0.01, `somme des lignes ${sum} ≠ total HT ${doc.totalHT}`);
+
+  // Le bloc client n'est imprimé que page 1 : il doit tout de même être lu.
+  assert.equal(doc.clientName, 'GLACIER DE LA PLAGE');
+  assert.equal(doc.warnings.length, 0, JSON.stringify(doc.warnings));
+  assert.equal(doc.confidence, 1);
+});
+
+test('facture brouillon : le filigrane ne pollue ni le texte, ni les lignes, ni les totaux', async () => {
+  const file = path.join(pdfDir, 'FA-2026-FILIGRANE.pdf');
+  const extract = await extractPdf(file);
+
+  // « BROUILLON » est imprimé en diagonale par-dessus le tableau et
+  // « DUPLICATA » en gros à l'horizontale : aucun des deux n'est une donnée.
+  assert.ok(!extract.text.includes('BROUILLON'), extract.text);
+  assert.ok(!extract.text.includes('DUPLICATA'), extract.text);
+
+  const doc = parsePdfDocument(extract, file);
+  assert.equal(doc.number, 'FA-2026-0301');
+  assert.equal(doc.lines.length, 2);
+  assert.deepEqual(
+    doc.lines.map((l) => l.label),
+    ['Mix vanille poche 4,5 kg', 'Gobelet carton 120 ml (x100)'],
+  );
+  assert.equal(doc.totalHT, 125.8);
+  assert.equal(doc.totalTTC, 132.72);
+  assert.equal(doc.clientName, 'GLACIER DE LA PLAGE');
+  assert.equal(doc.warnings.length, 0, JSON.stringify(doc.warnings));
+  assert.equal(doc.confidence, 1);
+});
+
+test('le tri filigrane / donnée reste étroit : seul le tampon en gros ou incliné est écarté', () => {
+  const item = (str, extra = {}) => ({ str, x: 0, y: 0, width: 10, height: 9, page: 1, ...extra });
+
+  // Incliné : filigrane, quel que soit le mot.
+  assert.equal(isWatermarkItem(item('Mix vanille', { rotated: true }), 9), true);
+  // Mot de tampon, mais à la taille du corps de texte : c'est une donnée.
+  assert.equal(isWatermarkItem(item('Duplicata'), 9), false);
+  // Mot de tampon imprimé au double : filigrane.
+  assert.equal(isWatermarkItem(item('DUPLICATA', { height: 40 }), 9), true);
+  // Un titre en gros qui n'est pas un tampon reste lu (« FACTURE », un montant…).
+  assert.equal(isWatermarkItem(item('FACTURE', { height: 40 }), 9), false);
+  assert.equal(isWatermarkItem(item('1 104,75', { height: 40 }), 9), false);
 });
 
 test('un code client (« CL9001 ») n’est jamais pris pour un nom', () => {

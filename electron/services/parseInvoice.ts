@@ -394,7 +394,57 @@ function toCell(items: PdfTextItem[]): Cell {
 }
 
 const STOP_ROW =
-  /^(total|sous[-\s]?total|montant\s*(ht|ttc)|d[ée]tail\s*(de\s*la\s*)?tva|tva|net\s*[àa]\s*payer|conditions?|mode\s*de\s*r|arr[êe]t[ée]e?\s*la|escompte|acompte|p[ée]nalit|r[èe]glement|coordonn[ée]es?\s*bancaires?|le\s*montant\s*total)/i;
+  /^(total|sous[-\s]?total|montant\s*(ht|ttc)|d[ée]tail\s*(de\s*la\s*)?tva|tva|net\s*[àa]\s*payer|conditions?|mode\s*de\s*r|arr[êe]t[ée]e?\s*la|escompte|acompte|p[ée]nalit|r[èe]glement|coordonn[ée]es?\s*bancaires?|le\s*montant\s*total|page\s*\d+\s*(de|sur|\/)\s*\d+)/i;
+
+/**
+ * Pied de page légal, répété en bas de chaque page : il contient toujours
+ * plusieurs mentions réglementaires à la suite. Le repérer évite de lire
+ * l'adresse de l'émetteur comme une ligne d'article.
+ */
+const LEGAL_FOOTER = /(iban|code\s*naf|\bape\b|\brcs\b|n°?\s*tva|siret)/i;
+
+function looksLikeLegalFooter(text: string): boolean {
+  // Au moins deux mentions légales sur la même ligne : une facture peut citer
+  // un SIRET seul dans le bloc client, jamais quatre mentions d'affilée.
+  const hits = text.match(new RegExp(LEGAL_FOOTER, 'gi'));
+  return (hits?.length ?? 0) >= 2;
+}
+
+/**
+ * Reprise du tableau sur la page suivante.
+ *
+ * Une facture multipage réimprime en haut de chaque page son bloc vendeur
+ * (raison sociale, adresse, numéro, date) avant de continuer le tableau. Lu
+ * naïvement, ce bloc devient des lignes d'articles fantômes — une date
+ * « 03/07/2026 » se transformant même en montant de 3 072 026 €. On ne reprend
+ * donc la lecture qu'après avoir retrouvé un en-tête de tableau sur la nouvelle
+ * page ; sans en-tête, c'est que le tableau est bel et bien terminé.
+ *
+ * On ne regarde que la page immédiatement suivante : un PDF contenant deux
+ * factures scannées à la suite ne doit pas voir la seconde absorbée dans la
+ * première.
+ */
+function resumeNextPage(
+  lines: PdfLine[],
+  from: number,
+  currentPage: number,
+): { index: number; page: number } | null {
+  let start = -1;
+  for (let i = Math.max(0, from); i < lines.length; i++) {
+    if (lines[i].page > currentPage) {
+      start = i;
+      break;
+    }
+  }
+  if (start < 0) return null;
+
+  const page = lines[start].page;
+  const pageLines = lines.slice(start).filter((l) => l.page === page);
+  const header = findHeader(pageLines);
+  if (!header) return null;
+  const index = lines.indexOf(pageLines[header.index]);
+  return index < 0 ? null : { index, page };
+}
 
 export function extractLinesFromPdf(extract: PdfExtract): { lines: ParsedLine[]; warnings: string[] } {
   const warnings: string[] = [];
@@ -405,12 +455,37 @@ export function extractLinesFromPdf(extract: PdfExtract): { lines: ParsedLine[];
 
   const out: ParsedLine[] = [];
   let pending: ParsedLine | null = null;
+  let currentPage = extract.lines[header.index].page;
 
   for (let i = header.index + 1; i < extract.lines.length; i++) {
     const line = extract.lines[i];
     const text = line.text.trim();
     if (!text) continue;
-    if (STOP_ROW.test(text)) break;
+
+    // Le tableau déborde sur la page suivante : on saute le bloc d'en-tête
+    // réimprimé et on reprend au tableau, s'il y en a un.
+    if (line.page !== currentPage) {
+      const resume = resumeNextPage(extract.lines, i, currentPage);
+      if (!resume) break;
+      currentPage = resume.page;
+      pending = null;
+      i = resume.index;
+      continue;
+    }
+
+    /*
+     * Fin du tableau sur cette page. Attention : le total et le pied de page
+     * légal se répètent en bas de *chaque* page. S'arrêter là perdrait les
+     * articles des pages suivantes ; on tente donc d'abord la reprise.
+     */
+    if (STOP_ROW.test(text) || looksLikeLegalFooter(text)) {
+      const resume = resumeNextPage(extract.lines, i + 1, currentPage);
+      if (!resume) break;
+      currentPage = resume.page;
+      pending = null;
+      i = resume.index;
+      continue;
+    }
 
     const cells = groupCells(line.items);
     if (!cells.length) continue;
