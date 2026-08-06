@@ -7,6 +7,9 @@ import type {
   Client,
   DashboardStats,
   DeliveryRoute,
+  EventMachine,
+  MachineAvailability,
+  RegisterEntry,
   Product,
   Settings,
   StockMove,
@@ -84,6 +87,10 @@ export const useAttachments = () =>
   useResource<(Attachment & { exists: boolean })[]>(() => window.api.attachments.list(), []);
 export const useStockMoves = (productId?: string) =>
   useResource<StockMove[]>(() => window.api.stock.moves(productId), [], [productId]);
+export const useRegisterEntries = () =>
+  useResource<RegisterEntry[]>(() => window.api.registers.list(), []);
+export const useMachines = () =>
+  useResource<MachineAvailability[]>(() => window.api.machines.list(), []);
 export const useBankTransactions = () =>
   useResource<BankTransaction[]>(() => window.api.bank.list(), []);
 export const useBankSummary = () =>

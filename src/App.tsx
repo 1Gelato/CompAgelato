@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import type { ScanReport, Settings as SettingsType } from '@shared/types';
 import { Icons, ToastProvider, useToast } from './components/ui';
-import { refreshAll, useDocuments, useProducts, useSettings } from './lib/data';
+import { refreshAll, useDocuments, useProducts, useRegisterEntries, useSettings } from './lib/data';
 import { Dashboard } from './pages/Dashboard';
 import { Documents } from './pages/Documents';
 import { Clients } from './pages/Clients';
 import { Stock } from './pages/Stock';
 import { Routes } from './pages/Routes';
 import { Banque } from './pages/Banque';
+import { Cahiers } from './pages/Cahiers';
 import { Settings } from './pages/Settings';
 import { errorMessage } from './lib/data';
 
-type Page = 'dashboard' | 'documents' | 'clients' | 'stock' | 'routes' | 'banque' | 'settings';
+type Page = 'dashboard' | 'documents' | 'clients' | 'stock' | 'routes' | 'cahiers' | 'banque' | 'settings';
 
 const PAGES: {
   id: Page;
@@ -56,6 +57,13 @@ const PAGES: {
     subtitle: 'Feuille de route, optimisation du trajet et coût réel',
   },
   {
+    id: 'cahiers',
+    label: 'Cahiers',
+    icon: Icons.book,
+    title: 'Cahiers',
+    subtitle: 'SAV, consommables et événementiel — vos trois cahiers, au même endroit',
+  },
+  {
     id: 'banque',
     label: 'Banque',
     icon: Icons.bank,
@@ -88,6 +96,7 @@ function Shell() {
   const { data: settings } = useSettings();
   const { data: documents } = useDocuments();
   const { data: products } = useProducts();
+  const { data: registerEntries } = useRegisterEntries();
   const toast = useToast();
 
   /* Thème -------------------------------------------------------- */
@@ -163,8 +172,10 @@ function Shell() {
       (d) => !d.stockApplied && d.kind !== 'quote' && d.status !== 'cancelled',
     ).length;
     const low = products.filter((p) => !p.archived && p.minQty > 0 && p.qtyOnHand < p.minQty).length;
-    return { documents: pending, stock: low };
-  }, [documents, products]);
+    // « À traiter » au sens des cahiers : demandes et interventions ouvertes.
+    const open = registerEntries.filter((e) => e.status === 'open').length;
+    return { documents: pending, stock: low, cahiers: open };
+  }, [documents, products, registerEntries]);
 
   const current = PAGES.find((p) => p.id === page) ?? PAGES[0];
 
@@ -182,7 +193,13 @@ function Shell() {
           {PAGES.map((item) => {
             const Icon = item.icon;
             const badge =
-              item.id === 'documents' ? badges.documents : item.id === 'stock' ? badges.stock : 0;
+              item.id === 'documents'
+                ? badges.documents
+                : item.id === 'stock'
+                  ? badges.stock
+                  : item.id === 'cahiers'
+                    ? badges.cahiers
+                    : 0;
             return (
               <button
                 key={item.id}
@@ -248,6 +265,7 @@ function Shell() {
           {page === 'clients' && <Clients />}
           {page === 'stock' && <Stock />}
           {page === 'routes' && <Routes />}
+          {page === 'cahiers' && <Cahiers />}
           {page === 'banque' && <Banque />}
           {page === 'settings' && (
             <Settings onScan={scan} scanning={scanning} onThemeChange={applyTheme} />

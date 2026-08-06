@@ -1112,3 +1112,130 @@ test('la recherche par montant retrouve une facture et une opération bancaire',
   await page.fill(searchBank, '');
   await page.waitForTimeout(250);
 });
+
+/* ------------------------------------------------------------------ */
+/* Cahiers : SAV, consommables, événementiel                            */
+/* ------------------------------------------------------------------ */
+
+test('cahier SAV : écriture avec fiche client créée à la volée', async () => {
+  // Création de la fiche depuis le sélecteur du cahier (même appel que le bouton).
+  const client = await page.evaluate(() =>
+    window.api.clients.save({ name: 'CRÊPERIE DU MÔLE' }),
+  );
+  const entry = await page.evaluate(
+    (clientId) =>
+      window.api.registers.save({
+        kind: 'sav',
+        clientId,
+        title: 'Machine à glace en panne',
+        parts: 'Joint de cuve + courroie',
+        details: 'Bruit anormal depuis mardi',
+      }),
+    client.id,
+  );
+  assert.equal(entry.status, 'open', 'une écriture démarre « À traiter »');
+  assert.equal(entry.parts, 'Joint de cuve + courroie');
+
+  // Un client sans fiche reste possible : le nom est simplement noté.
+  const noted = await page.evaluate(() =>
+    window.api.registers.save({ kind: 'consumables', clientName: 'Passage comptoir', title: '2 mix vanille' }),
+  );
+  assert.equal(noted.clientId, undefined);
+  assert.equal(noted.clientName, 'Passage comptoir');
+});
+
+test('événementiel : seule la validation du devis réserve les machines', async () => {
+  const machine = await page.evaluate(() =>
+    window.api.machines.save({ name: 'Machine à glace italienne', qtyTotal: 2 }),
+  );
+
+  const dispo = async () => {
+    const parc = await page.evaluate(() => window.api.machines.list());
+    return parc.find((m) => m.machine.name === 'Machine à glace italienne');
+  };
+
+  assert.equal((await dispo()).available, 2);
+
+  // Une demande ne retire rien du parc.
+  const demande = await page.evaluate(
+    (machineId) =>
+      window.api.registers.save({
+        kind: 'event',
+        clientName: 'Comité des fêtes',
+        title: 'Fête de la mer',
+        eventDate: '2026-09-12',
+        machines: [{ machineId, qty: 1 }],
+      }),
+    machine.id,
+  );
+  assert.equal((await dispo()).available, 2, 'une simple demande ne doit rien réserver');
+
+  // Devis validé : la machine sort du parc.
+  await page.evaluate((id) => window.api.registers.setStatus(id, 'confirmed'), demande.id);
+  let slot = await dispo();
+  assert.equal(slot.available, 1);
+  assert.equal(slot.reserved, 1);
+  assert.ok(slot.upcoming.some((u) => u.date === '2026-09-12'), 'la sortie doit être annoncée');
+
+  // Valider un second devis au-delà du parc est refusé, en nommant la machine.
+  const trop = await page.evaluate(
+    (machineId) =>
+      window.api.registers.save({
+        kind: 'event',
+        clientName: 'Mariage Lefèvre',
+        title: 'Mariage',
+        machines: [{ machineId, qty: 2 }],
+      }),
+    machine.id,
+  );
+  await assert.rejects(
+    page.evaluate((id) => window.api.registers.setStatus(id, 'confirmed'), trop.id),
+    /Parc insuffisant.*Machine à glace italienne/,
+  );
+  assert.equal((await dispo()).available, 1, 'le refus ne doit rien réserver');
+
+  // Une machine réservée ne peut pas être retirée du parc.
+  await assert.rejects(
+    page.evaluate((id) => window.api.machines.remove(id), machine.id),
+    /réservée par un devis validé/,
+  );
+
+  // Prestation terminée : la machine revient, et le devis en attente passe.
+  await page.evaluate((id) => window.api.registers.setStatus(id, 'done'), demande.id);
+  assert.equal((await dispo()).available, 2, 'terminer la prestation doit rendre la machine');
+  await page.evaluate((id) => window.api.registers.setStatus(id, 'confirmed'), trop.id);
+  assert.equal((await dispo()).available, 0);
+
+  // Nettoyage pour laisser le parc sain.
+  await page.evaluate((id) => window.api.registers.setStatus(id, 'cancelled'), trop.id);
+});
+
+test('l’onglet Cahiers s’affiche avec ses trois cahiers et le parc', async () => {
+  await page.click('.navitem:has-text("Cahiers")');
+  await page.waitForSelector('table.data tbody tr');
+
+  // SAV par défaut : l'écriture créée plus haut est visible.
+  assert.ok(await page.isVisible('text=Machine à glace en panne'));
+  assert.ok(await page.isVisible('text=CRÊPERIE DU MÔLE'));
+
+  // Consommables.
+  await page.click('.segmented button:has-text("Consommables")');
+  await page.waitForTimeout(250);
+  assert.ok(await page.isVisible('text=2 mix vanille'));
+  assert.ok(await page.isVisible('text=sans fiche client'));
+
+  // Événementiel : le tableau du parc apparaît dans le même onglet.
+  await page.click('.segmented button:has-text("Événementiel")');
+  await page.waitForTimeout(250);
+  assert.ok(await page.isVisible('text=Parc de machines'));
+  assert.ok(await page.isVisible('text=Machine à glace italienne'));
+  assert.ok(await page.isVisible('text=Prochaines sorties'));
+
+  // La fenêtre de saisie s'ouvre avec le sélecteur de client et les machines.
+  await page.click('button:has-text("Nouvelle écriture")');
+  await page.waitForSelector('.modal');
+  assert.ok(await page.isVisible('text=Machines demandées'));
+  assert.ok(await page.isVisible('text=Nom de l’événement'));
+  await page.locator('.modal .modal__header .iconbtn').last().click();
+  await page.waitForTimeout(200);
+});

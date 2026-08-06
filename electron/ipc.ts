@@ -18,8 +18,11 @@ import type {
   Client,
   DeliveryRoute,
   EmailDraft,
+  EventMachine,
   ID,
   Product,
+  RegisterEntry,
+  RegisterStatus,
   Settings,
   Vehicle,
 } from '@shared/types';
@@ -74,6 +77,16 @@ import {
   suggestMatches,
   updateTransaction,
 } from './services/bank';
+import {
+  listMachineAvailability,
+  listRegisterEntries,
+  removeMachine,
+  removeRegisterEntry,
+  setRegisterStatus,
+  upsertMachine,
+  upsertRegisterEntry,
+} from './services/registers';
+import { sendNotification, notifyEnabled } from './services/notify';
 import { seedDemoData, wipeDemoData } from './services/demo';
 import { round2 } from './services/text';
 import {
@@ -897,6 +910,64 @@ const handlers: Registry = {
     },
   },
 
+  registers: {
+    async list() {
+      return listRegisterEntries();
+    },
+    async save(input: Partial<RegisterEntry> & { id?: ID }) {
+      const entry = upsertRegisterEntry(input);
+      store.flushSync();
+      return entry;
+    },
+    async remove(id: ID) {
+      removeRegisterEntry(id);
+      store.flushSync();
+    },
+    async setStatus(id: ID, status: RegisterStatus) {
+      const entry = setRegisterStatus(id, status);
+      store.flushSync();
+      return entry;
+    },
+  },
+
+  machines: {
+    async list() {
+      return listMachineAvailability();
+    },
+    async save(input: Partial<EventMachine> & { id?: ID }) {
+      const machine = upsertMachine(input);
+      store.flushSync();
+      return machine;
+    },
+    async remove(id: ID) {
+      removeMachine(id);
+      store.flushSync();
+    },
+  },
+
+  notify: {
+    async test() {
+      const { notifyTopic, notifyUrl } = store.settings;
+      if (!notifyEnabled({ topic: notifyTopic })) {
+        throw new Error('Renseignez d’abord un sujet de notification dans les réglages.');
+      }
+      const ok = await sendNotification(
+        { topic: notifyTopic, url: notifyUrl },
+        {
+          title: 'CompaGelato — essai',
+          message: 'Les notifications fonctionnent sur ce téléphone.',
+          tags: ['bell'],
+        },
+      );
+      if (!ok) {
+        throw new Error(
+          'Le serveur de notifications n’a pas répondu. Vérifiez la connexion internet et l’adresse du serveur.',
+        );
+      }
+      return true;
+    },
+  },
+
   bank: {
     async list(): Promise<BankTransaction[]> {
       return [...store.db.bankTransactions].sort(
@@ -1040,6 +1111,8 @@ const handlers: Registry = {
           vehicles: store.db.vehicles.length,
           attachments: store.db.attachments.length,
           bankTransactions: store.db.bankTransactions.length,
+          registerEntries: store.db.registerEntries.length,
+          eventMachines: store.db.eventMachines.length,
         },
       };
     },

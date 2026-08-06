@@ -277,6 +277,80 @@ export function Settings({
           </div>
         </Card>
 
+        <Card
+          title="Notifications sur téléphone"
+          subtitle="Chaque ajout dans les cahiers (SAV, consommables, événementiel) prévient toute l'équipe"
+        >
+          <div className="col" style={{ gap: 13 }}>
+            <div className="infobox">
+              Installez l'application gratuite <strong>ntfy</strong> sur chaque téléphone
+              (Android ou iPhone), puis abonnez-la au sujet ci-dessous. Tous les téléphones
+              abonnés reçoivent l'alerte — aucun compte à créer. Le sujet fait office de
+              mot de passe : <strong>gardez-le long et secret</strong>. Les messages
+              (nom du client, objet) transitent par le serveur choisi ; le jour où
+              CompaGelato aura son propre serveur, il pourra héberger ntfy et plus rien
+              ne sortira de l'entreprise.
+            </div>
+
+            <div className="formgrid">
+              <Field label="Sujet de notification" hint="Vide = notifications désactivées">
+                <div className="row" style={{ gap: 6 }}>
+                  <Input
+                    value={settings.notifyTopic ?? ''}
+                    onChange={(e) => patch({ notifyTopic: e.target.value.trim() })}
+                    placeholder="ex. compagelato-8f3k2m9x4p"
+                    style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+                  />
+                  <Button
+                    size="sm"
+                    title="Générer un sujet impossible à deviner"
+                    onClick={() => {
+                      const random = Array.from(crypto.getRandomValues(new Uint8Array(8)))
+                        .map((b) => b.toString(36).padStart(2, '0'))
+                        .join('')
+                        .slice(0, 14);
+                      patch({ notifyTopic: `compagelato-${random}` }, 'Sujet généré — abonnez les téléphones');
+                    }}
+                  >
+                    Générer
+                  </Button>
+                </div>
+              </Field>
+              <Field label="Serveur ntfy" hint="Laissez ntfy.sh, ou votre propre serveur plus tard">
+                <Input
+                  value={settings.notifyUrl ?? 'https://ntfy.sh'}
+                  onChange={(e) => patch({ notifyUrl: e.target.value.trim() })}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+                />
+              </Field>
+            </div>
+
+            <div className="row">
+              <Button
+                icon={<Icons.bell size={14} />}
+                disabled={!settings.notifyTopic}
+                onClick={async () => {
+                  try {
+                    await window.api.notify.test();
+                    toast.push({
+                      tone: 'success',
+                      title: 'Notification envoyée',
+                      text: 'Elle doit apparaître sur les téléphones abonnés au sujet.',
+                    });
+                  } catch (err) {
+                    toast.push({ tone: 'error', title: 'Envoi impossible', text: errorMessage(err) });
+                  }
+                }}
+              >
+                Envoyer un essai
+              </Button>
+              {!settings.notifyTopic && (
+                <span className="tiny muted">Renseignez un sujet pour activer l'essai.</span>
+              )}
+            </div>
+          </div>
+        </Card>
+
         <Card title="Coût de trajet" subtitle="Base de calcul du carburant et du dépôt">
           <div className="col" style={{ gap: 13 }}>
             <div className="formgrid">

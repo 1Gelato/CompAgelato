@@ -13,11 +13,15 @@ import type {
   Database,
   DeliveryRoute,
   EmailDraft,
+  EventMachine,
   ID,
   ImportClientsReport,
   OptimizeOptions,
   OptimizeResult,
+  MachineAvailability,
   Product,
+  RegisterEntry,
+  RegisterStatus,
   RouteComputation,
   RouteStop,
   ScanReport,
@@ -45,6 +49,9 @@ export const CHANNELS = {
   stock: ['moves', 'apply', 'revert', 'applyAll', 'linkLine', 'suggestions'],
   routes: ['list', 'save', 'remove', 'compute', 'optimize', 'link', 'qr', 'exportCsv'],
   vehicles: ['list', 'save', 'remove'],
+  registers: ['list', 'save', 'remove', 'setStatus'],
+  machines: ['list', 'save', 'remove'],
+  notify: ['test'],
   bank: [
     'list', 'scan', 'pickAndImport', 'update', 'remove', 'suggestions',
     'reconcile', 'autoReconcile', 'summary', 'exportCsv', 'openFolder', 'chooseFolder',
@@ -224,6 +231,23 @@ export interface Api {
     list(): Promise<Vehicle[]>;
     save(vehicle: Partial<Vehicle> & { id?: ID }): Promise<Vehicle>;
     remove(id: ID): Promise<void>;
+  };
+  registers: {
+    list(): Promise<RegisterEntry[]>;
+    save(entry: Partial<RegisterEntry> & { id?: ID }): Promise<RegisterEntry>;
+    remove(id: ID): Promise<void>;
+    /** Passer un devis événementiel en « validé » réserve les machines. */
+    setStatus(id: ID, status: RegisterStatus): Promise<RegisterEntry>;
+  };
+  machines: {
+    /** Parc avec disponibilité calculée et prochaines sorties. */
+    list(): Promise<MachineAvailability[]>;
+    save(machine: Partial<EventMachine> & { id?: ID }): Promise<EventMachine>;
+    remove(id: ID): Promise<void>;
+  };
+  notify: {
+    /** Envoie une notification d'essai sur le sujet configuré. */
+    test(): Promise<boolean>;
   };
   bank: {
     list(): Promise<BankTransaction[]>;

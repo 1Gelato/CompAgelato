@@ -6,6 +6,8 @@ produit, les range dans des tableaux, tient votre stock de consommables à jour
 et calcule vos tournées de livraison.
 
 Tout reste sur votre machine. Aucun compte, aucun serveur, aucun abonnement.
+(Seule exception, désactivée par défaut : les notifications sur téléphone
+passent par le serveur ntfy configuré dans les réglages.)
 
 ---
 
@@ -106,6 +108,25 @@ La recherche accepte aussi bien du texte qu'un **montant** : taper `482`
 retrouve l'opération de 482,96 €, `115,56` la facture de ce total. Le signe est
 ignoré (un débit se cherche comme un crédit), les espaces et le `€` sont
 tolérés, et une facture se retrouve par son HT, sa TVA ou son TTC.
+
+**Cahiers : SAV, consommables, événementiel**
+Les trois cahiers papier de l'entreprise, dans un seul onglet. Chaque écriture
+choisit un client existant, crée sa fiche en un clic, ou note simplement un nom
+au vol. Le SAV enregistre la cause de la panne, les pièces demandées et un
+commentaire ; les consommables les commandes de mix, gobelets et pots ;
+l'événementiel la date de la prestation et les machines demandées.
+
+Le parc de machines est suivi dans le même onglet, avec une règle stricte :
+**une simple demande ne réserve rien — seul le passage en « Devis validé »
+retire les machines du parc**, et elles y reviennent quand la prestation est
+terminée ou annulée. La disponibilité est calculée à partir du cahier lui-même,
+jamais stockée : elle ne peut pas se désynchroniser. Valider un devis au-delà du
+parc est refusé en nommant la machine manquante, et une machine réservée ne peut
+pas être retirée du parc.
+
+Chaque ajout peut prévenir toute l'équipe sur téléphone : installez
+l'application gratuite ntfy et abonnez chaque téléphone au sujet configuré dans
+les réglages (désactivé par défaut).
 
 **Calculateur de tournées de livraison**
 
@@ -289,7 +310,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **84 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **94 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
@@ -312,7 +333,7 @@ npm run test:all
   encaissement antérieur à la facture, devis et pièces annulées exclus,
   décaissement rapproché d'un avoir et non d'une facture, et deux factures du
   même montant départagées par le nom du client.
-- **40 tests de bout en bout** — l'application réelle est lancée, pilotée et
+- **43 tests de bout en bout** — l'application réelle est lancée, pilotée et
   vérifiée : import d'une liste clients en Windows-1252, import du catalogue,
   analyse d'un dossier de PDF, rattachement automatique aux clients, association
   des lignes au stock, déduction puis annulation, idempotence, absence de
@@ -330,4 +351,7 @@ npm run test:all
   qui retrouve une facture par son HT comme par son TTC et une opération
   bancaire par son débit. Deux garde-fous vérifiés en neutralisant volontairement
   le correctif : une relecture ne défait pas les corrections manuelles, et
-  déplacer le dossier de travail ne duplique aucun document.
+  déplacer le dossier de travail ne duplique aucun document. Côté cahiers :
+  la règle de réservation (une demande ne réserve rien, un devis validé oui,
+  une prestation terminée rend ses machines), le refus motivé quand le parc ne
+  suit pas, et les messages de notification.

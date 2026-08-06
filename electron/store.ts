@@ -59,6 +59,8 @@ export function defaultSettings(): Settings {
     autoApplyStock: false,
     autoCreateClients: true,
     autoReconcile: true,
+    notifyTopic: '',
+    notifyUrl: 'https://ntfy.sh',
     currency: 'EUR',
     vatDefault: 20,
     fuelPricePerLiter: 1.75,
@@ -100,6 +102,8 @@ function emptyDatabase(): Database {
     vehicles: [vehicle],
     attachments: [],
     bankTransactions: [],
+    registerEntries: [],
+    eventMachines: [],
     settings: { ...defaultSettings(), defaultVehicleId: vehicle.id },
   };
 }
@@ -159,6 +163,8 @@ class Store {
       vehicles: parsed.vehicles?.length ? parsed.vehicles : base.vehicles,
       attachments: (parsed.attachments as Attachment[] | undefined) ?? [],
       bankTransactions: parsed.bankTransactions ?? [],
+      registerEntries: parsed.registerEntries ?? [],
+      eventMachines: parsed.eventMachines ?? [],
       settings: { ...base.settings, ...(parsed.settings ?? {}) },
     };
     if (!db.settings.defaultVehicleId && db.vehicles[0]) {

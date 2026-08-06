@@ -139,6 +139,26 @@ export function monthLong(month: string): string {
   return date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
 }
 
+export const REGISTER_KIND_LABEL: Record<string, string> = {
+  sav: 'SAV',
+  consumables: 'Consommables',
+  event: 'Événementiel',
+};
+
+/** Libellés de statut propres à chaque cahier. */
+export const REGISTER_STATUS_LABEL: Record<string, Record<string, string>> = {
+  sav: { open: 'À traiter', confirmed: 'En cours', done: 'Résolu', cancelled: 'Annulé' },
+  consumables: { open: 'À préparer', confirmed: 'En préparation', done: 'Livré', cancelled: 'Annulé' },
+  event: { open: 'Demande', confirmed: 'Devis validé', done: 'Terminé', cancelled: 'Annulé' },
+};
+
+export const REGISTER_STATUS_TONE: Record<string, string> = {
+  open: 'badge--orange',
+  confirmed: 'badge--blue',
+  done: 'badge--green',
+  cancelled: 'badge--red',
+};
+
 export const FUEL_LABEL: Record<string, string> = {
   gazole: 'Gazole',
   sp95: 'SP95 / E10',

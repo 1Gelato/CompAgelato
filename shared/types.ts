@@ -236,6 +236,72 @@ export interface DeliveryRoute {
 }
 
 /* ------------------------------------------------------------------ */
+/* Cahiers (SAV, consommables, événementiel)                            */
+/* ------------------------------------------------------------------ */
+
+export type RegisterKind = 'sav' | 'consumables' | 'event';
+
+/**
+ * Statuts communs aux trois cahiers, avec des libellés propres à chacun :
+ * - SAV :           open = À traiter,  confirmed = En cours,      done = Résolu
+ * - Consommables :  open = À préparer, confirmed = En préparation, done = Livré
+ * - Événementiel :  open = Demande,    confirmed = Devis validé,  done = Terminé
+ *
+ * Pour l'événementiel, seul « Devis validé » réserve les machines : une simple
+ * demande ne retire rien du parc.
+ */
+export type RegisterStatus = 'open' | 'confirmed' | 'done' | 'cancelled';
+
+export interface RegisterMachineLine {
+  machineId: ID;
+  qty: number;
+}
+
+export interface RegisterEntry {
+  id: ID;
+  kind: RegisterKind;
+  clientId?: ID;
+  /** Nom noté à la volée quand le client n'a pas (encore) de fiche. */
+  clientName?: string;
+  /** Cause de la panne (SAV), objet de la commande, nom de l'événement. */
+  title: string;
+  /** SAV : pièces demandées. */
+  parts?: string;
+  /** Commentaire libre. */
+  details?: string;
+  /** Événementiel : date de la prestation. */
+  eventDate?: string;
+  /** Événementiel : machines demandées. */
+  machines?: RegisterMachineLine[];
+  status: RegisterStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Machine du parc événementiel (machine à glace italienne, vitrine…). */
+export interface EventMachine {
+  id: ID;
+  name: string;
+  reference?: string;
+  /** Nombre d'exemplaires possédés. */
+  qtyTotal: number;
+  notes?: string;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Disponibilité calculée d'une machine — jamais stockée, donc jamais fausse. */
+export interface MachineAvailability {
+  machine: EventMachine;
+  /** Exemplaires réservés par des devis validés non terminés. */
+  reserved: number;
+  available: number;
+  /** Prochaines sorties confirmées (date + client + événement). */
+  upcoming: { entryId: ID; date?: string; label: string; qty: number }[];
+}
+
+/* ------------------------------------------------------------------ */
 /* Relevés bancaires                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -369,6 +435,14 @@ export interface Settings {
   statementFolder?: string;
   /** Rapprocher automatiquement les encaissements avec les factures. */
   autoReconcile: boolean;
+  /**
+   * Notifications sur téléphone via ntfy : chaque ajout dans un cahier est
+   * poussé sur le sujet configuré. Vide = désactivé. En attendant les comptes
+   * utilisateurs, tous les téléphones abonnés au même sujet sont prévenus.
+   */
+  notifyTopic?: string;
+  /** Serveur ntfy ; ntfy.sh par défaut, remplaçable par un serveur à soi. */
+  notifyUrl?: string;
   /** Déduire le stock automatiquement à l'import des factures. */
   autoApplyStock: boolean;
   /** Créer automatiquement une fiche client si le nom lu est inconnu. */
@@ -407,6 +481,8 @@ export interface Database {
   vehicles: Vehicle[];
   attachments: Attachment[];
   bankTransactions: BankTransaction[];
+  registerEntries: RegisterEntry[];
+  eventMachines: EventMachine[];
   settings: Settings;
 }
 
