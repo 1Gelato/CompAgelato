@@ -301,6 +301,22 @@ prêt à ouvrir dans la messagerie). Seules les actions qui ouvrent une fenêtre
 sur le poste (sélecteur de dossier…) restent propres à l'application de bureau,
 avec un message clair.
 
+### Envoyer une facture au serveur, sans rien installer
+
+Depuis l'écran **Documents**, le bouton **Ajouter des pièces** envoie une ou
+plusieurs factures au serveur : elles sont rangées dans le dossier surveillé,
+analysées, et apparaissent aussitôt sur tous les appareils. Ça marche
+identiquement dans le navigateur et dans l'application de bureau branchée.
+
+C'est ce qui rend un poste utilisable **immédiatement** : installer, saisir
+l'adresse du serveur, et déposer ses factures. Aucun partage réseau ni
+synchronisation de dossier n'est nécessaire — ils restent utiles pour un dépôt
+automatique, mais ne conditionnent plus rien.
+
+Redéposer un fichier déjà connu ne crée pas de doublon : le contenu est comparé,
+et une pièce dont l'empreinte est déjà en base est mise à jour plutôt que
+recréée.
+
 ### Brancher l'application de bureau sur le serveur
 
 Le navigateur n'est pas la seule façon d'atteindre les données partagées :
@@ -484,15 +500,16 @@ npm run test:all
   réel, encaissement rapproché tout seul de la bonne facture (qui passe à
   « réglée »), relevé relu sans le moindre doublon, second relevé chevauchant
   qui n'ajoute que les nouveautés, et synthèse (totaux, catégories, solde).
-- **10 tests du mode serveur** — le vrai processus `node dist/server/server.mjs`
+- **11 tests du mode serveur** — le vrai processus `node dist/server/server.mjs`
   est lancé sur une base temporaire puis interrogé en HTTP comme le ferait un
   navigateur : refus sans jeton, interface web servie, canal inconnu rejeté,
   action de bureau expliquée, création/lecture de client, téléversement d'une
   liste CSV, dépôt d'un PDF détecté par la surveillance avec diffusion SSE,
-  téléchargement du PDF d'origine, brouillon d'e-mail `.eml` téléchargeable et
+  téléchargement du PDF d'origine, dépôt d'une facture par téléversement rangée
+  sous son nom d'origine et reconnue plutôt que dupliquée, brouillon d'e-mail `.eml` téléchargeable et
   pièce marquée « envoyée », base écrite au bon endroit et arrêt propre sur
   SIGTERM.
-- **13 tests de l'application branchée sur le serveur** — le proxy du processus
+- **14 tests de l'application branchée sur le serveur** — le proxy du processus
   principal est exercé tel quel contre un vrai serveur : formes acceptées pour
   l'adresse, liaison enregistrée sur le poste puis relue au démarrage suivant,
   jeton conservé quand seule l'adresse change et effacé au retour en local,
@@ -501,8 +518,9 @@ npm run test:all
   poste relue directement sur le serveur, message d'erreur du serveur qui
   traverse le proxy intact, téléversement d'un fichier choisi sur le poste,
   événements du serveur reçus par le poste, PDF rapatrié à l'octet près sous le
-  nom qui partira à l'imprimante, fichier absent expliqué, et repli en local qui
-  ne perd pas la liaison enregistrée.
+  nom qui partira à l'imprimante, facture déposée depuis le poste puis analysée
+  sur le serveur, fichier absent expliqué, et repli en local qui ne perd pas la
+  liaison enregistrée.
   Enfin le tri des colonnes dans les deux sens sur documents, clients et stock,
   le filtre des relevés sur une période donnée, et la recherche par montant
   qui retrouve une facture par son HT comme par son TTC et une opération

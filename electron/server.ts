@@ -168,9 +168,13 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
   const uploadDir = path.join(os.tmpdir(), 'compagelato-uploads');
 
   async function handleUpload(kind: string, fileName: string, body: Buffer): Promise<unknown> {
-    fs.mkdirSync(uploadDir, { recursive: true });
+    // Chaque téléversement a son propre dossier, ce qui laisse au fichier son
+    // nom d'origine : c'est celui-là qui sera rangé dans le dossier surveillé
+    // ou dans la bibliothèque de pièces jointes.
     const safe = path.basename(fileName || 'fichier').replace(/[\\/:*?"<>|]/g, '_');
-    const file = path.join(uploadDir, `${newId('up')}-${safe}`);
+    const folder = path.join(uploadDir, newId('up'));
+    fs.mkdirSync(folder, { recursive: true });
+    const file = path.join(folder, safe);
     fs.writeFileSync(file, body);
     try {
       switch (kind) {
@@ -180,6 +184,8 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
           return await coreHandlers.products.importFrom(file);
         case 'bank':
           return await coreHandlers.bank.importFrom(file);
+        case 'documents':
+          return await coreHandlers.documents.addFiles([file]);
         case 'attachments':
           return await coreHandlers.attachments.addFiles([file]);
         case 'restore':
@@ -188,10 +194,10 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
           throw new Error(`Type de téléversement inconnu : ${kind}`);
       }
     } finally {
-      // La pièce jointe est copiée dans sa bibliothèque, l'import est en base :
-      // le fichier temporaire ne sert plus.
+      // La pièce est rangée à sa place définitive et l'import est en base :
+      // le dossier temporaire ne sert plus.
       try {
-        fs.unlinkSync(file);
+        fs.rmSync(folder, { recursive: true, force: true });
       } catch {
         /* ignore */
       }

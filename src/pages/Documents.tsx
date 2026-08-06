@@ -50,6 +50,7 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
   const [selected, setSelected] = useState<AccountingDocument | null>(null);
   const [emailing, setEmailing] = useState<AccountingDocument | null>(null);
   const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   // La fiche ouverte doit refléter les données rechargées après chaque écriture.
   useEffect(() => {
@@ -121,6 +122,37 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
       toast.push({ tone: 'error', title: 'Échec', text: errorMessage(err) });
     } finally {
       setBusy(false);
+    }
+  };
+
+  /**
+   * Dépôt d'une pièce depuis l'application. Branché sur un serveur, le fichier
+   * y est envoyé puis analysé là-bas : c'est ce qui permet de travailler depuis
+   * un poste sans partage réseau ni synchronisation de dossier.
+   */
+  const addFiles = async () => {
+    setAdding(true);
+    try {
+      const added = await window.api.documents.pickAndAdd();
+      if (added === null) return;
+      if (!added.length) {
+        toast.push({
+          tone: 'warn',
+          title: 'Rien d’ajouté',
+          text: 'Aucune pièce n’a pu être lue dans les fichiers choisis.',
+        });
+        return;
+      }
+      toast.push({
+        tone: 'success',
+        title: `${added.length} pièce${added.length > 1 ? 's' : ''} ajoutée${added.length > 1 ? 's' : ''}`,
+        text: added.map((d) => d.number).join(', '),
+      });
+      refreshAll();
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Échec de l’ajout', text: errorMessage(err) });
+    } finally {
+      setAdding(false);
     }
   };
 
@@ -206,6 +238,9 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
             </Button>
           )}
           <Button icon={<Icons.download size={14} />} onClick={exportCsv} title="Exporter en CSV" />
+          <Button icon={<Icons.plus size={14} />} onClick={addFiles} loading={adding}>
+            Ajouter des pièces
+          </Button>
           <Button
             variant="primary"
             icon={<Icons.refresh size={14} />}
@@ -229,13 +264,18 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
             text={
               documents.length
                 ? 'Modifiez les filtres ou la recherche.'
-                : 'Déposez vos factures et devis (PDF, Factur-X, XML, CSV, Excel) dans le dossier surveillé : ils seront lus automatiquement et ajoutés à ce tableau.'
+                : 'Ajoutez vos factures et devis (PDF, Factur-X, XML, CSV, Excel) depuis ce poste, ou déposez-les dans le dossier surveillé : ils seront lus automatiquement et ajoutés à ce tableau.'
             }
             action={
               !documents.length ? (
-                <Button variant="primary" onClick={() => onScan(true)} loading={scanning}>
-                  Analyser le dossier maintenant
-                </Button>
+                <>
+                  <Button variant="primary" icon={<Icons.plus size={14} />} onClick={addFiles} loading={adding}>
+                    Ajouter des pièces
+                  </Button>
+                  <Button onClick={() => onScan(true)} loading={scanning}>
+                    Analyser le dossier
+                  </Button>
+                </>
               ) : undefined
             }
           />

@@ -210,6 +210,21 @@ test('événements du serveur reçus par le poste, et PDF rapatrié pour impress
   assert.equal(path.basename(local), 'Facture FA-2026-0142.pdf');
 });
 
+test('déposer une facture depuis le poste : elle est analysée sur le serveur', async () => {
+  // Le geste que fait « Ajouter des pièces » quand l'application est branchée :
+  // le fichier part au serveur, qui le range et l'analyse pour tout le monde.
+  const autre = path.join(here, 'fixtures', 'pdf', 'FA-2026-0143.pdf');
+  const added = await uploadFile('documents', autre);
+  assert.equal(added.length, 1);
+  assert.equal(added[0].number, 'FA-2026-0143');
+
+  // Elle est bien rangée dans le dossier surveillé du serveur, sous son nom.
+  assert.ok(fs.existsSync(path.join(watchDir, 'FA-2026-0143.pdf')));
+
+  const documents = await remoteCall('documents', 'list', []);
+  assert.equal(documents.length, 2);
+});
+
 test('un fichier absent du serveur donne une erreur lisible', async () => {
   await assert.rejects(
     () => downloadToCache('/files/document/inexistant', 'x.pdf'),

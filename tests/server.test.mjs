@@ -169,6 +169,30 @@ test('serveur : dépôt d’un PDF, analyse, diffusion SSE et téléchargement',
   assert.equal(bytes.byteLength, fs.statSync(fixturePdf).size);
 });
 
+test('serveur : téléverser une facture depuis un poste, sans partage réseau', async () => {
+  const res = await fetch(`${BASE}/upload/documents`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-File-Name': encodeURIComponent('FA-2026-0777.pdf'),
+      'x-auth-token': TOKEN,
+    },
+    body: fs.readFileSync(fixturePdf),
+  });
+  const payload = await res.json();
+  assert.equal(payload.ok, true, payload.error);
+  assert.equal(payload.result.length, 1);
+
+  // Le fichier est rangé dans le dossier surveillé sous son nom d'origine,
+  // et non sous le nom temporaire du téléversement.
+  assert.ok(fs.existsSync(path.join(watchDir, 'FA-2026-0777.pdf')));
+
+  // Même contenu que la pièce déjà présente : c'est la même facture, elle est
+  // reconnue plutôt que dupliquée.
+  const documents = await callOk('documents', 'list');
+  assert.equal(documents.length, 1, 'la facture a été comptée deux fois');
+});
+
 test('serveur : le brouillon d’e-mail se prépare et se télécharge', async () => {
   const [doc] = await callOk('documents', 'list');
   const preparation = await callOk('documents', 'prepareEmail', [doc.id]);

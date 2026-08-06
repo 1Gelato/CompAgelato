@@ -104,6 +104,15 @@ async function upload(kind: string, file: File): Promise<unknown> {
   return payload.result;
 }
 
+/** Dépôt de pièces comptables : un téléversement par fichier, résultats fusionnés. */
+async function uploadDocuments(files: File[]): Promise<unknown[]> {
+  const added: unknown[] = [];
+  for (const file of files) {
+    added.push(...((await upload('documents', file)) as unknown[]));
+  }
+  return added;
+}
+
 async function pickAndUpload(kind: string, accept: string): Promise<unknown | null> {
   const [file] = await pickLocalFiles(accept, false);
   if (!file) return null;
@@ -178,6 +187,12 @@ export function createHttpApi(): Api {
 
   api.attachments.open = async (id) => {
     window.open(withToken(`/files/attachment/${id}`), '_blank', 'noopener');
+  };
+
+  api.documents.pickAndAdd = async () => {
+    const files = await pickLocalFiles('.pdf,.xml,.csv,.xlsx,.xls,.xlsm', true);
+    if (!files.length) return null;
+    return uploadDocuments(files);
   };
 
   api.attachments.pickAndAdd = async () => {

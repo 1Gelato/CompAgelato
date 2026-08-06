@@ -147,6 +147,33 @@ function localOnly(): never {
   throw new Error(LOCAL_ONLY);
 }
 
+/**
+ * Copie un fichier déposé dans le dossier surveillé, sans jamais en écraser un
+ * autre.
+ *
+ * Redéposer exactement le même fichier ne crée pas de second exemplaire : le
+ * contenu est comparé, et le fichier déjà rangé est réutilisé. Un homonyme au
+ * contenu différent, lui, reçoit un suffixe — perdre une pièce parce qu'elle
+ * porte un nom déjà pris serait bien pire qu'un doublon sur le disque.
+ */
+function placeInFolder(source: string, folder: string): string {
+  const safe = path.basename(source).replace(/[\\/:*?"<>|]/g, '_');
+  const extension = path.extname(safe);
+  const stem = safe.slice(0, safe.length - extension.length) || 'document';
+  const content = fs.readFileSync(source);
+
+  for (let index = 1; ; index++) {
+    const name = index === 1 ? `${stem}${extension}` : `${stem} (${index})${extension}`;
+    const target = path.join(folder, name);
+    if (!fs.existsSync(target)) {
+      fs.writeFileSync(target, content);
+      return target;
+    }
+    // Même nom, même contenu : c'est la même pièce, on garde celle en place.
+    if (fs.readFileSync(target).equals(content)) return target;
+  }
+}
+
 export function appVersion(): string {
   try {
     const raw = fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8');
@@ -418,6 +445,38 @@ export const coreHandlers: Registry = {
     },
     async rescanFile(filePath: string) {
       return rescanFile(filePath);
+    },
+
+    /**
+     * Dépôt d'une pièce depuis l'application : le fichier est copié dans le
+     * dossier surveillé puis analysé sur-le-champ.
+     *
+     * Sans cela, envoyer une facture au serveur exigerait un transport de
+     * fichiers à côté (partage réseau, synchronisation). Ici l'application
+     * suffit, depuis n'importe quel poste et depuis le navigateur.
+     *
+     * Le fichier est déposé à la racine du dossier surveillé : le type de
+     * pièce est alors déduit de son contenu, comme pour tout fichier trouvé
+     * hors des sous-dossiers Factures/Devis/Avoirs.
+     */
+    async addFiles(filePaths: string[]): Promise<AccountingDocument[]> {
+      const folder = ensureWatchFolder(store.settings.watchFolder);
+      const added: AccountingDocument[] = [];
+
+      for (const source of filePaths) {
+        if (!source || !fs.existsSync(source)) continue;
+        const target = placeInFolder(source, folder);
+        const doc = await rescanFile(target);
+        if (doc) added.push(doc);
+      }
+
+      store.flushSync();
+      if (added.length) send('documents-changed', { imported: added.length });
+      return added;
+    },
+
+    async pickAndAdd() {
+      localOnly();
     },
     async setClient(documentId: ID, clientId: ID | null) {
       const doc = store.mutate((db) => {

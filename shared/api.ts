@@ -45,7 +45,7 @@ export const CHANNELS = {
   clients: ['list', 'save', 'remove', 'importFrom', 'pickAndImport', 'exportCsv', 'merge', 'geocodeMissing'],
   documents: [
     'list', 'get', 'save', 'remove', 'scan', 'rescanFile', 'setClient', 'setStatus', 'exportCsv',
-    'openFile', 'print', 'setPrinted', 'prepareEmail', 'sendEmail',
+    'openFile', 'print', 'setPrinted', 'prepareEmail', 'sendEmail', 'addFiles', 'pickAndAdd',
   ],
   attachments: ['list', 'pickAndAdd', 'addFiles', 'update', 'remove', 'open', 'sync', 'openFolder'],
   products: ['list', 'save', 'remove', 'importFrom', 'pickAndImport', 'exportCsv', 'adjust'],
@@ -229,6 +229,14 @@ export interface Api {
     setPrinted(documentId: ID, printed: boolean): Promise<AccountingDocument>;
     prepareEmail(documentId: ID): Promise<EmailPreparation>;
     sendEmail(documentId: ID, draft: EmailDraft): Promise<EmailOutcome>;
+    /**
+     * Range des fichiers dans le dossier surveillé puis les analyse. C'est le
+     * dépôt « par l'application » : glisser-déposer ou bouton, sans passer par
+     * un partage réseau. En mode branché, les fichiers partent au serveur.
+     */
+    addFiles(filePaths: string[]): Promise<AccountingDocument[]>;
+    /** Ouvre un sélecteur de fichiers puis fait le dépôt ci-dessus. */
+    pickAndAdd(): Promise<AccountingDocument[] | null>;
   };
   attachments: {
     list(): Promise<(Attachment & { exists: boolean })[]>;

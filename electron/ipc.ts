@@ -176,6 +176,21 @@ const desktopHandlers: Registry = {
   },
 
   documents: {
+    async pickAndAdd() {
+      const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+        title: 'Ajouter des factures, devis ou avoirs',
+        defaultPath: store.settings.watchFolder,
+        filters: [
+          { name: 'Pièces comptables', extensions: ['pdf', 'xml', 'csv', 'xlsx', 'xls', 'xlsm'] },
+          { name: 'Tous les fichiers', extensions: ['*'] },
+        ],
+        properties: ['openFile', 'multiSelections'],
+      });
+      if (result.canceled || !result.filePaths.length) return null;
+      // Rangement et analyse : logique partagée.
+      return coreHandlers.documents.addFiles(result.filePaths);
+    },
+
     async openFile(documentId: ID) {
       const doc = requireDocument(documentId);
       if (!doc.sourceFile) throw new Error("Ce document n'a pas de fichier d'origine (saisie manuelle).");
@@ -438,6 +453,32 @@ const remoteDesktopHandlers: Registry = {
   },
 
   documents: {
+    async pickAndAdd() {
+      const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+        title: 'Ajouter des factures, devis ou avoirs',
+        filters: [
+          { name: 'Pièces comptables', extensions: ['pdf', 'xml', 'csv', 'xlsx', 'xls', 'xlsm'] },
+          { name: 'Tous les fichiers', extensions: ['*'] },
+        ],
+        properties: ['openFile', 'multiSelections'],
+      });
+      if (result.canceled || !result.filePaths.length) return null;
+      // Chaque pièce part au serveur, qui la range et l'analyse pour tout le monde.
+      const added: unknown[] = [];
+      for (const file of result.filePaths) {
+        added.push(...((await uploadFile('documents', file)) as unknown[]));
+      }
+      return added;
+    },
+
+    async addFiles(filePaths: string[]) {
+      const added: unknown[] = [];
+      for (const file of filePaths) {
+        added.push(...((await uploadFile('documents', file)) as unknown[]));
+      }
+      return added;
+    },
+
     async openFile(documentId: ID) {
       const file = await fetchDocumentFile(await remoteDocument(documentId));
       const error = await shell.openPath(file);
