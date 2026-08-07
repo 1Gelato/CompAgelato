@@ -526,6 +526,62 @@ Ce qui tient la sécurité :
 - Les tentatives de connexion sont **limitées**, par compte et par appareil, et
   un identifiant inconnu renvoie le même message qu'un mot de passe erroné.
 
+### Donner l'app à quelqu'un d'extérieur au réseau
+
+Un associé, un patron, un comptable : quelqu'un doit avoir une application qui
+marche, sans pour autant rejoindre le réseau privé où vivent vos machines. Un
+VPN classique — ou un tailnet Tailscale laissé en configuration par défaut — est
+**plat** : l'appareil invité peut joindre le NAS, les PC, les téléphones. Ce
+n'est pas ce qu'on veut ici, et ce n'est pas nécessaire.
+
+**Tailscale Funnel** publie le seul port de CompaGelato, en HTTPS, sans rien
+ouvrir sur la box :
+
+```bash
+tailscale funnel 4680
+```
+
+Vous obtenez une adresse du type `https://oldpc.votre-tailnet.ts.net`. La
+personne la saisit dans l'application mobile ou l'ouvre dans son navigateur, et
+c'est tout : rien à installer de plus, aucun compte Tailscale, aucun accès à
+votre réseau.
+
+Le sens du flux compte autant que le chiffrement : **son téléphone appelle le
+serveur, jamais l'inverse.** Il n'existe aucune route depuis oldpc vers son
+appareil ou son réseau — ni pour vous, ni pour le logiciel. Et le serveur ne
+conserve pas d'où il se connecte : une session n'enregistre que le nom de
+l'appareil, les dates et l'empreinte du jeton (voir `Session` dans
+`shared/types.ts`). L'adresse IP ne sert qu'en mémoire vive à compter les
+tentatives ratées, et disparaît au redémarrage.
+
+Ce qui protège les données, une fois l'adresse publiée, c'est la connexion :
+mots de passe **scrypt**, **8 tentatives puis 15 minutes de blocage** par compte
+et par appareil, sessions opaques et révocables. Dès qu'un compte existe, le
+jeton partagé ne donne plus accès — seule une session ouverte compte.
+
+Deux précautions, dans cet ordre d'importance :
+
+- **Créez-lui un compte Bureau, pas Gérant.** Il aura une application
+  pleinement fonctionnelle — clients, documents, stock, cahiers, banque, tableau
+  de bord, tournées — mais ne pourra ni télécharger la base entière
+  (`GET /files/backup` et `db:backup` sont réservés au gérant), ni gérer les
+  comptes, ni changer les réglages, ni mettre le serveur à jour. Le contrôle est
+  fait par le serveur, pas par l'affichage.
+- **Ne redirigez jamais le port 4680 depuis votre box.** Le serveur parle HTTP
+  en clair : son mot de passe traverserait Internet en clair. Funnel termine le
+  TLS pour vous, c'est précisément ce qui rend l'exposition acceptable.
+
+> Variante plus fermée, si la personne accepte d'installer Tailscale : partagez
+> le **seul nœud** `oldpc` avec son compte (*node sharing*). Son appareil reste
+> sur son propre tailnet, vos machines lui sont invisibles, et rien n'est publié
+> sur Internet. Une règle d'accès limite le partage au port de l'app :
+>
+> ```jsonc
+> "grants": [
+>   { "src": ["autogroup:shared"], "dst": ["oldpc"], "ip": ["tcp:4680"] }
+> ]
+> ```
+
 ### Hors ligne : l'application marche en zone blanche
 
 L'application de bureau branchée garde une **copie locale** des données qui la
