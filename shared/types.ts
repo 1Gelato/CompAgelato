@@ -284,6 +284,8 @@ export interface RouteStop {
   /** Renseigné après calcul : distance/durée depuis l'arrêt précédent. */
   legDistanceKm?: number;
   legDurationMin?: number;
+  /** Livraison faite, pointée depuis le téléphone en tournée (ou le bureau). */
+  doneAt?: string;
 }
 
 export interface RouteComputation {

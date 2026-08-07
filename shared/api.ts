@@ -283,7 +283,8 @@ export interface AppInfo {
   version: string;
   electron: string;
   node: string;
-  platform: NodeJS.Platform;
+  /** `win32`, `darwin`, `linux` — ou le système du téléphone en mode mobile. */
+  platform: string;
   userDataPath: string;
   watchFolder: string;
   documentsPath: string;
@@ -661,7 +662,11 @@ export interface Api {
   auth: {
     /** Interrogeable sans être connecté : y a-t-il des comptes, faut-il ouvrir une session ? */
     status(): Promise<AuthStatus>;
-    login(input: { username: string; password: string; label?: string }): Promise<LoginOutcome>;
+    /**
+     * `device: true` ouvre une session longue (180 jours), pour un téléphone :
+     * personne ne tape un mot de passe à 6 h du matin dans une camionnette.
+     */
+    login(input: { username: string; password: string; label?: string; device?: boolean }): Promise<LoginOutcome>;
     logout(): Promise<void>;
     /** Qui suis-je ? `null` quand aucune session n'est ouverte. */
     me(): Promise<AuthIdentity | null>;

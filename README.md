@@ -460,6 +460,81 @@ bord.
 Ce qui n'est pas encore fait : le pré-téléchargement des PDF pour la tournée du
 jour — hors ligne, les fichiers d'origine ne s'ouvrent pas encore.
 
+## L'application mobile (Android et iPhone)
+
+Le dossier `mobile/` contient l'application de téléphone — **une seule base de
+code** (Expo / React Native) pour Android et iOS. Elle parle au même serveur,
+avec les mêmes comptes et les mêmes droits que le bureau et le navigateur : un
+livreur y voit trois onglets (Tournées, Clients, Réglages), un gérant les voit
+tous.
+
+**Le cœur de l'app est la tournée** : les arrêts dans l'ordre, naviguer
+(Waze / Google Maps / Plans selon le réglage), appeler le client, et **marquer
+livré** — la coche apparaît en vert sur l'écran du bureau. Le tout marche **en
+zone blanche** : l'app garde un miroir local (même protocole `sync:pull` que
+le bureau), les pointages faits sans réseau sont conservés et rejoués à la
+reconnexion, et un rejeu refusé est présenté dans les Réglages, jamais avalé.
+S'y ajoutent tous les écrans de gestion : documents (PDF partagé/imprimé
+depuis le téléphone, e-mail pré-rempli), stock avec ajustement d'inventaire,
+cahiers en prise de note rapide, banque en consultation, tableau de bord.
+
+**Réseau** : l'app passe par Tailscale (`100.100.53.66:4680`, proposé
+d'office). Vérifiez que Tailscale est activé sur le téléphone.
+
+### Développer (iPhone, Expo Go)
+
+```bash
+cd mobile
+npm install
+npx expo start
+```
+
+Scannez le QR code avec Expo Go. Le serveur de dev et le téléphone doivent
+être sur le même réseau (ou le tailnet).
+
+### Installer sur un téléphone Android (APK)
+
+Une fois, pour lier le projet à votre compte Expo :
+
+```bash
+cd mobile
+npx eas init          # crée le projet EAS et inscrit son identifiant
+npx eas update:configure
+```
+
+Puis, pour produire l'APK :
+
+```bash
+npx eas build -p android --profile preview
+```
+
+Le lien de téléchargement de l'APK s'affiche à la fin. Sur le téléphone :
+installer Tailscale et se connecter au tailnet, autoriser l'installation
+depuis cette source, installer l'APK, ouvrir CompaGelato — l'adresse du
+serveur est proposée, il ne reste qu'à se connecter à son compte (session de
+180 jours : le mot de passe ne se retape pas).
+
+### Mettre à jour l'app sans réinstaller
+
+Les mises à jour de code JavaScript partent **par les airs** :
+
+```bash
+cd mobile
+npx eas update --channel preview --message "description du changement"
+```
+
+L'app installée vérifie **toute seule à chaque lancement**, et le bouton
+**Réglages → Vérifier les mises à jour** sert quand elle reste ouverte des
+journées entières : vérifier, télécharger, relancer — sans jamais toucher à
+l'APK. (Seul l'ajout d'un nouveau module natif redemande un `eas build`.)
+
+### Vérifier
+
+Le cœur du client mobile (`mobile/src/core/`) ne dépend ni de React Native ni
+d'Expo : la suite `tests/mobile.test.mjs` l'exerce contre un vrai serveur —
+session d'appareil, miroir, coupure réelle, pointage hors ligne, rejeu — avec
+la même rigueur que le reste du projet.
+
 ## Ce qui sort de votre ordinateur
 
 Trois services publics, sollicités uniquement quand vous en avez besoin :

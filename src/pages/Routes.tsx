@@ -605,6 +605,16 @@ function StopList({
                   <div className="stop__body" onDoubleClick={() => setEditingStop(stop)}>
                     <div className="stop__title">
                       {stop.label || 'Arrêt sans nom'}
+                      {/* Pointé « livré » depuis le téléphone en tournée. */}
+                      {stop.doneAt && (
+                        <span
+                          style={{ color: 'var(--green)', marginLeft: 6, fontSize: 11, fontWeight: 600 }}
+                          title={`Livré à ${new Date(stop.doneAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`}
+                        >
+                          ✓ livré{' '}
+                          {new Date(stop.doneAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
                       {!located && (
                         <span
                           style={{ color: 'var(--orange)', marginLeft: 6, fontSize: 11 }}

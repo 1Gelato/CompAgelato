@@ -47,3 +47,11 @@ await esbuild.build({
   entryPoints: [path.join(root, 'tests/ui-entry.ts')],
   outfile: path.join(root, 'tests/build/ui.mjs'),
 });
+
+// Cœur du client mobile (mobile/src/core) : sans React Native, stockage
+// injecté — exercé contre un vrai serveur comme le reste de la suite.
+await esbuild.build({
+  ...common,
+  entryPoints: [path.join(root, 'tests/mobile-entry.ts')],
+  outfile: path.join(root, 'tests/build/mobile.mjs'),
+});
