@@ -1027,12 +1027,32 @@ export function Settings({
                 c'est le commit qui dit quel code tourne réellement ici, et donc
                 si ce poste a bien pris la dernière mise à jour.
               */}
-              {info.build && <span className="mono">{info.build}</span>}
+              {info.build && (
+                <span className="mono">
+                  {info.serverBuild ? 'ce poste ' : ''}
+                  {info.build}
+                </span>
+              )}
+              {info.serverBuild && <span className="mono">serveur {info.serverBuild}</span>}
               <span>Electron {info.electron}</span>
               <span>Node {info.node}</span>
               <span>{info.platform}</span>
               <span>{info.isPackaged ? 'version installée' : 'mode développement'}</span>
             </div>
+            {/*
+              Chaque machine exécute sa copie : mettre le serveur à jour ne met
+              pas ce poste à jour. Sans le dire, on cherche une nouveauté qui ne
+              peut pas apparaître — et on conclut que la mise à jour ne marche
+              pas.
+            */}
+            {info.serverBuild && info.build && info.serverBuild !== info.build && (
+              <p className="tiny" style={{ marginTop: 10, lineHeight: 1.6, color: 'var(--orange)' }}>
+                Ce poste et le serveur ne tournent pas sur la même version. Chaque machine se met
+                à jour de son côté : <strong>Mises à jour → Rechercher</strong> ci-dessus ne
+                concerne que ce poste. Pour le serveur, ouvrez son adresse dans un navigateur et
+                utilisez le même bouton là-bas.
+              </p>
+            )}
             <p className="tiny muted" style={{ marginTop: 10, lineHeight: 1.6 }}>
               Toutes vos données restent sur cet ordinateur. Seules trois requêtes sortent vers
               l’extérieur, et uniquement à votre demande : la recherche d’adresses (Base Adresse

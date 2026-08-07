@@ -269,6 +269,24 @@ maintenant ». Cette fonctionnalité nécessite que le logiciel tourne depuis le
 dossier cloné du dépôt (c'est le cas avec le lancement par raccourci
 ci-dessus) — elle ne s'applique pas à un installateur `.exe` publié.
 
+**Chaque machine se met à jour de son côté.** Le serveur et chaque poste
+exécutent *leur* copie du logiciel : le serveur ne descend que des données, pas
+du code. Mettre le serveur à jour ne change donc rien à ce que montre un poste,
+et inversement — chercher la nouveauté sur la mauvaise machine, c'est chercher
+quelque chose qui ne peut pas apparaître.
+
+Le bouton est le même partout, seule l'adresse change :
+
+| Machine | Où cliquer |
+|---|---|
+| Un poste de bureau | Réglages → Mises à jour, **sur ce poste** |
+| Le serveur | son adresse dans un navigateur (`http://oldpc:4680`), puis le même bouton |
+
+Le serveur n'a pas besoin de SSH : il expose les mêmes canaux, se reconstruit
+seul, puis quitte — systemd le relance aussitôt. Quand un poste est branché,
+**À propos** affiche les deux commits côte à côte et signale l'écart, pour que
+personne n'ait à le deviner.
+
 **Quelle version tourne ici ?** Le numéro affiché dans **Réglages → À propos**
 (`1.0.0`) ne bouge pas d'une mise à jour à l'autre : il ne dit rien de l'état
 réel du poste. La ligne à côté, `a1b2c3d · 2026-08-07`, est le commit d'où

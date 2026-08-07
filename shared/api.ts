@@ -292,6 +292,14 @@ export interface AppInfo {
    * distingue un poste à jour d'un poste resté en arrière.
    */
   build?: string;
+  /**
+   * Le commit du **serveur**, quand ce poste y est branché. Chaque machine
+   * exécute sa propre copie du logiciel : mettre le serveur à jour ne met pas
+   * les postes à jour, et l'inverse non plus. Sans afficher les deux, un poste
+   * resté en arrière est indiscernable d'un poste à jour — on cherche une
+   * nouveauté qui ne peut pas apparaître.
+   */
+  serverBuild?: string;
   electron: string;
   node: string;
   /** `win32`, `darwin`, `linux` — ou le système du téléphone en mode mobile. */

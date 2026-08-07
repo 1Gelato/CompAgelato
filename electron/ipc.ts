@@ -424,8 +424,10 @@ const remoteDesktopHandlers: Registry = {
       try {
         const remote = (await remoteCall('app', 'info', [])) as AppInfo;
         // Les dossiers et la base restent ceux du serveur ; l'exécution, elle,
-        // est bien celle de ce poste.
-        return { ...remote, ...local };
+        // est bien celle de ce poste. Le commit du serveur est conservé à côté
+        // du nôtre : c'est le seul moyen de voir qu'une des deux machines est
+        // restée en arrière, chacune se mettant à jour de son côté.
+        return { ...remote, ...local, serverBuild: remote.build };
       } catch (err) {
         // Serveur muet : l'écran s'ouvre quand même, sur ce qu'on sait du miroir.
         if (!(err instanceof RemoteError) || !err.network) throw err;
