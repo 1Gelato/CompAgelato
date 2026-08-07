@@ -61,6 +61,34 @@ async function run(command: string, cwd: string, timeout: number): Promise<strin
   return stdout.trim();
 }
 
+/**
+ * Le commit d'où tourne cette copie, et sa date — `a1b2c3d · 2026-08-07`.
+ *
+ * Le numéro de version du `package.json` ne bouge pas d'une mise à jour à
+ * l'autre : il annoncerait « 1.0.0 » sur toutes les copies, quel que soit le
+ * code réellement exécuté, et ne permettrait donc pas de répondre à la seule
+ * question qui se pose en pratique — « ce poste a-t-il bien pris la dernière
+ * mise à jour ? ». Le commit, lui, répond sans rien demander à personne.
+ *
+ * Relu à chaque appel plutôt que mis en cache : l'appel ne coûte que quelques
+ * millisecondes, sur un écran qu'on ouvre rarement, et une valeur mémorisée
+ * finirait par annoncer un commit que le dossier ne contient plus.
+ */
+export async function currentBuild(root: string): Promise<string | null> {
+  if (!isGitCheckout(root)) return null;
+  try {
+    // Guillemets indispensables : la commande passe par un shell, et une chaîne
+    // de format contenant une espace serait découpée en arguments — git prendrait
+    // le reste pour des révisions, et échouerait.
+    const line = await run('git log -1 --format="%h · %cs"', root, GIT_TIMEOUT_MS);
+    return line || null;
+  } catch {
+    // Git absent ou dépôt illisible : l'écran « À propos » s'affiche sans cette
+    // ligne plutôt que de refuser de s'ouvrir.
+    return null;
+  }
+}
+
 export async function checkForUpdates(root: string): Promise<UpdateCheckResult> {
   if (!isGitCheckout(root)) {
     return {

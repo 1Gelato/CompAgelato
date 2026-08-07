@@ -29,6 +29,7 @@ import { statementFolder } from './services/bank';
 import { addAttachment, attachmentsFolder } from './services/attachments';
 import { printFile } from './services/printing';
 import { buildMailto, safeFileName } from './services/mail';
+import { currentBuild } from './services/updater';
 import {
   KIND_LABEL,
   buildDocumentEml,
@@ -91,6 +92,7 @@ const desktopHandlers: Registry = {
     async info(): Promise<AppInfo> {
       return {
         version: app.getVersion(),
+        build: (await currentBuild(projectRoot)) ?? undefined,
         electron: process.versions.electron,
         node: process.versions.node,
         platform: process.platform,
@@ -406,8 +408,12 @@ async function pickThenUpload(
 const remoteDesktopHandlers: Registry = {
   app: {
     async info(): Promise<AppInfo> {
+      // Le build est celui de **ce poste** : c'est son code qui s'exécute sous
+      // les yeux de l'utilisateur, et c'est lui que « Rechercher les mises à
+      // jour » met à jour. Celui du serveur se lit sur le serveur.
       const local: Omit<AppInfo, 'userDataPath' | 'watchFolder' | 'documentsPath' | 'watchFolderInsideApp'> = {
         version: app.getVersion(),
+        build: (await currentBuild(projectRoot)) ?? undefined,
         electron: process.versions.electron,
         node: process.versions.node,
         platform: process.platform,

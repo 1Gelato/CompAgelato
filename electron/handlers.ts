@@ -123,7 +123,7 @@ import {
   updateAttachment,
 } from './services/attachments';
 import { applyTemplate, buildEml, safeFileName } from './services/mail';
-import { applyUpdate, checkForUpdates } from './services/updater';
+import { applyUpdate, checkForUpdates, currentBuild } from './services/updater';
 
 export type Handler = (...args: any[]) => unknown;
 export type Registry = Record<string, Record<string, Handler>>;
@@ -287,6 +287,7 @@ export const coreHandlers: Registry = {
       void store.db; // force l'initialisation pour connaître le fichier de base
       return {
         version: appVersion(),
+        build: (await currentBuild(projectRoot)) ?? undefined,
         electron: process.versions.electron ?? '',
         node: process.versions.node,
         platform: process.platform,

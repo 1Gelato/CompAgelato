@@ -286,6 +286,12 @@ export const COLLECTION_CHANNEL: Record<SyncedCollection, ChannelName> = {
 
 export interface AppInfo {
   version: string;
+  /**
+   * Le commit d'où tourne cette copie, et sa date. Le numéro de version, lui,
+   * ne bouge pas d'une mise à jour à l'autre : sans cette ligne, rien ne
+   * distingue un poste à jour d'un poste resté en arrière.
+   */
+  build?: string;
   electron: string;
   node: string;
   /** `win32`, `darwin`, `linux` — ou le système du téléphone en mode mobile. */

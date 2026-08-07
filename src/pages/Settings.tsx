@@ -250,7 +250,14 @@ export function Settings({
     <>
       <div className="col" style={{ gap: 14, maxWidth: 940 }}>
         {identity && <AccountCard identity={identity} onSignedOut={onSignedOut} />}
-        {identity?.role === 'gerant' && <UsersCard currentUserId={identity.userId} />}
+        {/*
+          `isManager` et non `identity?.role === 'gerant'` : tant qu'aucun compte
+          n'existe, personne n'est connecté et l'identité est nulle. Exiger une
+          identité de gérant pour afficher la carte qui crée les comptes rendait
+          le premier compte impossible à créer — la seule porte était fermée de
+          l'intérieur.
+        */}
+        {isManager && <UsersCard currentUserId={identity?.userId ?? ''} />}
 
         {info?.mode === 'remote' && <SyncCard />}
 
@@ -1015,6 +1022,12 @@ export function Settings({
           <Card title="À propos">
             <div className="row row--wrap tiny muted" style={{ gap: 16 }}>
               <span>CompaGelato {info.version}</span>
+              {/*
+                Le numéro de version ne bouge pas d'une mise à jour à l'autre :
+                c'est le commit qui dit quel code tourne réellement ici, et donc
+                si ce poste a bien pris la dernière mise à jour.
+              */}
+              {info.build && <span className="mono">{info.build}</span>}
               <span>Electron {info.electron}</span>
               <span>Node {info.node}</span>
               <span>{info.platform}</span>
@@ -1320,6 +1333,16 @@ function UsersCard({ currentUserId }: { currentUserId: string }) {
         {!users ? (
           <div className="empty">
             <Spinner size={18} />
+          </div>
+        ) : users.length === 0 ? (
+          // `.empty` est une colonne flex : le texte doit tenir dans un seul
+          // enfant, sinon chaque fragment autour du <strong> part à la ligne.
+          <div className="empty">
+            <p className="empty__text">
+              Aucun compte : l’accès se fait au jeton partagé, et tout le monde a les mêmes
+              droits. Créez le premier compte — il sera <strong>gérant</strong> — pour que
+              chacun ait le sien et que les rôles prennent effet.
+            </p>
           </div>
         ) : (
           <div className="list">

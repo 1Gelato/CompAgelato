@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { checkForUpdates, applyUpdate } from './build/services.mjs';
+import { checkForUpdates, applyUpdate, currentBuild } from './build/services.mjs';
 
 const exec = promisify(execFile);
 
@@ -59,6 +59,41 @@ test('supported: false hors d’un dépôt git', async () => {
   assert.equal(result.supported, false);
   assert.match(result.reason, /pas été installée depuis le dossier cloné/i);
   assert.equal(result.available, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('le build annonce le commit réellement en place, et suit la mise à jour', async () => {
+  // Le numéro de version ne bouge pas d'une mise à jour à l'autre : c'est
+  // cette ligne, et elle seule, qui permet de dire si un poste a bien pris la
+  // dernière version. Elle doit donc changer quand le code change.
+  const { base, local, remote } = await makeRepoPair();
+  try {
+    const avant = await currentBuild(local);
+    assert.ok(avant, 'aucun build annoncé sur un dépôt pourtant valide');
+    assert.match(avant, /^[0-9a-f]{7,} · \d{4}-\d{2}-\d{2}$/, `format inattendu : ${avant}`);
+
+    // Un commit de plus, tiré depuis le « distant » comme le ferait une mise à
+    // jour : le build annoncé doit suivre.
+    const autre = path.join(base, 'autre');
+    await git(['clone', remote, autre], base);
+    await git(['config', 'user.email', 'test@example.com'], autre);
+    await git(['config', 'user.name', 'Test'], autre);
+    fs.writeFileSync(path.join(autre, 'README.md'), 'version suivante\n');
+    await git(['commit', '-am', 'suite'], autre);
+    await git(['push', 'origin', 'main'], autre);
+    await git(['pull', '--ff-only'], local);
+
+    const apres = await currentBuild(local);
+    assert.ok(apres);
+    assert.notEqual(apres, avant, 'le build doit changer quand le code change');
+  } finally {
+    await cleanup(base);
+  }
+});
+
+test('hors d’un dépôt git, le build est absent sans faire échouer l’écran', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'compagelato-nogit-build-'));
+  assert.equal(await currentBuild(dir), null);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

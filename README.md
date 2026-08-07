@@ -269,6 +269,14 @@ maintenant ». Cette fonctionnalité nécessite que le logiciel tourne depuis le
 dossier cloné du dépôt (c'est le cas avec le lancement par raccourci
 ci-dessus) — elle ne s'applique pas à un installateur `.exe` publié.
 
+**Quelle version tourne ici ?** Le numéro affiché dans **Réglages → À propos**
+(`1.0.0`) ne bouge pas d'une mise à jour à l'autre : il ne dit rien de l'état
+réel du poste. La ligne à côté, `a1b2c3d · 2026-08-07`, est le commit d'où
+tourne cette copie — c'est elle qui permet de dire si un poste a bien pris la
+dernière mise à jour, et de comparer deux machines entre elles. Sur un poste
+branché, c'est le commit **du poste**, celui du code exécuté sous vos yeux ;
+celui du serveur se lit sur le serveur.
+
 ---
 
 ## Où sont mes données
@@ -504,8 +512,10 @@ service continue de fonctionner au jeton partagé. Dès que le premier compte
 existe, une connexion devient obligatoire et le jeton seul ne suffit plus —
 sinon le rôle de chacun ne voudrait rien dire.
 
-Pour démarrer : **Réglages → Comptes → Ajouter**, en gérant. Vous serez invité à
-vous connecter au rechargement suivant.
+Pour démarrer : **Réglages → Comptes → Ajouter**. Tant qu'aucun compte n'existe,
+la carte est visible de tous — elle ne saurait exiger une identité de gérant
+alors qu'elle est justement le seul endroit où en créer une. Le premier compte
+créé est gérant, et vous serez invité à vous connecter au rechargement suivant.
 
 Ce qui tient la sécurité :
 
@@ -783,7 +793,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **124 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **126 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
@@ -801,7 +811,10 @@ npm run test:all
   conversion des unités de conditionnement (carton de deux poches, mix poudre
   facturé au kilo), et le mécanisme de mise à
   jour git (détection, application, refus prudent si des fichiers locaux ont
-  été modifiés) validé sur un vrai dépôt temporaire.
+  été modifiés) validé sur un vrai dépôt temporaire — dont le commit annoncé
+  par « À propos », qui doit **changer** quand le dépôt reçoit un commit de
+  plus : c'est toute son utilité, puisque le numéro de version, lui, ne bouge
+  jamais.
 - **13 de ces tests portent sur les sauvegardes automatiques** — et visent
   surtout ce qui rend une sauvegarde automatique digne de confiance plutôt que
   le fait qu'elle ait lieu : une base inchangée n'est pas réécrite (sans quoi
