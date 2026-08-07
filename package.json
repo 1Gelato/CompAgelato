@@ -23,7 +23,7 @@
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:linux": "npm run build && electron-builder --linux",
     "postinstall": "node scripts/postinstall.mjs",
-    "test:e2e": "npm run build && node --test tests/e2e.test.mjs tests/server.test.mjs tests/remote.test.mjs tests/permissions.test.mjs tests/offline.test.mjs tests/mobile.test.mjs",
+    "test:e2e": "npm run build && node --test tests/e2e.test.mjs tests/server.test.mjs tests/remote.test.mjs tests/permissions.test.mjs tests/offline.test.mjs tests/mobile.test.mjs tests/updates.remote.test.mjs",
     "test:all": "npm run test && npm run test:e2e",
     "screenshots": "npm run build && node tests/screenshots.mjs",
     "icon": "python3 build/make-icon.py"

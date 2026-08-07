@@ -358,7 +358,12 @@ Ce qui change une fois branché :
   boutons « Ouvrir le dossier » disparaissent.
 - Les **exports CSV** sont écrits sur le serveur, à l'emplacement indiqué par le
   message de confirmation.
-- La **mise à jour** depuis l'écran Réglages met à jour le serveur, pas le poste.
+- La **mise à jour** depuis l'écran Réglages met à jour **ce poste** : c'est son
+  code qui s'exécute sous vos yeux, et « Redémarrer maintenant » relance bien
+  cette application-ci. Elle fonctionne même serveur éteint — un `git pull` n'a
+  que faire du serveur. Le serveur se met à jour de son côté (voir plus bas) :
+  le processus en cours garde de toute façon son code en mémoire jusqu'au
+  redémarrage du service.
 - Serveur éteint au démarrage ? L'application le signale et propose de
   réessayer, de travailler sur les données du poste, ou de quitter. Elle ne
   bascule jamais en silence : croire qu'on écrit sur le serveur alors qu'on
@@ -394,8 +399,11 @@ Notes de fonctionnement :
   WantedBy=multi-user.target
   ```
 
-  puis `systemctl enable --now compagelato`. La mise à jour depuis l'écran
-  Réglages fonctionne : après « Installer », le service redémarre tout seul.
+  puis `systemctl enable --now compagelato`. Pour mettre le serveur à jour,
+  ouvrez CompaGelato **dans un navigateur sur le serveur lui-même**
+  (`http://localhost:4680`) et utilisez Réglages → Mises à jour : après
+  « Installer », le service redémarre tout seul. Depuis une application de
+  bureau branchée à distance, ce bouton met à jour le poste, pas le serveur.
 - Pour l'accès **hors du réseau local** (tournées, télétravail), installez
   [Tailscale](https://tailscale.com) sur le serveur et sur vos appareils :
   l'adresse `http://<nom-tailscale>:4680` marche alors de partout, chiffrée,
@@ -734,6 +742,13 @@ npm run test:all
   conservé et présenté plutôt qu'avalé, le miroir d'un livreur qui ne reçoit
   jamais banque ni documents, et la restauration de sauvegarde qui change de
   génération et force la resynchronisation complète.
+- **2 tests de la mise à jour d'un poste branché** — l'application est lancée
+  pour de bon en mode connecté contre un vrai serveur, puis le serveur est tué.
+  L'analyse de dossier réclame alors le serveur, comme elle le doit, tandis que
+  « Rechercher les mises à jour » répond quand même : c'est le dépôt de ce
+  poste qu'elle interroge. Garde-fou vérifié en neutralisant volontairement le
+  correctif — les deux canaux repartaient au serveur et le bouton refusait de
+  s'exécuter.
   Enfin le tri des colonnes dans les deux sens sur documents, clients et stock,
   le filtre des relevés sur une période donnée, et la recherche par montant
   qui retrouve une facture par son HT comme par son TTC et une opération

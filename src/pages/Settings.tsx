@@ -900,7 +900,14 @@ export function Settings({
           </div>
         </Card>
 
-        <Card title="Mises à jour" subtitle="Vérifie et installe les dernières améliorations du logiciel">
+        <Card
+          title="Mises à jour"
+          subtitle={
+            info?.mode === 'remote'
+              ? 'Met à jour CompaGelato sur ce poste — le serveur se met à jour de son côté'
+              : 'Vérifie et installe les dernières améliorations du logiciel'
+          }
+        >
           <div className="col" style={{ gap: 12 }}>
             {updateDone ? (
               <>

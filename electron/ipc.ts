@@ -636,6 +636,28 @@ const remoteDesktopHandlers: Registry = {
       }),
   },
 
+  /**
+   * Mise à jour : celle de **ce poste**, jamais celle du serveur.
+   *
+   * L'application tourne depuis une copie du dépôt installée ici. La mettre à
+   * jour sur le serveur ne changerait rien au code exécuté sous les yeux de
+   * l'utilisateur — et « Redémarrer maintenant », juste après, relance bien
+   * cette application-ci. C'est aussi pour cela que ces deux canaux ne passent
+   * pas par le repli hors-ligne : un `git pull` n'a que faire du serveur, et
+   * refuser de mettre à jour parce que le serveur dort n'aurait aucun sens.
+   *
+   * Le serveur, lui, se met à jour de son côté (git pull puis redémarrage du
+   * service) : le processus en cours garde son code en mémoire de toute façon.
+   */
+  updates: {
+    async check() {
+      return coreHandlers.updates.check();
+    },
+    async apply(options?: { discardLocalChanges?: boolean }) {
+      return coreHandlers.updates.apply(options);
+    },
+  },
+
   sync: {
     // L'état de la file d'attente est celui de ce poste : il se lit ici, sans
     // aller-retour — y compris, et surtout, quand le serveur ne répond pas.
