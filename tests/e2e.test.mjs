@@ -888,6 +888,127 @@ test('un second relevé qui chevauche le premier n’ajoute que les nouveautés'
   assert.equal(transactions.filter((t) => t.label === 'CB BOULANGERIE').length, 2);
 });
 
+test('un relevé plus bavard ne recrée pas les opérations, il les complète', async () => {
+  // Le cas qui faisait exploser les comptes : la banque ne libelle pas une
+  // même ligne pareil d'un export à l'autre. Le relevé mensuel tronque là où
+  // l'export annuel donne le motif complet. Sans rattrapage, chaque opération
+  // se retrouvait en double et les totaux devenaient faux.
+  const detaille = path.join(workspace, 'releve-detaille.csv');
+  fs.writeFileSync(
+    detaille,
+    [
+      'Date;Libellé;Débit;Crédit;Solde',
+      '17/06/2026;CB TOTALENERGIES ST NAZAIRE A11 PEAGE PORNICHET;88,20;;6 569,65',
+      '16/06/2026;PRLV URSSAF PAYS DE LOIRE COTISATIONS 2E TRIMESTRE;842,15;;6 657,85',
+    ].join('\r\n'),
+    'utf8',
+  );
+
+  const report = await page.evaluate((file) => window.api.bank.importFrom(file), detaille);
+  assert.equal(report.imported, 0, `aucune opération nouvelle attendue : ${JSON.stringify(report)}`);
+  assert.equal(report.duplicates, 2);
+  assert.equal(report.updated, 2, 'les deux libellés devaient être complétés');
+
+  const transactions = await page.evaluate(() => window.api.bank.list());
+  assert.equal(transactions.length, 6, 'le nombre d’opérations ne doit pas bouger');
+
+  // Le libellé le plus complet l'emporte : c'est lui qui aide à retrouver
+  // l'opération plus tard.
+  const total = transactions.find((t) => t.label.includes('TOTALENERGIES'));
+  assert.equal(total.label, 'CB TOTALENERGIES ST NAZAIRE A11 PEAGE PORNICHET');
+  assert.equal(total.amount, -88.2, 'le montant ne doit pas être touché');
+  assert.equal(
+    transactions.find((t) => t.label.includes('URSSAF')).category,
+    'taxes',
+    'la catégorie suit le libellé enrichi',
+  );
+
+  fs.rmSync(detaille, { force: true });
+});
+
+test('doublons déjà en base : repérés, comptés juste, effacés sans rien perdre', async () => {
+  // Reproduit l'état laissé par deux imports d'une version antérieure : la même
+  // opération deux fois, sous deux libellés. Elle a réellement eu lieu deux
+  // fois (deux virements de 1 500 €), donc le ménage doit en laisser deux — pas
+  // une seule.
+  const ancien = path.join(workspace, 'releve-ancien.csv');
+  fs.writeFileSync(
+    ancien,
+    [
+      'Date;Libellé;Débit;Crédit;Solde',
+      '20/05/2026;VIR INST TIKTAK GARE;;1 500,00;',
+      '20/05/2026;VIR INST TIKTAK GARE;;1 500,00;',
+      '20/05/2026;VIR INST TIKTAK GARE LE RESTE FACTURE TIKTAK;;1 500,00;',
+      '20/05/2026;VIR INST TIKTAK GARE LE RESTE FACTURE TIKTAK;;1 500,00;',
+    ].join('\r\n'),
+    'utf8',
+  );
+  const report = await page.evaluate((file) => window.api.bank.importFrom(file), ancien);
+  assert.equal(report.imported, 4, `état de départ : ${JSON.stringify(report)}`);
+
+  // Une annotation sur la copie la moins complète : le ménage doit la sauver.
+  const avant = await page.evaluate(() => window.api.bank.list());
+  const courte = avant.find((t) => t.label === 'VIR INST TIKTAK GARE');
+  await page.evaluate(
+    (id) => window.api.bank.update(id, { note: 'Acompte convenu au téléphone' }),
+    courte.id,
+  );
+
+  const groupes = await page.evaluate(() => window.api.bank.duplicates());
+  assert.equal(groupes.length, 1, `un seul groupe attendu : ${JSON.stringify(groupes)}`);
+  assert.equal(groupes[0].keep.length, 2, 'le virement a bien eu lieu deux fois');
+  assert.equal(groupes[0].drop.length, 2);
+  assert.equal(groupes[0].amount, 1500);
+
+  // Les deux passages en boulangerie du 18/06, même montant et même libellé, ne
+  // sont pas des doublons : c'est deux fois la même dépense, réellement.
+  assert.ok(
+    !groupes.some((g) => g.labels.some((l) => l.includes('BOULANGERIE'))),
+    'deux opérations identiques le même jour doivent rester distinctes',
+  );
+
+  // Le ménage se fait depuis l'écran, pas depuis la console : on montre
+  // d'abord ce qui va disparaître, et on ne l'efface qu'après validation.
+  await page.click('.navitem:has-text("Banque")');
+  await page.waitForSelector('table.data tbody tr');
+  await page.click('button:has-text("Doublons")');
+  await page.waitForSelector('.modal');
+  assert.ok(await page.isVisible('text=2 copie(s) en trop'));
+  assert.ok(
+    await page.isVisible('text=VIR INST TIKTAK GARE LE RESTE FACTURE TIKTAK'),
+    'les libellés en cause sont montrés avant de supprimer',
+  );
+
+  await page.click('.modal button:has-text("Supprimer les copies")');
+  await page.waitForSelector('.modal', { state: 'detached' });
+  await page.waitForTimeout(400);
+
+  const apres = await page.evaluate(() => window.api.bank.list());
+  const restants = apres.filter((t) => t.label.includes('TIKTAK'));
+  assert.equal(restants.length, 2);
+  assert.ok(
+    restants.every((t) => t.label === 'VIR INST TIKTAK GARE LE RESTE FACTURE TIKTAK'),
+    'le libellé le plus complet est celui qui reste',
+  );
+  assert.ok(
+    restants.some((t) => t.note === 'Acompte convenu au téléphone'),
+    'l’annotation a survécu au ménage',
+  );
+
+  // Plus rien à signaler au second passage.
+  assert.equal((await page.evaluate(() => window.api.bank.duplicates())).length, 0);
+
+  // On rend le jeu de données à l'état où les tests suivants l'attendent.
+  for (const tx of restants) {
+    await page.evaluate((id) => window.api.bank.remove(id), tx.id);
+  }
+  assert.equal((await page.evaluate(() => window.api.bank.list())).length, 6);
+  // Quitter l'écran : le tableau affiché vient d'un chargement, pas de la base.
+  await page.click('.navitem:has-text("Tableau de bord")');
+  await page.waitForTimeout(250);
+  fs.rmSync(ancien, { force: true });
+});
+
 test('la synthèse donne les totaux, les catégories et la trésorerie', async () => {
   const summary = await page.evaluate(() => window.api.bank.summary());
   assert.ok(summary.totalIn > 0);

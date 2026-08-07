@@ -486,6 +486,28 @@ export interface BankScanReport {
   durationMs: number;
 }
 
+/**
+ * Une opération enregistrée plusieurs fois parce que deux exports de la banque
+ * ne libellaient pas la ligne de la même façon.
+ */
+export interface BankDuplicateGroup {
+  date: string;
+  amount: number;
+  /** Les opérations à conserver — autant que l'opération a réellement eu lieu. */
+  keep: ID[];
+  /** Les copies en trop. */
+  drop: ID[];
+  /** Les libellés rencontrés, du plus complet au plus court. */
+  labels: string[];
+}
+
+export interface BankDedupeReport {
+  groups: number;
+  removed: number;
+  /** Montant cumulé des copies supprimées — l'erreur que portaient les totaux. */
+  amount: number;
+}
+
 export interface BankMatchSuggestion {
   documentId: ID;
   number: string;

@@ -136,6 +136,44 @@ export function transactionFingerprint(
   return crypto.createHash('sha1').update(key).digest('hex').slice(0, 16);
 }
 
+/**
+ * Longueur minimale du libellé le plus court pour oser rapprocher deux
+ * variantes. En dessous, le texte ne porte pas assez de signal.
+ */
+const MIN_PREFIX_LENGTH = 12;
+/** Et au moins trois mots : « cb carrefour » ne distingue pas deux achats. */
+const MIN_PREFIX_WORDS = 3;
+
+/**
+ * Deux libellés qui désignent la même opération bancaire.
+ *
+ * Une banque n'écrit pas le même texte d'un export à l'autre : le relevé
+ * mensuel tronque le motif là où l'export annuel le donne en entier.
+ * « VIR INST TIKTAK GARE » et « VIR INST TIKTAK GARE LE RESTE FACTURE TIKTAK »
+ * sont la même ligne — mais l'affirmer à tort fusionnerait deux virements
+ * distincts du même jour et du même montant, ce qui fausserait les comptes en
+ * silence. La règle est donc étroite : le plus court doit être **exactement le
+ * début** du plus long, coupé sur une fin de mot, et porter au moins trois
+ * mots. Tout le reste — mots réordonnés, abréviations, libellés voisins —
+ * reste deux opérations différentes.
+ */
+export function sameOperation(a: string, b: string): boolean {
+  const x = normalize(a);
+  const y = normalize(b);
+  if (x === y) return true;
+  if (!x || !y) return false;
+
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (short.length < MIN_PREFIX_LENGTH) return false;
+  if (short.split(' ').length < MIN_PREFIX_WORDS) return false;
+  return long.startsWith(`${short} `);
+}
+
+/** Des deux libellés, celui qui en dit le plus. */
+export function richerLabel(current: string, candidate: string): string {
+  return normalize(candidate).length > normalize(current).length ? candidate : current;
+}
+
 /* ------------------------------------------------------------------ */
 /* Rapprochement facture ↔ opération                                    */
 /* ------------------------------------------------------------------ */

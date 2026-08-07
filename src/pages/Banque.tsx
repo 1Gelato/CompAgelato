@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { BankCategory, BankMatchSuggestion, BankTransaction } from '@shared/types';
+import type {
+  BankCategory,
+  BankDuplicateGroup,
+  BankMatchSuggestion,
+  BankTransaction,
+} from '@shared/types';
 import {
   Badge,
   Button,
@@ -62,6 +67,7 @@ export function Banque() {
   const [category, setCategory] = useState<'all' | BankCategory>('all');
   const [selected, setSelected] = useState<BankTransaction | null>(null);
   const [removing, setRemoving] = useState<BankTransaction | null>(null);
+  const [duplicates, setDuplicates] = useState<BankDuplicateGroup[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   // La fiche ouverte doit refléter les données rechargées après chaque écriture.
@@ -186,6 +192,31 @@ export function Banque() {
           : result.ambiguous
             ? `${result.ambiguous} opération(s) avaient plusieurs factures possibles : à rattacher à la main.`
             : 'Aucune facture ne correspond aux encaissements restants.',
+      });
+    });
+
+  const searchDuplicates = () =>
+    run(async () => {
+      const groups = await window.api.bank.duplicates();
+      if (!groups.length) {
+        toast.push({
+          tone: 'success',
+          title: 'Aucun doublon',
+          text: 'Chaque opération n’est enregistrée qu’une fois.',
+        });
+        return;
+      }
+      setDuplicates(groups);
+    });
+
+  const applyMerge = () =>
+    run(async () => {
+      setDuplicates(null);
+      const report = await window.api.bank.mergeDuplicates();
+      toast.push({
+        tone: 'success',
+        title: 'Doublons supprimés',
+        text: `${report.removed} copie(s) retirée(s) sur ${report.groups} opération(s), soit ${euro(report.amount)} qui faussaient les totaux.`,
       });
     });
 
@@ -341,6 +372,14 @@ export function Banque() {
         </Button>
         <Button icon={<Icons.upload size={14} />} onClick={importOne} disabled={busy}>
           Importer un relevé
+        </Button>
+        <Button
+          icon={<Icons.copy size={14} />}
+          onClick={searchDuplicates}
+          disabled={busy || transactions.length < 2}
+          title="Chercher les opérations enregistrées deux fois sous des libellés différents"
+        >
+          Doublons
         </Button>
         <Button icon={<Icons.download size={14} />} onClick={exportCsv} disabled={!transactions.length}>
           Exporter
@@ -532,6 +571,15 @@ export function Banque() {
         />
       )}
 
+      {duplicates && (
+        <DuplicatesReview
+          groups={duplicates}
+          busy={busy}
+          onClose={() => setDuplicates(null)}
+          onConfirm={applyMerge}
+        />
+      )}
+
       <ConfirmDialog
         open={Boolean(removing)}
         title="Supprimer cette opération ?"
@@ -554,6 +602,89 @@ export function Banque() {
         }}
       />
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Doublons                                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Ce qui va être supprimé, ligne par ligne, avant de l'être. Effacer des
+ * opérations bancaires sans les montrer d'abord serait indéfendable : c'est la
+ * comptabilité de l'entreprise.
+ */
+function DuplicatesReview({
+  groups,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  groups: BankDuplicateGroup[];
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const removed = groups.reduce((n, g) => n + g.drop.length, 0);
+
+  return (
+    <Modal
+      open
+      wide
+      title={`${removed} copie(s) en trop`}
+      subtitle={`Réparties sur ${groups.length} opération(s) enregistrée(s) plusieurs fois`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Annuler</Button>
+          <div className="spacer" />
+          <Button variant="danger" icon={<Icons.trash size={14} />} onClick={onConfirm} loading={busy}>
+            Supprimer les copies
+          </Button>
+        </>
+      }
+    >
+      <div className="col" style={{ gap: 14 }}>
+        <p className="tiny muted" style={{ margin: 0 }}>
+          Une même opération apparaît sous deux libellés parce que deux exports de la banque ne
+          l’écrivent pas pareil. La ligne la plus complète est conservée — avec sa facture
+          rapprochée, son solde et vos annotations, repris de la copie effacée. Rien n’est perdu, et
+          une sauvegarde automatique a été faite au démarrage.
+        </p>
+        <div className="tablewrap" style={{ maxHeight: 380, overflowY: 'auto' }}>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Libellés rencontrés</th>
+                <th className="num">Montant</th>
+                <th className="num">Gardées</th>
+                <th className="num">Effacées</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((g) => (
+                <tr key={`${g.date}-${g.amount}-${g.drop[0]}`}>
+                  <td className="muted">{dateFr(g.date)}</td>
+                  <td>
+                    {g.labels.map((label, i) => (
+                      <div key={label} className={i ? 'tiny muted truncate' : 'truncate'}>
+                        {label}
+                      </div>
+                    ))}
+                  </td>
+                  <td className="num">{euro(g.amount)}</td>
+                  <td className="num">{g.keep.length}</td>
+                  <td className="num" style={{ color: 'var(--danger)' }}>
+                    {g.drop.length}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

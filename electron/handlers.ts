@@ -90,7 +90,9 @@ import {
 import {
   autoReconcile,
   bankSummary,
+  findDuplicateGroups,
   importStatementFile,
+  mergeDuplicates,
   reconcile,
   removeTransaction,
   scanStatementFolder,
@@ -1057,6 +1059,14 @@ export const coreHandlers: Registry = {
     },
     async chooseFolder() {
       localOnly();
+    },
+    async duplicates() {
+      return findDuplicateGroups();
+    },
+    async mergeDuplicates() {
+      const report = mergeDuplicates();
+      store.flushSync();
+      return report;
     },
   },
 

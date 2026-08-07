@@ -9,6 +9,7 @@ import {
   looksLikeStatement,
   parseStatementTable,
   readTable,
+  sameOperation,
   scoreDocumentMatch,
   transactionFingerprint,
 } from './build/services.mjs';
@@ -281,6 +282,39 @@ test('un écart de centimes reste rapprochable, un écart de 20 % non', () => {
     ),
     null,
   );
+});
+
+test('même opération sous deux libellés : reconnue quand le doute est levé', () => {
+  // Le cas réel : le relevé mensuel tronque, l'export annuel donne le motif.
+  assert.equal(
+    sameOperation('VIR INST TIKTAK GARE', 'VIR INST TIKTAK GARE LE RESTE FACTURE TIKTAK'),
+    true,
+  );
+  assert.equal(sameOperation('PRLV URSSAF PAYS DE LOIRE', 'Prlv Urssaf Pays de Loire'), true);
+  // Casse, accents et espaces multiples ne comptent pas.
+  assert.equal(
+    sameOperation('CB TOTALENERGIES  ST NAZAIRE', 'Cb Totalenergies st nazaire A11 péage'),
+    true,
+  );
+});
+
+test('libellés voisins mais distincts : deux opérations, pas une', () => {
+  // Deux virements du même jour et du même montant : les confondre ferait
+  // disparaître une recette sans que personne ne le voie.
+  assert.equal(sameOperation('VIR CLIENT ALPHA', 'VIR CLIENT BETA'), false);
+  // Le début commun ne suffit pas s'il s'arrête au milieu d'un mot.
+  assert.equal(sameOperation('VIR INST TIKTAK GAR', 'VIR INST TIKTAK GARE LE RESTE'), false);
+  // Trop court, ou trop peu de mots, pour distinguer deux achats.
+  assert.equal(sameOperation('CB METRO', 'CB METRO FRANCE ST HERBLAIN'), false);
+  assert.equal(sameOperation('CB CARREFOUR', 'CB CARREFOUR MARKET NANTES'), false);
+  // Les mêmes mots dans un autre ordre restent deux libellés différents.
+  assert.equal(sameOperation('VIR RECU AMICALE PLAISANCIERS', 'AMICALE PLAISANCIERS VIR RECU'), false);
+  // Limite assumée : une coupure de mot différente passe à travers. On préfère
+  // laisser un doublon visible, que l'écran Banque permet de supprimer à la
+  // main, plutôt que fusionner deux opérations réelles en silence.
+  assert.equal(sameOperation('CB TOTAL ENERGIES ST NAZAIRE', 'CB TOTALENERGIES ST NAZAIRE A11'), false);
+  assert.equal(sameOperation('', ''), true);
+  assert.equal(sameOperation('VIR INST TIKTAK GARE', ''), false);
 });
 
 test('export bancaire avec bloc de titre : l’en-tête est trouvé plus bas', async () => {

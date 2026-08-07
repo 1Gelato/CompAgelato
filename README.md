@@ -102,6 +102,21 @@ fichiers qui se chevauchent, ne crée jamais de doublon** — tout en gardant le
 opérations réellement identiques d'une même journée (deux paiements du même
 montant au même endroit restent deux lignes).
 
+Une banque ne libelle pas toujours la même ligne pareil : le relevé mensuel
+tronque le motif là où l'export annuel le donne en entier. `VIR INST TIKTAK
+GARE` et `VIR INST TIKTAK GARE LE RESTE FACTURE TIKTAK` sont la même opération.
+CompaGelato les rapproche à condition que le doute soit levé — même jour, même
+montant au centime, et le libellé court exactement le début du long, coupé sur
+une fin de mot, avec au moins trois mots. Deux libellés voisins mais distincts
+restent deux opérations : mieux vaut un doublon visible, qui se supprime d'un
+clic, qu'une recette effacée en silence. Le libellé le plus complet est conservé.
+
+Le bouton **Doublons** rattrape ce qui a déjà été enregistré en double. Il
+montre d'abord ce qui va disparaître — date, montant, les deux libellés — et ne
+supprime qu'après validation. Le comptage est prudent : si un virement a
+réellement eu lieu deux fois, il en reste deux. La facture rapprochée, le solde
+et vos annotations passent sur la ligne conservée.
+
 Les encaissements sont rapprochés des factures automatiquement : numéro de pièce
 cité dans le libellé, montant, nom du client, cohérence des dates. Une facture
 rapprochée passe à « réglée » — vous voyez d'un coup d'œil qui a payé et qui
@@ -624,7 +639,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **107 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **109 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
@@ -643,7 +658,7 @@ npm run test:all
   facturé au kilo), et le mécanisme de mise à
   jour git (détection, application, refus prudent si des fichiers locaux ont
   été modifiés) validé sur un vrai dépôt temporaire.
-- **23 de ces tests portent sur les relevés bancaires** — les trois mises en
+- **25 de ces tests portent sur les relevés bancaires** — les trois mises en
   page de montants (Débit/Crédit, montant signé, montant + sens), le bloc de
   titre d'un export Crédit Mutuel dont l'en-tête n'arrive qu'en cinquième
   ligne (et son garde-fou : un fichier ordinaire continue de commencer par sa
@@ -654,8 +669,10 @@ npm run test:all
   distinctes. Le score de rapprochement est vérifié sur ses cas limites —
   encaissement antérieur à la facture, devis et pièces annulées exclus,
   décaissement rapproché d'un avoir et non d'une facture, et deux factures du
-  même montant départagées par le nom du client.
-- **46 tests de bout en bout** — l'application réelle est lancée, pilotée et
+  même montant départagées par le nom du client, et la règle qui décide que
+  deux libellés désignent la même opération — reconnue quand le court est
+  exactement le début du long, refusée dès qu'un doute subsiste.
+- **48 tests de bout en bout** — l'application réelle est lancée, pilotée et
   vérifiée : import d'une liste clients en Windows-1252, import du catalogue,
   analyse d'un dossier de PDF, rattachement automatique aux clients, association
   des lignes au stock, déduction puis annulation, idempotence, absence de
@@ -667,7 +684,11 @@ npm run test:all
   préparation d'un e-mail depuis les modèles. Côté banque : import d'un relevé
   réel, encaissement rapproché tout seul de la bonne facture (qui passe à
   « réglée »), relevé relu sans le moindre doublon, second relevé chevauchant
-  qui n'ajoute que les nouveautés, et synthèse (totaux, catégories, solde).
+  qui n'ajoute que les nouveautés, relevé plus bavard qui complète les libellés
+  au lieu de recréer les opérations, ménage des doublons déjà en base fait
+  depuis l'écran — revue avant suppression, comptage qui laisse deux lignes à un
+  virement survenu deux fois, annotation reprise — et synthèse (totaux,
+  catégories, solde).
 - **11 tests du mode serveur** — le vrai processus `node dist/server/server.mjs`
   est lancé sur une base temporaire puis interrogé en HTTP comme le ferait un
   navigateur : refus sans jeton, interface web servie, canal inconnu rejeté,

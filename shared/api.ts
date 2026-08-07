@@ -4,6 +4,8 @@ import type {
   AddressSuggestion,
   Attachment,
   BankImportReport,
+  BankDedupeReport,
+  BankDuplicateGroup,
   BankMatchSuggestion,
   BankScanReport,
   BankSummary,
@@ -62,6 +64,7 @@ export const CHANNELS = {
   bank: [
     'list', 'scan', 'pickAndImport', 'importFrom', 'update', 'remove', 'suggestions',
     'reconcile', 'autoReconcile', 'summary', 'exportCsv', 'openFolder', 'chooseFolder',
+    'duplicates', 'mergeDuplicates',
   ],
   geo: ['autocomplete', 'reverse', 'fuelPrice'],
   stats: ['dashboard'],
@@ -216,6 +219,8 @@ export const CHANNEL_ACCESS: Record<ChannelName, readonly Role[]> = {
   'bank:exportCsv': BUREAU,
   'bank:openFolder': LOCAL,
   'bank:chooseFolder': LOCAL,
+  'bank:duplicates': BUREAU,
+  'bank:mergeDuplicates': BUREAU,
 
   /* Tableau de bord — chiffre d'affaires et meilleurs clients ---------- */
   'stats:dashboard': BUREAU,
@@ -631,6 +636,10 @@ export interface Api {
     openFolder(): Promise<void>;
     /** Choisit le dossier où sont rangés les relevés. */
     chooseFolder(): Promise<string | null>;
+    /** Opérations enregistrées deux fois sous des libellés différents. */
+    duplicates(): Promise<BankDuplicateGroup[]>;
+    /** Supprime ces doublons en reportant ce qu'ils portaient sur la copie gardée. */
+    mergeDuplicates(): Promise<BankDedupeReport>;
   };
   geo: {
     autocomplete(query: string, options?: { near?: { lat: number; lon: number } }): Promise<AddressSuggestion[]>;

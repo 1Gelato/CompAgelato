@@ -4,6 +4,8 @@ import path from 'node:path';
 import type {
   AccountingDocument,
   BankCategory,
+  BankDedupeReport,
+  BankDuplicateGroup,
   BankImportReport,
   BankMatchSuggestion,
   BankScanReport,
@@ -18,6 +20,8 @@ import {
   ACCEPT_SCORE,
   looksLikeStatement,
   parseStatementTable,
+  richerLabel,
+  sameOperation,
   scoreDocumentMatch,
   type ParsedTransaction,
 } from './bankStatement';
@@ -115,12 +119,34 @@ export async function importStatementFile(filePath: string): Promise<BankImportR
 
   store.mutate((db) => {
     const known = new Map(db.bankTransactions.map((t) => [t.fingerprint, t]));
+    // Index date + montant : c'est par là qu'on rattrape une opération déjà
+    // connue dont seul le libellé a changé d'un export à l'autre. Seules les
+    // opérations *déjà en base* y figurent : à l'intérieur d'un même fichier la
+    // banque écrit ses libellés de façon cohérente, deux lignes qui diffèrent
+    // sont deux opérations.
+    const nearby = new Map<string, BankTransaction[]>();
+    for (const t of db.bankTransactions) {
+      const key = amountKey(t.date, t.amount);
+      const list = nearby.get(key);
+      if (list) list.push(t);
+      else nearby.set(key, [t]);
+    }
+    // Une opération connue ne peut être réclamée que par une seule ligne du
+    // relevé : deux virements identiques le même jour restent deux lignes.
+    const claimed = new Set<ID>();
+
     for (const tx of parsed.transactions) {
-      const existing = known.get(tx.fingerprint);
+      const existing =
+        known.get(tx.fingerprint) ??
+        (nearby.get(amountKey(tx.date, tx.amount)) ?? []).find(
+          (t) => !claimed.has(t.id) && sameOperation(t.label, tx.label),
+        );
       if (existing) {
+        claimed.add(existing.id);
         report.duplicates++;
-        // Le relevé peut compléter une opération déjà connue (solde, référence)
-        // sans jamais écraser ce qui a été corrigé à la main.
+        // Le relevé peut compléter une opération déjà connue (solde, référence,
+        // libellé plus détaillé) sans jamais écraser ce qui a été corrigé à la
+        // main.
         let changed = false;
         if (existing.balance === undefined && tx.balance !== undefined) {
           existing.balance = tx.balance;
@@ -128,6 +154,13 @@ export async function importStatementFile(filePath: string): Promise<BankImportR
         }
         if (!existing.reference && tx.reference) {
           existing.reference = tx.reference;
+          changed = true;
+        }
+        const label = richerLabel(existing.label, tx.label);
+        if (label !== existing.label) {
+          existing.label = label;
+          // La catégorie déduite du libellé suit, sauf si elle a été choisie.
+          if (existing.categoryAuto) existing.category = tx.category;
           changed = true;
         }
         if (changed) {
@@ -140,6 +173,7 @@ export async function importStatementFile(filePath: string): Promise<BankImportR
       const record = toRecord(tx, filePath, format);
       db.bankTransactions.push(record);
       known.set(record.fingerprint, record);
+      claimed.add(record.id);
       created.push(record);
       report.imported++;
     }
@@ -175,6 +209,143 @@ function toRecord(
     importedAt: nowIso(),
     updatedAt: nowIso(),
   };
+}
+
+/** Clé de regroupement d'une opération : même jour, même montant au centime. */
+function amountKey(date: string, amount: number): string {
+  return `${date}|${amount.toFixed(2)}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Doublons déjà en base                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * L'opération d'un groupe qu'il faut garder en priorité : celle qui est
+ * rapprochée d'une facture, puis celle qui porte le libellé le plus complet,
+ * puis celle qui connaît le solde. À égalité, la plus ancienne — c'est elle
+ * que l'utilisateur a sous les yeux depuis le plus longtemps.
+ */
+function richness(t: BankTransaction): number[] {
+  return [
+    t.documentId ? 1 : 0,
+    t.note ? 1 : 0,
+    t.categoryAuto ? 0 : 1,
+    t.label.length,
+    t.balance !== undefined ? 1 : 0,
+  ];
+}
+
+function byRichnessDesc(a: BankTransaction, b: BankTransaction): number {
+  const ra = richness(a);
+  const rb = richness(b);
+  for (let i = 0; i < ra.length; i++) {
+    if (ra[i] !== rb[i]) return rb[i] - ra[i];
+  }
+  return a.importedAt.localeCompare(b.importedAt);
+}
+
+/**
+ * Repère les opérations enregistrées plusieurs fois parce que deux exports de
+ * la banque ne libellaient pas la ligne pareil.
+ *
+ * Le comptage est prudent : dans un groupe, on ne descend jamais en dessous du
+ * nombre de fois où la **même** variante de libellé apparaît. Si « VIR X » est
+ * là deux fois et « VIR X FACTURE 12 » deux fois, l'opération a bien eu lieu
+ * deux fois — on ramène le groupe à deux lignes, pas à une.
+ */
+export function findDuplicateGroups(): BankDuplicateGroup[] {
+  const buckets = new Map<string, BankTransaction[]>();
+  for (const t of store.db.bankTransactions) {
+    const key = amountKey(t.date, t.amount);
+    const list = buckets.get(key);
+    if (list) list.push(t);
+    else buckets.set(key, [t]);
+  }
+
+  const groups: BankDuplicateGroup[] = [];
+  for (const bucket of buckets.values()) {
+    if (bucket.length < 2) continue;
+    const pending = [...bucket].sort(byRichnessDesc);
+
+    while (pending.length) {
+      const head = pending.shift() as BankTransaction;
+      const cluster = [head];
+      for (let i = pending.length - 1; i >= 0; i--) {
+        if (sameOperation(head.label, pending[i].label)) cluster.push(...pending.splice(i, 1));
+      }
+      if (cluster.length < 2) continue;
+
+      // Combien de fois l'opération a-t-elle réellement eu lieu ?
+      const perVariant = new Map<string, number>();
+      for (const t of cluster) {
+        const key = t.label.trim().toLowerCase();
+        perVariant.set(key, (perVariant.get(key) ?? 0) + 1);
+      }
+      const real = Math.max(...perVariant.values());
+      if (cluster.length <= real) continue;
+
+      cluster.sort(byRichnessDesc);
+      groups.push({
+        date: head.date,
+        amount: head.amount,
+        keep: cluster.slice(0, real).map((t) => t.id),
+        drop: cluster.slice(real).map((t) => t.id),
+        // Du plus complet au plus court : c'est le premier que l'utilisateur
+        // reconnaîtra, et celui qui restera après le ménage.
+        labels: [...new Set(cluster.map((t) => t.label))].sort((a, b) => b.length - a.length),
+      });
+    }
+  }
+
+  return groups.sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/**
+ * Supprime les doublons repérés. Ce que portait la copie effacée — facture
+ * rapprochée, solde, référence, note — passe sur celle qui reste : nettoyer ne
+ * doit rien faire perdre.
+ */
+export function mergeDuplicates(): BankDedupeReport {
+  const groups = findDuplicateGroups();
+  const report: BankDedupeReport = { groups: groups.length, removed: 0, amount: 0 };
+  if (!groups.length) return report;
+
+  store.mutate((db) => {
+    const index = new Map(db.bankTransactions.map((t) => [t.id, t]));
+    const removed = new Set<ID>();
+
+    for (const group of groups) {
+      const keep = group.keep.map((id) => index.get(id)).filter((t): t is BankTransaction => !!t);
+      if (!keep.length) continue;
+
+      for (const id of group.drop) {
+        const gone = index.get(id);
+        if (!gone) continue;
+        // Reverser ce que la copie effacée était seule à porter.
+        const host = keep.find((t) => !t.documentId && gone.documentId) ?? keep[0];
+        if (gone.documentId && !host.documentId) {
+          host.documentId = gone.documentId;
+          host.clientId = gone.clientId;
+          host.matchScore = gone.matchScore;
+          host.matchAuto = gone.matchAuto;
+        }
+        if (host.balance === undefined && gone.balance !== undefined) host.balance = gone.balance;
+        if (!host.reference && gone.reference) host.reference = gone.reference;
+        if (!host.note && gone.note) host.note = gone.note;
+        host.label = richerLabel(host.label, gone.label);
+        host.updatedAt = nowIso();
+
+        removed.add(id);
+        report.removed++;
+        report.amount = round2(report.amount + Math.abs(gone.amount));
+      }
+    }
+
+    db.bankTransactions = db.bankTransactions.filter((t) => !removed.has(t.id));
+  });
+
+  return report;
 }
 
 /** Analyse tout le dossier des relevés. */
