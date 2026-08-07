@@ -547,14 +547,31 @@ n'est pas ce qu'on veut ici, et ce n'est pas nécessaire.
 **Tailscale Funnel** publie le seul port de CompaGelato, en HTTPS, sans rien
 ouvrir sur la box :
 
+Trois gestes, dans cet ordre — les deux premiers ne se font qu'une fois :
+
 ```bash
-tailscale funnel 4680
+# 1. Autoriser Funnel sur le tailnet. La commande refuse tant que ce n'est pas
+#    fait, en affichant le lien d'activation à ouvrir dans la console d'admin.
+#    (« Funnel is not enabled on your tailnet. To enable, visit: … »)
+
+# 2. Se donner le droit de piloter Tailscale sans sudo, une bonne fois.
+#    Sans cela : « Access denied: serve config denied ».
+sudo tailscale set --operator=$USER
+
+# 3. Publier le port. `--bg` est indispensable sur un serveur : sans lui, la
+#    commande occupe le terminal et la publication s'arrête à sa fermeture.
+tailscale funnel --bg 4680
 ```
 
 Vous obtenez une adresse du type `https://oldpc.votre-tailnet.ts.net`. La
 personne la saisit dans l'application mobile ou l'ouvre dans son navigateur, et
 c'est tout : rien à installer de plus, aucun compte Tailscale, aucun accès à
 votre réseau.
+
+`tailscale funnel status` indique ce qui est publié, `tailscale funnel --bg off`
+coupe la publication. Si Tailscale se plaint du certificat, activez HTTPS
+(MagicDNS et certificats) dans la console d'admin : Funnel en a besoin pour
+terminer le TLS à votre place.
 
 Le sens du flux compte autant que le chiffrement : **son téléphone appelle le
 serveur, jamais l'inverse.** Il n'existe aucune route depuis oldpc vers son
