@@ -283,6 +283,68 @@ test('un écart de centimes reste rapprochable, un écart de 20 % non', () => {
   );
 });
 
+test('export bancaire avec bloc de titre : l’en-tête est trouvé plus bas', async () => {
+  // Reproduit la forme d'un export Crédit Mutuel : quatre lignes de titre —
+  // nom du compte, RIB, solde initial, section — avant le vrai en-tête. Prendre
+  // la première ligne donnait des colonnes absurdes et un import impossible à
+  // rattraper depuis l'écran Banque.
+  const XLSX = await import('xlsx');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'compagelato-releve-titre-'));
+  const file = path.join(dir, 'comptes.xlsx');
+
+  const titre = 'Situation de votre compte C/C EUROCOMPTE PRO (EUR) au 07/08/2026';
+  const rib = 'R.I.B. : 10278 36066 00011640101';
+  const section = 'Liste de vos comptes';
+  const matrice = [
+    // Cellules fusionnées : la même valeur répétée sur toute la largeur.
+    [titre, titre, titre, titre, titre, titre, ''],
+    [rib, rib, rib, rib, rib, rib, ''],
+    ['', '', '', 'Solde initial : ', 'Solde initial : ', '6917.97', 'EUR'],
+    [section, section, section, section, section, section, ''],
+    ['Date', 'Valeur', 'Libellé', 'Débit', 'Crédit', 'Solde', 'Dev'],
+    ['08/06/2026', '08/06/2026', 'VIR LACTALIS G.P.O.', '', '368.25', '7286.22', 'EUR'],
+    // Le débit est déjà signé dans ce format : il ne doit pas être re-inversé.
+    ['08/06/2026', '08/06/2026', 'PAIEMENT PSC METRO FRANCE', '-38.12', '', '7248.10', 'EUR'],
+    ['', '', '', 'Solde au 07/08/2026 : ', 'Solde au 07/08/2026 : ', '7248.10', 'EUR'],
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(matrice), 'Comptes');
+  XLSX.writeFile(wb, file);
+
+  try {
+    const t = await readTable(file);
+    assert.deepEqual(t.headers, ['Date', 'Valeur', 'Libellé', 'Débit', 'Crédit', 'Solde', 'Dev']);
+
+    assert.equal(looksLikeStatement(t.headers), true, 'reconnu comme relevé');
+    const { transactions, warnings } = parseStatementTable(t);
+    assert.equal(transactions.length, 2, JSON.stringify(warnings));
+    assert.equal(transactions[0].amount, 368.25);
+    assert.equal(transactions[1].amount, -38.12, 'un débit déjà signé reste négatif');
+    assert.equal(transactions[1].balance, 7248.1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('en-tête en première ligne : rien ne bouge', async () => {
+  // Le garde-fou de la recherche d'en-tête : le cas courant doit rester
+  // strictement identique, y compris quand une colonne s'appelle « Date ».
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'compagelato-releve-simple-'));
+  const file = path.join(dir, 'releve.csv');
+  fs.writeFileSync(
+    file,
+    ['Date;Libellé;Montant', '05/01/2026;CB CARREFOUR;-96,30', '06/01/2026;VIR AGRILLADE;480,00'].join('\n'),
+    'utf8',
+  );
+  try {
+    const t = await readTable(file);
+    assert.deepEqual(t.headers, ['Date', 'Libellé', 'Montant']);
+    assert.equal(t.rows.length, 2);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('fichier réel : séparateur point-virgule et accents Windows-1252', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'compagelato-releve-'));
   const file = path.join(dir, 'releve.csv');

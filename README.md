@@ -90,6 +90,12 @@ dossier — celui que vous utilisez déjà, où qu'il soit sur le disque. Toutes
 mises en page courantes sont lues : colonnes Débit/Crédit séparées, colonne
 Montant unique signée, ou montant positif accompagné d'une colonne de sens.
 
+Les exports bancaires commencent souvent par un bloc de titre — nom du compte,
+RIB, solde initial — avant la vraie ligne d'en-tête. CompaGelato la retrouve
+toute seule : une ligne de titre étalée sur des cellules fusionnées répète la
+même valeur partout, et un en-tête ne contient ni dates ni montants. Vous
+déposez le fichier tel que la banque vous le donne, sans rien retoucher.
+
 Chaque opération est identifiée par sa date, son montant et son libellé, avec un
 rang d'occurrence. Conséquence : **réimporter un relevé, ou importer deux
 fichiers qui se chevauchent, ne crée jamais de doublon** — tout en gardant les
@@ -618,7 +624,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **105 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **107 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
@@ -637,8 +643,11 @@ npm run test:all
   facturé au kilo), et le mécanisme de mise à
   jour git (détection, application, refus prudent si des fichiers locaux ont
   été modifiés) validé sur un vrai dépôt temporaire.
-- **21 de ces tests portent sur les relevés bancaires** — les trois mises en
-  page de montants (Débit/Crédit, montant signé, montant + sens), les lignes de
+- **23 de ces tests portent sur les relevés bancaires** — les trois mises en
+  page de montants (Débit/Crédit, montant signé, montant + sens), le bloc de
+  titre d'un export Crédit Mutuel dont l'en-tête n'arrive qu'en cinquième
+  ligne (et son garde-fou : un fichier ordinaire continue de commencer par sa
+  première ligne), les lignes de
   total et de solde écartées, la catégorisation des dépenses, et surtout le
   dédoublonnage : même relevé relu deux fois, deux relevés qui se chevauchent,
   et deux opérations réellement identiques le même jour qui doivent rester

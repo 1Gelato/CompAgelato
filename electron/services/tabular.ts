@@ -148,6 +148,68 @@ export function parseCsv(text: string, delimiter: string): string[][] {
 /* Lecture générique                                                    */
 /* ------------------------------------------------------------------ */
 
+/** Une cellule qui contient une date ou un montant : c'est une donnée, pas un titre de colonne. */
+function looksLikeData(cell: string): boolean {
+  if (/^\d{1,4}[/\-.]\d{1,2}[/\-.]\d{1,4}$/.test(cell)) return true;
+  const compact = cell.replace(/[\s  ]/g, '').replace(/[€$]/g, '');
+  return compact !== '' && /^-?\d+([.,]\d+)?$/.test(compact);
+}
+
+/**
+ * Cherche la ligne d'en-tête au début du fichier.
+ *
+ * Beaucoup d'exports bancaires et comptables commencent par un bloc de titre —
+ * nom du compte, RIB, solde initial — avant le vrai en-tête. Prendre
+ * aveuglément la première ligne donne alors des colonnes qui ne veulent rien
+ * dire, et l'import échoue sans que l'utilisateur puisse y remédier.
+ *
+ * Deux signaux suffisent en pratique :
+ *
+ * - une ligne de titre étalée sur des cellules fusionnées **répète la même
+ *   valeur** dans chaque colonne, là où un en-tête a des libellés distincts ;
+ * - un en-tête ne contient ni dates ni montants, contrairement aux données.
+ *
+ * À qualité égale la première ligne l'emporte : c'est de loin le cas courant,
+ * et les fichiers déjà importés doivent continuer de l'être à l'identique.
+ */
+function findHeaderRow(matrix: unknown[][], limit = 25): number {
+  let best = 0;
+  let bestScore = -Infinity;
+
+  for (let i = 0; i < Math.min(limit, matrix.length); i++) {
+    const filled = (matrix[i] ?? [])
+      .map((c) => String(c ?? '').trim())
+      .filter((c) => c !== '');
+    if (filled.length < 2) continue;
+
+    const distinct = new Set(filled).size;
+    // Une seule valeur répétée : c'est un titre sur cellules fusionnées.
+    if (distinct < 2) continue;
+
+    const dataLike = filled.filter(looksLikeData).length;
+    const score = distinct * 2 + filled.length - dataLike * 4 - i * 0.5;
+    if (score > bestScore) {
+      bestScore = score;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/** Découpe une matrice en en-tête + lignes, à partir de la ligne d'en-tête trouvée. */
+function toTable(matrix: unknown[][]): { headers: string[]; rows: Record<string, string>[] } {
+  const headerRow = findHeaderRow(matrix);
+  const headers = dedupeHeaders((matrix[headerRow] ?? []).map((c) => String(c ?? '')));
+  const rows = matrix.slice(headerRow + 1).map((r) => {
+    const obj: Record<string, string> = {};
+    headers.forEach((h, i) => {
+      obj[h] = String(r?.[i] ?? '').trim();
+    });
+    return obj;
+  });
+  return { headers, rows };
+}
+
 function dedupeHeaders(raw: string[]): string[] {
   const seen = new Map<string, number>();
   return raw.map((h, idx) => {
@@ -172,15 +234,7 @@ export async function readTable(filePath: string): Promise<Table> {
     const matrix = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, raw: false, defval: '' });
     const cleaned = matrix.filter((r) => Array.isArray(r) && r.some((c) => String(c ?? '').trim() !== ''));
     if (!cleaned.length) return { headers: [], rows: [], source: 'xlsx' };
-    const headers = dedupeHeaders(cleaned[0].map((c) => String(c ?? '')));
-    const rows = cleaned.slice(1).map((r) => {
-      const obj: Record<string, string> = {};
-      headers.forEach((h, i) => {
-        obj[h] = String(r[i] ?? '').trim();
-      });
-      return obj;
-    });
-    return { headers, rows, source: 'xlsx' };
+    return { ...toTable(cleaned), source: 'xlsx' };
   }
 
   const buf = await fsp.readFile(filePath);
@@ -188,15 +242,7 @@ export async function readTable(filePath: string): Promise<Table> {
   const delimiter = sniffDelimiter(text);
   const matrix = parseCsv(text, delimiter);
   if (!matrix.length) return { headers: [], rows: [], source: 'csv', delimiter, encoding };
-  const headers = dedupeHeaders(matrix[0]);
-  const rows = matrix.slice(1).map((r) => {
-    const obj: Record<string, string> = {};
-    headers.forEach((h, i) => {
-      obj[h] = (r[i] ?? '').trim();
-    });
-    return obj;
-  });
-  return { headers, rows, source: 'csv', delimiter, encoding };
+  return { ...toTable(matrix), source: 'csv', delimiter, encoding };
 }
 
 /* ------------------------------------------------------------------ */
