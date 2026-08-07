@@ -39,6 +39,38 @@ export function normalizeServerUrl(raw: string): string {
 }
 
 /**
+ * Nettoie un jeton saisi ou collé.
+ *
+ * Deux accidents reviennent sans cesse. Coller `COMPAGELATO_TOKEN="secret"`
+ * emmène les guillemets avec la valeur ; et un jeton passé par un traitement de
+ * texte revient avec des guillemets **typographiques**, dont le code dépasse
+ * 255. Or un jeton voyage dans un en-tête HTTP, qui n'accepte que du Latin-1 :
+ * le navigateur refuse alors d'émettre la requête, et l'application traduisait
+ * ce refus par « Le serveur ne répond pas » — accusant une machine en parfait
+ * état pendant qu'on cherchait la panne ailleurs.
+ */
+const SURROUNDING_QUOTES = /^["'«»“”„‟‘’]+|["'«»“”„‟‘’]+$/g;
+
+export function cleanToken(raw: string): string {
+  return (raw ?? '').trim().replace(SURROUNDING_QUOTES, '').trim();
+}
+
+/** Le jeton peut-il tenir dans un en-tête HTTP ? Sinon, on dit pourquoi. */
+export function assertTokenUsable(token: string): void {
+  for (let index = 0; index < token.length; index++) {
+    const code = token.charCodeAt(index);
+    if (code > 255) {
+      throw new Error(
+        `Le jeton contient un caractère qui ne peut pas voyager dans une requête ` +
+          `(« ${token[index]} », position ${index + 1}). C'est presque toujours un ` +
+          `guillemet ou un tiret « embelli » par un traitement de texte : retapez-le ` +
+          `à la main, sans guillemets autour.`,
+      );
+    }
+  }
+}
+
+/**
  * Charge la liaison enregistrée. Les variables d'environnement l'emportent :
  * elles servent aux tests et à un poste configuré par script.
  */
@@ -59,7 +91,10 @@ export function initConnection(dataDir: string): ConnectionConfig {
 
   current = {
     serverUrl: normalizeServerUrl(envUrl ?? stored.serverUrl ?? ''),
-    token: (envToken ?? stored.token ?? '').trim(),
+    // Nettoyage au chargement aussi : un jeton déjà enregistré avec ses
+    // guillemets doit se réparer tout seul, sans que personne ait à comprendre
+    // pourquoi le serveur « ne répond pas ».
+    token: cleanToken(envToken ?? stored.token ?? ''),
   };
   return current;
 }
@@ -93,8 +128,12 @@ export function saveConnection(input: { serverUrl: string; token?: string }): Co
     // Adresse effacée : le jeton n'a plus de raison d'être conservé.
     // Jeton absent alors que l'adresse reste : on garde celui déjà enregistré,
     // pour que l'interface n'ait jamais besoin de le réafficher.
-    token: serverUrl ? (input.token ?? current.token).trim() : '',
+    token: serverUrl ? cleanToken(input.token ?? current.token) : '',
   };
+  // Refusé à l'enregistrement plutôt qu'au premier appel : le message arrive
+  // pendant qu'on a le jeton sous les yeux, et non trois écrans plus loin sous
+  // la forme d'un serveur prétendument injoignable.
+  assertTokenUsable(next.token);
   if (file) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, 'utf8');

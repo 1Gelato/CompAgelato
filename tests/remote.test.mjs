@@ -61,6 +61,36 @@ test('adresse de serveur : les formes acceptées se ramènent à une seule', () 
   assert.throws(() => normalizeServerUrl('http://'), /illisible/);
 });
 
+test('jeton : les guillemets d’un copier-coller sont retirés, l’impossible est refusé', () => {
+  delete process.env.COMPAGELATO_SERVER_URL;
+  delete process.env.COMPAGELATO_SERVER_TOKEN;
+  // Dossier à part : les tests suivants attendent un poste vierge, et une
+  // liaison enregistrée ici les ferait démarrer en mode branché.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'compagelato-jeton-'));
+  initConnection(dir);
+
+  // Coller `COMPAGELATO_TOKEN="secret"` emmène les guillemets avec la valeur.
+  saveConnection({ serverUrl: `127.0.0.1:${PORT}`, token: '"jeton-du-poste"' });
+  assert.equal(connectionConfig().token, 'jeton-du-poste');
+
+  // Guillemets typographiques d'un traitement de texte : mêmes retirés.
+  saveConnection({ serverUrl: `127.0.0.1:${PORT}`, token: '“jeton-du-poste”' });
+  assert.equal(connectionConfig().token, 'jeton-du-poste');
+
+  // Un caractère hors Latin-1 au milieu ne peut pas voyager dans un en-tête
+  // HTTP : le refus doit arriver ici, pendant qu'on a le jeton sous les yeux,
+  // et non plus tard sous la forme d'un serveur prétendument injoignable.
+  assert.throws(
+    () => saveConnection({ serverUrl: `127.0.0.1:${PORT}`, token: 'jeton“bizarre' }),
+    /position 6|guillemet/i,
+  );
+
+  // Le jeton valable précédent n'a pas été écrasé par la tentative refusée.
+  assert.equal(connectionConfig().token, 'jeton-du-poste');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('liaison : enregistrée sur le poste, relue au démarrage suivant', () => {
   // Les variables d'environnement l'emportent : on s'assure qu'elles sont vides.
   delete process.env.COMPAGELATO_SERVER_URL;
