@@ -1065,6 +1065,25 @@ export function Settings({
               </p>
             )}
             {/*
+              L'écran affiché correspond-il au code installé ?
+              `__BUILD_COMMIT__` est gravé dans ce fichier au moment de le
+              compiler ; `info.build` est lu dans le dossier à l'instant. Quand
+              les deux diffèrent, ce qu'on regarde n'est pas ce qui est
+              installé — et aucun autre indice ne permet de s'en apercevoir.
+            */}
+            {__BUILD_COMMIT__ && info.build && !info.build.startsWith(__BUILD_COMMIT__) && (
+              <p
+                className="tiny"
+                style={{ marginTop: 8, lineHeight: 1.6, color: 'var(--orange)' }}
+              >
+                <strong>Cette fenêtre n’affiche pas la version installée.</strong> L’interface
+                a été compilée depuis <span className="mono">{__BUILD_COMMIT__}</span>, alors
+                que le dossier contient <span className="mono">{info.build.split(' ')[0]}</span>.
+                Fermez complètement CompaGelato — vérifiez qu’aucune fenêtre ne reste ouverte —
+                puis relancez : le lancement recompile de lui-même.
+              </p>
+            )}
+            {/*
               Chaque machine exécute sa copie : mettre le serveur à jour ne met
               pas ce poste à jour. Sans le dire, on cherche une nouveauté qui ne
               peut pas apparaître — et on conclut que la mise à jour ne marche

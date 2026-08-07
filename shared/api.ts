@@ -736,6 +736,12 @@ declare global {
   interface Window {
     api: Api;
   }
+  /**
+   * Le commit d'où sort le bundle en cours d'exécution, gravé à la compilation
+   * (voir `vite.config.ts`). Chaîne vide quand la compilation s'est faite hors
+   * d'un dépôt git.
+   */
+  const __BUILD_COMMIT__: string;
 }
 
 export type { RouteStop };

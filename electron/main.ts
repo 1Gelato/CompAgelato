@@ -1,4 +1,5 @@
 import { BrowserWindow, Menu, app, dialog, nativeTheme, shell } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { store } from './store';
@@ -42,6 +43,11 @@ if (!app.requestSingleInstanceLock()) {
 
 let mainWindow: BrowserWindow | null = null;
 /** Coupe l'abonnement au flux du serveur à la fermeture (mode branché). */
+/**
+ * Instant de démarrage : sert à repérer qu'une recompilation a eu lieu pendant
+ * que cette fenêtre était ouverte — auquel cas ce qu'elle affiche est périmé.
+ */
+const launchedAt = Date.now();
 let stopEvents: (() => void) | null = null;
 /** Arrête les sauvegardes automatiques à la fermeture. */
 let stopBackups: (() => void) | null = null;
@@ -465,11 +471,49 @@ app.whenReady().then(async () => {
   });
 });
 
+/**
+ * Relancer le raccourci alors que l'application tourne déjà.
+ *
+ * Le raccourci recompile avant de lancer (`npm start`). Une seule instance étant
+ * autorisée, le nouveau processus quitte aussitôt et Windows remet l'ancienne
+ * fenêtre au premier plan : le logiciel vient d'être reconstruit, mais celui
+ * qu'on regarde a chargé l'ancienne interface en mémoire et n'en changera pas.
+ *
+ * De l'extérieur c'est indiscernable d'un redémarrage réussi — on croit avoir
+ * relancé, on voit l'ancien écran, et l'on conclut que la mise à jour ne marche
+ * pas. On le dit donc, et on propose le vrai redémarrage.
+ */
 app.on('second-instance', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+
+  const index = path.join(dirname, '../renderer/index.html');
+  let rebuiltSinceLaunch = false;
+  try {
+    rebuiltSinceLaunch = fs.statSync(index).mtimeMs > launchedAt;
+  } catch {
+    return;
   }
+  if (!rebuiltSinceLaunch) return;
+
+  void dialog
+    .showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'Nouvelle version compilée',
+      message: 'CompaGelato a été mis à jour pendant que cette fenêtre était ouverte.',
+      detail:
+        'La fenêtre affiche encore la version précédente. Redémarrez pour utiliser la nouvelle.',
+      buttons: ['Redémarrer maintenant', 'Plus tard'],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    .then(({ response }) => {
+      if (response !== 0) return;
+      store.flushSync();
+      app.relaunch();
+      app.exit(0);
+    });
 });
 
 app.on('window-all-closed', () => {
