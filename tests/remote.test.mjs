@@ -9,8 +9,10 @@ import {
   CHANNELS,
   connectionConfig,
   createRemoteRegistry,
+  defaultServerBackupDir,
   downloadToCache,
   initConnection,
+  pullServerBackup,
   isRemote,
   normalizeServerUrl,
   pingServer,
@@ -235,6 +237,36 @@ test('un fichier absent du serveur donne une erreur lisible', async () => {
   await assert.rejects(
     () => downloadToCache('/files/document/inexistant', 'x.pdf'),
     /document|introuvable|origine/i,
+  );
+});
+
+test('copie de sécurité : le poste rapatrie la base du serveur, sans doublon', async () => {
+  // Le miroir hors-ligne sait faire *travailler* le poste sans serveur ; il ne
+  // saurait pas le remonter. Cette copie-ci, si — c'est elle qui fait que les
+  // données existent réellement sur deux machines.
+  const dossier = defaultServerBackupDir(posteDir);
+
+  const premier = await pullServerBackup({ dir: dossier, log: () => {} });
+  assert.ok(premier, 'la première copie doit être écrite');
+  assert.ok(premier.startsWith(dossier), `copie déposée hors du dossier : ${premier}`);
+
+  const copie = JSON.parse(fs.readFileSync(premier, 'utf8'));
+  assert.ok(copie.clients.length > 0, 'une copie sans clients ne vaudrait rien');
+  assert.ok(copie.settings, 'une copie sans réglages ne serait pas restaurable');
+
+  // Rien n'a changé sur le serveur : la copie détenue est déjà la bonne, et ne
+  // doit pas consommer une place dans l'historique du poste.
+  assert.equal(await pullServerBackup({ dir: dossier, log: () => {} }), null);
+
+  // Une écriture sur le serveur, et la copie suivante la contient.
+  await remoteCall('clients', 'save', [{ name: 'SORBETS DU PORT' }]);
+  const suivant = await pullServerBackup({ dir: dossier, log: () => {} });
+  assert.ok(suivant, 'la base a changé : une nouvelle copie doit être écrite');
+  assert.notEqual(suivant, premier);
+  const apres = JSON.parse(fs.readFileSync(suivant, 'utf8'));
+  assert.ok(
+    apres.clients.some((c) => c.name === 'SORBETS DU PORT'),
+    'la copie doit refléter l’état du serveur au moment où elle est prise',
   );
 });
 

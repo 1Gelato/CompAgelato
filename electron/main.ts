@@ -23,6 +23,8 @@ import {
   schedulePull,
   setTransitionListener,
 } from './offline';
+import { autoBackupOptionsFromEnv, startAutoBackup } from './services/autoBackup';
+import { defaultServerBackupDir, startServerBackup } from './services/serverBackup';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
@@ -39,6 +41,8 @@ if (!app.requestSingleInstanceLock()) {
 let mainWindow: BrowserWindow | null = null;
 /** Coupe l'abonnement au flux du serveur à la fermeture (mode branché). */
 let stopEvents: (() => void) | null = null;
+/** Arrête les sauvegardes automatiques à la fermeture. */
+let stopBackups: (() => void) | null = null;
 
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -337,10 +341,20 @@ app.whenReady().then(async () => {
       if (!isOffline()) schedulePull();
     }, 5 * 60_000);
     upkeep.unref();
+
+    // Copie de sécurité du poste. Le miroir hors-ligne permet de *travailler*
+    // sans le serveur ; il ne permettrait pas de le remonter. Ce dossier-ci,
+    // lui, se restaure — c'est ce qui fait que les données existent vraiment à
+    // deux endroits.
+    stopBackups = startServerBackup({ dir: defaultServerBackupDir(dataDir) });
   } else {
     folderWatcher.setNotifier((channel, payload) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
     });
+
+    // Poste autonome : c'est lui qui détient les données, donc lui qui les
+    // sauvegarde — sans qu'on ait à y penser.
+    stopBackups = startAutoBackup(autoBackupOptionsFromEnv());
 
     // Analyse initiale et surveillance en arrière-plan, sans bloquer l'ouverture.
     mainWindow.webContents.once('did-finish-load', () => {
@@ -381,6 +395,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   stopEvents?.();
+  stopBackups?.();
   store.flushSync();
   void folderWatcher.stop();
 });

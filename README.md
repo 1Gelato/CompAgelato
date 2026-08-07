@@ -282,11 +282,54 @@ Un unique fichier JSON dans le dossier de profil de l'application :
 | Linux | `~/.config/CompaGelato/` |
 
 Les écritures sont atomiques (fichier temporaire puis renommage) : une coupure
-de courant ne peut pas corrompre la base. Vingt sauvegardes tournantes sont
-conservées dans le sous-dossier `backups`, et une base illisible est
-automatiquement remplacée par la dernière sauvegarde valide.
+de courant ne peut pas corrompre la base. Les sauvegardes sont conservées dans
+le sous-dossier `backups`, et une base illisible est automatiquement remplacée
+par la dernière sauvegarde valide.
 
 Réglages → Données permet de sauvegarder, restaurer et exporter à tout moment.
+
+### Les sauvegardes se font toutes seules
+
+Une sauvegarde qu'il faut penser à déclencher n'en est pas une : le jour où elle
+compte est justement celui où on a oublié d'appuyer. La machine qui détient les
+données — le serveur en mode multi-postes, le poste lui-même en mode autonome —
+sauvegarde donc **au démarrage puis toutes les 24 heures**, et garde les
+**30 dernières**.
+
+Deux détails font toute la valeur du dispositif :
+
+- **Une base inchangée n'est pas réécrite.** Le nombre de sauvegardes est borné ;
+  en écrire une identique à chaque passage chasserait du dossier les versions
+  anciennes — précisément celles qui servent quand une erreur est remarquée avec
+  des jours de retard. Une semaine sans saisie ne consomme donc aucune place.
+- **Ce qui est recopié ailleurs se rattrape.** Un disque externe débranché mardi
+  reçoit sa copie mercredi, sans attendre la prochaine facture saisie.
+
+Sur le serveur, `COMPAGELATO_BACKUP_COPY` fait suivre chaque sauvegarde vers un
+ou plusieurs dossiers supplémentaires — disque externe, partage réseau, dossier
+synchronisé. Un support absent est signalé au journal et n'interrompt jamais ni
+la sauvegarde locale, ni le serveur.
+
+### Chaque poste garde sa propre copie du serveur
+
+Le miroir hors-ligne permet de **travailler** sans le serveur, mais ce n'est pas
+une sauvegarde : il est filtré par le rôle de l'utilisateur, rangé dans un format
+interne, et rien ne permettrait de le restaurer. Si le disque du serveur lâchait,
+les postes continueraient d'afficher les données sans qu'on puisse les remettre
+en place nulle part.
+
+Un poste branché rapatrie donc, **toutes les 24 heures et sans rien demander à
+personne**, la base entière du serveur dans son propre dossier de profil :
+
+```
+<dossier de profil>/sauvegardes-serveur/backup-<horodatage>.json
+```
+
+Quatorze copies y sont conservées, et l'une d'elles se restaure depuis
+Réglages → Données comme n'importe quelle sauvegarde. Les données existent alors
+sur deux machines sans que personne ait eu à y penser. Un serveur éteint ou une
+session pas encore ouverte ne sont pas des incidents : le poste réessaie au
+passage suivant.
 
 ## Mode serveur : les mêmes données partout
 
@@ -314,6 +357,9 @@ l'appareil, l'adresse se garde en favori.
 | `COMPAGELATO_PORT` | Port d'écoute | `4680` |
 | `COMPAGELATO_HOST` | Adresse d'écoute | `0.0.0.0` |
 | `COMPAGELATO_TOKEN` | Jeton exigé pour l'API et les fichiers | *(aucun — à renseigner !)* |
+| `COMPAGELATO_BACKUP_HOURS` | Heures entre deux sauvegardes automatiques (`0` = désactivé) | `24` |
+| `COMPAGELATO_BACKUP_KEEP` | Sauvegardes conservées | `30` |
+| `COMPAGELATO_BACKUP_COPY` | Dossiers de recopie, séparés par `;` | *(aucun)* |
 
 Ce qui marche dans le navigateur : tout — tableaux, recherche, tournées,
 cahiers, banque, imports (le « choisir un fichier » téléverse vers le serveur),
@@ -642,6 +688,9 @@ electron/                 Processus principal (Node)
     printing.ts           Impression via la boîte de dialogue du système
     attachments.ts        Bibliothèque de flyers réutilisables
     updater.ts            Mise à jour par git (vérifier / appliquer)
+    autoBackup.ts         Sauvegardes automatiques : rien à réécrire quand la
+                          base n'a pas bougé, recopie qui se rattrape
+    serverBackup.ts       La copie du serveur que chaque poste rapatrie chez lui
     pdf.ts                Extraction PDF, reconstruction lignes et colonnes
     parseInvoice.ts       Lecture des factures/devis français
     facturx.ts            Factur-X (CII) et UBL 2.1
@@ -678,7 +727,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **111 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **124 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
@@ -697,6 +746,19 @@ npm run test:all
   facturé au kilo), et le mécanisme de mise à
   jour git (détection, application, refus prudent si des fichiers locaux ont
   été modifiés) validé sur un vrai dépôt temporaire.
+- **13 de ces tests portent sur les sauvegardes automatiques** — et visent
+  surtout ce qui rend une sauvegarde automatique digne de confiance plutôt que
+  le fait qu'elle ait lieu : une base inchangée n'est pas réécrite (sans quoi
+  l'historique qu'on demande de garder serait chassé par des copies identiques),
+  le fichier d'état ne se retrouve pas dans la liste proposée à la restauration,
+  la rotation ne supprime que ses propres fichiers — le dossier de copie peut
+  être une clé USB pleine d'autre chose —, une clé débranchée puis rebranchée
+  vide reçoit sa copie sans attendre la prochaine modification, un dossier de
+  copie injoignable n'empêche pas la sauvegarde locale et rapporte sa raison,
+  le planificateur sauvegarde dès son démarrage, une valeur de configuration
+  illisible retombe sur le défaut qui protège plutôt que sur « ne rien
+  sauvegarder », et une réponse qui n'est pas une base — page d'erreur, refus
+  d'accès — n'est jamais rangée sous un nom de sauvegarde.
 - **25 de ces tests portent sur les relevés bancaires** — les trois mises en
   page de montants (Débit/Crédit, montant signé, montant + sens), le bloc de
   titre d'un export Crédit Mutuel dont l'en-tête n'arrive qu'en cinquième
@@ -728,16 +790,17 @@ npm run test:all
   depuis l'écran — revue avant suppression, comptage qui laisse deux lignes à un
   virement survenu deux fois, annotation reprise — et synthèse (totaux,
   catégories, solde).
-- **11 tests du mode serveur** — le vrai processus `node dist/server/server.mjs`
+- **12 tests du mode serveur** — le vrai processus `node dist/server/server.mjs`
   est lancé sur une base temporaire puis interrogé en HTTP comme le ferait un
   navigateur : refus sans jeton, interface web servie, canal inconnu rejeté,
   action de bureau expliquée, création/lecture de client, téléversement d'une
   liste CSV, dépôt d'un PDF détecté par la surveillance avec diffusion SSE,
   téléchargement du PDF d'origine, dépôt d'une facture par téléversement rangée
   sous son nom d'origine et reconnue plutôt que dupliquée, brouillon d'e-mail `.eml` téléchargeable et
-  pièce marquée « envoyée », base écrite au bon endroit et arrêt propre sur
+  pièce marquée « envoyée », copie de la base téléchargeable par un gérant mais
+  fermée sans jeton, base écrite au bon endroit et arrêt propre sur
   SIGTERM.
-- **14 tests de l'application branchée sur le serveur** — le proxy du processus
+- **15 tests de l'application branchée sur le serveur** — le proxy du processus
   principal est exercé tel quel contre un vrai serveur : formes acceptées pour
   l'adresse, liaison enregistrée sur le poste puis relue au démarrage suivant,
   jeton conservé quand seule l'adresse change et effacé au retour en local,
@@ -747,7 +810,9 @@ npm run test:all
   traverse le proxy intact, téléversement d'un fichier choisi sur le poste,
   événements du serveur reçus par le poste, PDF rapatrié à l'octet près sous le
   nom qui partira à l'imprimante, facture déposée depuis le poste puis analysée
-  sur le serveur, fichier absent expliqué, et repli en local qui ne perd pas la
+  sur le serveur, fichier absent expliqué, copie de sécurité rapatriée par le
+  poste — écrite la première fois, ignorée tant que le serveur n'a pas bougé,
+  reprise dès qu'une fiche y est saisie — et repli en local qui ne perd pas la
   liaison enregistrée.
 - **13 tests des comptes et des droits** — le jeton partagé continue de faire
   foi tant qu'aucun compte n'existe, la création du premier gérant bascule le

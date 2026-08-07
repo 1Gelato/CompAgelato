@@ -3,6 +3,7 @@ import { folderWatcher } from './watcher';
 import { ensureWatchFolder, scanFolder } from './services/documents';
 import { appVersion } from './handlers';
 import { createCompaServer, lanAddresses } from './server';
+import { autoBackupOptionsFromEnv, startAutoBackup } from './services/autoBackup';
 
 /**
  * Point d'entrée du serveur CompaGelato — un simple processus Node, sans
@@ -15,6 +16,9 @@ import { createCompaServer, lanAddresses } from './server';
  *   COMPAGELATO_PORT       port d'écoute (défaut 4680)
  *   COMPAGELATO_HOST       adresse d'écoute (défaut 0.0.0.0)
  *   COMPAGELATO_TOKEN      jeton exigé pour l'API et les fichiers (recommandé)
+ *   COMPAGELATO_BACKUP_HOURS  heures entre deux sauvegardes automatiques (défaut 24, 0 = jamais)
+ *   COMPAGELATO_BACKUP_KEEP   sauvegardes conservées (défaut 30)
+ *   COMPAGELATO_BACKUP_COPY   dossiers de recopie, séparés par « ; » (disque externe, partage réseau)
  */
 async function main(): Promise<void> {
   store.init();
@@ -29,9 +33,21 @@ async function main(): Promise<void> {
   // Le watcher prévient tous les navigateurs connectés via le flux SSE.
   folderWatcher.setNotifier(running.broadcast);
 
+  // Les sauvegardes tournent d'elles-mêmes : c'est le serveur qui détient les
+  // données de tout le monde, personne d'autre ne peut s'en charger.
+  const backupOptions = autoBackupOptionsFromEnv();
+  const stopBackups = startAutoBackup(backupOptions);
+
   console.log(`CompaGelato serveur v${appVersion()}`);
   console.log(`  Données   : ${store.dbFile}`);
   console.log(`  Dossier   : ${store.settings.watchFolder}`);
+  console.log(
+    `  Sauvegarde: ${
+      backupOptions.everyHours
+        ? `toutes les ${backupOptions.everyHours} h, ${backupOptions.keep} conservées`
+        : 'désactivée'
+    }${backupOptions.copyTo?.length ? ` → ${backupOptions.copyTo.join(', ')}` : ''}`,
+  );
   console.log(`  Accès     : http://localhost:${running.port}`);
   for (const ip of lanAddresses()) console.log(`              http://${ip}:${running.port}`);
   if (!process.env.COMPAGELATO_TOKEN) {
@@ -51,6 +67,7 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`\n${signal} reçu : écriture de la base puis arrêt.`);
+    stopBackups();
     store.flushSync();
     await folderWatcher.stop();
     await running.close();

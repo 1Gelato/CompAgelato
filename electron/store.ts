@@ -495,12 +495,12 @@ export class Store {
     }
   }
 
-  async backup(): Promise<string> {
+  async backup(keep = 20): Promise<string> {
     this.flushSync();
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const target = path.join(this.backupDir, `backup-${stamp}.json`);
     await fsp.writeFile(target, JSON.stringify(this.data, null, 2), 'utf8');
-    this.rotateBackups();
+    this.rotateBackups(keep);
     return target;
   }
 

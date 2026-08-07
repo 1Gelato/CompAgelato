@@ -13,6 +13,10 @@ export * from '../electron/services/routing';
 export * from '../electron/services/mapLinks';
 export * from '../electron/services/mail';
 export * from '../electron/services/updater';
+// Sauvegardes automatiques : le planificateur du serveur et la copie que chaque
+// poste rapatrie. Ni l'un ni l'autre ne dépend d'Electron.
+export * from '../electron/services/autoBackup';
+export * from '../electron/services/serverBackup';
 // Liaison au serveur et proxy HTTP : sans Electron eux non plus, ce qui permet
 // de vérifier le mode branché de l'application de bureau contre un vrai serveur.
 export * from '../electron/connection';

@@ -23,6 +23,7 @@ import { accountsConfigured, identityOf, resolveSession } from './services/auth'
  *   GET  /files/document/<id>       le PDF d'origine d'une pièce
  *   GET  /files/attachment/<id>     une pièce jointe de la bibliothèque
  *   GET  /files/eml/<jeton>         un brouillon d'e-mail préparé côté serveur
+ *   GET  /files/backup             la base entière, pour la copie de sécurité d'un poste
  *   POST /upload/<type>             téléversement (clients, products, bank, attachments, restore)
  *   GET  /…                         l'interface web (dist/renderer)
  */
@@ -404,6 +405,29 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
           console.error(`[serveur] ${namespace}:${method} :`, message);
           sendJson(res, 400, { ok: false, error: message });
         }
+        return;
+      }
+
+      // --- Sauvegarde à emporter ---
+      // C'est par ici qu'un poste rapatrie sa copie de sécurité, pour que les
+      // données ne vivent pas uniquement sur le disque du serveur. La réponse
+      // est la base entière : le droit exigé est donc celui de la sauvegarder,
+      // et aucun autre ne saurait convenir.
+      if (
+        req.method === 'GET' &&
+        segments[0] === 'files' &&
+        segments.length === 2 &&
+        segments[1] === 'backup'
+      ) {
+        if (!caller.role || !mayCall(caller.role, 'db:backup')) {
+          refuse(res, caller, 'la sauvegarde de la base');
+          return;
+        }
+        // Écrire d'abord : une copie prise à la milliseconde près d'une saisie
+        // encore en mémoire serait une sauvegarde en retard d'une facture.
+        store.flushSync();
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        streamFile(res, store.dbFile, { downloadName: `backup-${stamp}.json` });
         return;
       }
 

@@ -222,6 +222,22 @@ test('serveur : la base vit bien dans le dossier demandé', async () => {
   assert.equal(stats.counts.documents, 1);
 });
 
+test('serveur : un poste rapatrie une copie de la base', async () => {
+  // C'est ainsi que les données cessent de n'exister que sur le disque du
+  // serveur : chaque poste branché en tire une copie, tout seul, régulièrement.
+  const response = await fetch(`${BASE}/files/backup?token=${TOKEN}`);
+  assert.equal(response.status, 200);
+
+  const copie = JSON.parse(await response.text());
+  assert.equal(copie.clients.length, 3);
+  assert.equal(copie.documents.length, 1);
+  assert.ok(copie.settings, 'une copie sans réglages ne serait pas restaurable');
+
+  // La base entière transite par cette adresse : elle ne s'ouvre pas sans jeton.
+  const refus = await fetch(`${BASE}/files/backup`);
+  assert.equal(refus.status, 401);
+});
+
 test('serveur : arrêt propre', async () => {
   const exited = new Promise((resolve) => child.once('exit', resolve));
   child.kill('SIGTERM');
