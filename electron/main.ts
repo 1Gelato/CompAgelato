@@ -13,7 +13,7 @@ import {
   pingServer,
   useLocalForThisRun,
 } from './connection';
-import { remoteCall, subscribeEvents } from './remote';
+import { remoteCall, setSessionLostListener, subscribeEvents } from './remote';
 import {
   backOnline,
   hasMirror,
@@ -378,6 +378,12 @@ app.whenReady().then(async () => {
     const toWindow = (channel: string, payload: unknown) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
     };
+
+    // Le serveur exige une connexion : l'écran de connexion doit revenir de
+    // lui-même. Sans cela — c'est le cas au moment précis où le premier compte
+    // vient d'être créé — l'utilisateur ne voit qu'un « Connexion requise » en
+    // rouge, sans que rien ne lui propose de se connecter.
+    setSessionLostListener(() => toWindow('session-lost', {}));
 
     // Les transitions hors-ligne / en ligne se racontent à l'écran, et le
     // retour du réseau rafraîchit les tableaux (le miroir vient de changer).

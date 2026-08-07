@@ -443,11 +443,16 @@ function Gate() {
     void check();
     // Session expirée ou révoquée pendant l'utilisation : retour à l'écran de
     // connexion plutôt qu'une cascade d'erreurs incompréhensibles.
-    setSessionLostHandler(() => {
+    const lost = () => {
       setCurrentRole(null);
       setIdentity(null);
       setState('login');
-    });
+    };
+    // Navigateur : le drapeau se lit dans la réponse HTTP.
+    setSessionLostHandler(lost);
+    // Bureau branché : l'IPC ne transporte qu'un message d'erreur, le processus
+    // principal pousse donc l'information par un événement.
+    return window.api.on('session-lost', lost);
   }, [check]);
 
   if (state === 'checking') {

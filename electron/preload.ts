@@ -17,7 +17,7 @@ for (const [namespace, methods] of Object.entries(CHANNELS)) {
   api[namespace] = group;
 }
 
-const PUSH_EVENTS = new Set(['documents-changed', 'scan-progress', 'toast']);
+const PUSH_EVENTS = new Set(['documents-changed', 'scan-progress', 'toast', 'session-lost']);
 
 api.on = (event: string, handler: (payload: unknown) => void) => {
   if (!PUSH_EVENTS.has(event)) throw new Error(`Événement inconnu : ${event}`);

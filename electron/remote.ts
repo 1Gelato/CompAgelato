@@ -28,6 +28,25 @@ import { connectionConfig } from './connection';
  */
 export class RemoteError extends Error {
   network = false;
+  /**
+   * Le serveur exige une connexion : session expirée, révoquée, ou premier
+   * compte venant d'être créé — le jeton partagé cesse alors de suffire.
+   */
+  authRequired = false;
+}
+
+/**
+ * Prévient l'application qu'il faut réafficher l'écran de connexion.
+ *
+ * Le navigateur lit ce cas directement dans la réponse HTTP. Le bureau, lui,
+ * passe par l'IPC, qui ne transporte qu'un message d'erreur : sans ce signal,
+ * l'utilisateur ne verrait qu'un « Connexion requise » en rouge, sans jamais se
+ * voir proposer de se connecter.
+ */
+let onSessionLost: () => void = () => {};
+
+export function setSessionLostListener(fn: () => void): void {
+  onSessionLost = fn;
 }
 
 function networkError(message: string): RemoteError {
@@ -76,14 +95,19 @@ export async function remoteCall(
     clearTimeout(timer);
   }
 
-  let payload: { ok?: boolean; result?: unknown; error?: string };
+  let payload: { ok?: boolean; result?: unknown; error?: string; authRequired?: boolean };
   try {
     payload = (await response.json()) as typeof payload;
   } catch {
     throw new RemoteError(`Le serveur a répondu ${response.status} sans détail.`);
   }
   if (!response.ok || !payload.ok) {
-    throw new RemoteError(payload.error ?? `Erreur ${response.status}.`);
+    const error = new RemoteError(payload.error ?? `Erreur ${response.status}.`);
+    if (payload.authRequired) {
+      error.authRequired = true;
+      onSessionLost();
+    }
+    throw error;
   }
   return payload.result;
 }

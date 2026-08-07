@@ -729,7 +729,14 @@ export interface Api {
     discard(intentId: ID): Promise<SyncStatus>;
   };
   /** Événements poussés par le processus principal (scan de dossier, alertes…). */
-  on(event: 'documents-changed' | 'scan-progress' | 'toast', handler: (payload: any) => void): () => void;
+  /**
+   * `session-lost` n'est poussé que par le bureau branché : le navigateur lit
+   * ce cas dans la réponse HTTP, l'IPC ne transporte lui qu'un message.
+   */
+  on(
+    event: 'documents-changed' | 'scan-progress' | 'toast' | 'session-lost',
+    handler: (payload: any) => void,
+  ): () => void;
 }
 
 declare global {
