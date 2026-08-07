@@ -19,3 +19,6 @@ export * from '../electron/connection';
 export * from '../electron/remote';
 export * from '../electron/offline';
 export { CHANNELS } from '../shared/api';
+// Le magasin lui-même : sans Electron, il se pilote en Node. C'est ainsi qu'on
+// vérifie la restauration d'une sauvegarde venue d'une autre machine.
+export { store as dataStore, isForeignPath, defaultWatchFolder } from '../electron/store';

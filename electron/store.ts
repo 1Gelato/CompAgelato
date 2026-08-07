@@ -62,6 +62,26 @@ export function today(): string {
 }
 
 /** Dossier surveillé par défaut : Documents/CompaGelato (C:\Users\<user>\Documents\CompaGelato sur Windows). */
+/**
+ * Un chemin écrit par un autre système que celui qui tourne ici.
+ *
+ * Une sauvegarde faite sur un poste Windows et restaurée sur le serveur Linux
+ * apporte avec elle `C:\Users\…\CompaGelato`. Gardé tel quel, ce dossier
+ * n'existe nulle part sur le serveur : les pièces deviennent introuvables — les
+ * chemins des documents sont enregistrés *relativement* au dossier de travail —
+ * et l'analyse du dossier fabriquerait un répertoire au nom absurde. C'est le
+ * chemin de la mise en commun des données : il doit marcher du premier coup.
+ *
+ * On ne juge que la *forme* : lettre de lecteur ou chemin UNC d'un côté, barre
+ * oblique initiale de l'autre. Un chemin valide pour la machine courante n'est
+ * jamais touché.
+ */
+export function isForeignPath(candidate: string): boolean {
+  if (!candidate) return false;
+  const windowsShaped = /^([a-zA-Z]:[\\/]|\\\\)/.test(candidate);
+  return process.platform === 'win32' ? candidate.startsWith('/') : windowsShaped;
+}
+
 export function defaultWatchFolder(): string {
   const documents = configured.documentsDir || path.join(os.homedir(), 'Documents');
   return path.join(documents, 'CompaGelato');
@@ -363,8 +383,16 @@ export class Store {
         } as StockMove);
       }
     }
-    // Le dossier surveillé doit toujours pointer quelque part de valide.
-    if (!db.settings.watchFolder) db.settings.watchFolder = defaultWatchFolder();
+    // Le dossier surveillé doit toujours pointer quelque part de valide — y
+    // compris après une sauvegarde restaurée depuis une machine d'un autre
+    // système, cas normal de la mise en commun des données sur un serveur.
+    if (!db.settings.watchFolder || isForeignPath(db.settings.watchFolder)) {
+      db.settings.watchFolder = defaultWatchFolder();
+    }
+    // Le dossier des relevés, lui, retombe sur son défaut (`<travail>/Releves`).
+    if (db.settings.statementFolder && isForeignPath(db.settings.statementFolder)) {
+      db.settings.statementFolder = undefined;
+    }
     // Un dépôt sans coordonnées empêche tout calcul de tournée : on rétablit
     // celui de l'entreprise s'il a été vidé ou saisi sans géolocalisation.
     if (!db.settings.depot?.lat || !db.settings.depot?.lon) {

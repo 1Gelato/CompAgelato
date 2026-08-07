@@ -408,6 +408,37 @@ Notes de fonctionnement :
   [Tailscale](https://tailscale.com) sur le serveur et sur vos appareils :
   l'adresse `http://<nom-tailscale>:4680` marche alors de partout, chiffrée,
   sans ouvrir le moindre port sur la box.
+
+### Faire monter des données existantes sur le serveur
+
+Le serveur démarre vide. Si un poste travaille déjà depuis un moment, ses
+données montent en trois gestes — dans cet ordre.
+
+1. **Sur le poste qui détient les données, encore en local** : Réglages →
+   Données → **Sauvegarder**. Notez le chemin du fichier `.json` annoncé.
+2. **Copiez le contenu du dossier surveillé** (`Factures/`, `Devis/`,
+   `Clients/`, `Pieces-jointes/`…) dans le dossier surveillé du serveur. La
+   base ne contient que les *chemins* des pièces, enregistrés relativement à ce
+   dossier : sans les fichiers, les PDF resteraient introuvables.
+3. **Branchez ce poste sur le serveur** (Réglages → Serveur, adresse, puis
+   redémarrage), puis Réglages → Données → **Restaurer…** et désignez la
+   sauvegarde de l'étape 1. Elle part au serveur et remplace sa base.
+
+Les dossiers enregistrés dans la sauvegarde sont ceux du poste d'origine. Un
+`C:\Users\…\CompaGelato` restauré sur un serveur Linux ne désignerait rien :
+CompaGelato le remplace donc par le dossier par défaut de la machine d'accueil,
+et le dossier des relevés retombe sur `<dossier de travail>/Releves`. Les
+chemins des pièces, eux, sont relatifs et n'ont pas à changer.
+
+La restauration change la **génération** de la base : chaque appareil déjà
+synchronisé repart d'une copie complète à sa prochaine connexion. C'est voulu —
+sans cela, les fiches supprimées depuis la sauvegarde ressusciteraient sans que
+personne s'en aperçoive.
+
+Les autres postes n'ont alors plus qu'à être branchés à leur tour (Réglages →
+Serveur). Un poste branché n'utilise plus sa base locale : elle reste sur son
+disque, intacte, mais n'est plus lue.
+
 ### Comptes et rôles
 
 Le jeton partagé protège les données, pas les personnes : tous ceux qui le
@@ -647,7 +678,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **109 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **111 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
@@ -742,6 +773,12 @@ npm run test:all
   conservé et présenté plutôt qu'avalé, le miroir d'un livreur qui ne reçoit
   jamais banque ni documents, et la restauration de sauvegarde qui change de
   génération et force la resynchronisation complète.
+- **2 tests de la reprise d'une base venue d'ailleurs** — la sauvegarde d'un
+  poste Windows est réellement restaurée sur cette machine : les données
+  arrivent, mais le dossier de travail redevient celui d'ici et le dossier des
+  relevés retombe sur son défaut, tandis que les chemins des pièces restent
+  relatifs. Garde-fou vérifié en neutralisant le correctif — le
+  `C:\Users\…` était conservé tel quel.
 - **2 tests de la mise à jour d'un poste branché** — l'application est lancée
   pour de bon en mode connecté contre un vrai serveur, puis le serveur est tué.
   L'analyse de dossier réclame alors le serveur, comme elle le doit, tandis que
