@@ -886,7 +886,20 @@ export function Settings({
             </div>
 
             <div className="tiny muted" style={{ lineHeight: 1.55 }}>
-              Une sauvegarde automatique est conservée à chaque démarrage (20 dernières).
+              {info?.mode === 'remote' ? (
+                <>
+                  Le serveur sauvegarde tout seul, au démarrage puis toutes les 24 heures
+                  (30 conservées). Ce poste en rapatrie une copie chaque jour, dans
+                  <span className="mono"> sauvegardes-serveur</span> — restaurable ici même
+                  si le serveur venait à disparaître.
+                </>
+              ) : (
+                <>
+                  Les sauvegardes se font toutes seules : au démarrage, puis toutes les
+                  24 heures (30 conservées). Une base inchangée n’est pas réécrite, pour ne
+                  pas chasser les versions anciennes du dossier.
+                </>
+              )}
               {info && (
                 <>
                   <br />
