@@ -998,16 +998,27 @@ export function Settings({
                 )}
                 {updateCheck?.available && (
                   <div className="infobox">
-                    <strong>
-                      {updateCheck.behind} amélioration{updateCheck.behind > 1 ? 's' : ''} disponible
-                      {updateCheck.behind > 1 ? 's' : ''}
-                    </strong>
-                    {updateCheck.changes.length > 0 && (
-                      <ul style={{ margin: '6px 0 0 16px' }}>
-                        {updateCheck.changes.map((c, i) => (
-                          <li key={i}>{c}</li>
-                        ))}
-                      </ul>
+                    {updateCheck.behind > 0 ? (
+                      <>
+                        <strong>
+                          {updateCheck.behind} amélioration{updateCheck.behind > 1 ? 's' : ''} disponible
+                          {updateCheck.behind > 1 ? 's' : ''}
+                        </strong>
+                        {updateCheck.changes.length > 0 && (
+                          <ul style={{ margin: '6px 0 0 16px' }}>
+                            {updateCheck.changes.map((c, i) => (
+                              <li key={i}>{c}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    ) : (
+                      // Code à jour, logiciel compilé en arrière : le dire, plutôt
+                      // que d'annoncer « 0 amélioration disponible ».
+                      <strong>
+                        Une reconstruction est nécessaire : le code est à jour, mais le logiciel
+                        qui s’exécute a été compilé avant.
+                      </strong>
                     )}
                   </div>
                 )}

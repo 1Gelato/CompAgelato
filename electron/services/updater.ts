@@ -26,6 +26,16 @@ export interface UpdateCheckResult {
   behind: number;
   /** Résumé des commits manquants, du plus récent au plus ancien. */
   changes: string[];
+  /**
+   * Le code est à jour, mais le logiciel qui s'exécute a été compilé avant :
+   * `dist/` est plus ancien que le dernier commit.
+   *
+   * Sans ce contrôle, la vérification ne compare que des commits et répond
+   * « vous avez déjà la dernière version » à un poste qui affiche pourtant
+   * l'ancienne interface — un `git pull` fait à la main suffit à provoquer cet
+   * état, et aucun bouton n'en sortait.
+   */
+  staleBuild?: boolean;
 }
 
 export interface UpdateApplyResult {
@@ -89,6 +99,41 @@ export async function currentBuild(root: string): Promise<string | null> {
   }
 }
 
+/**
+ * Le logiciel compilé est-il plus vieux que le code présent ?
+ *
+ * On compare les sorties de compilation à la date du dernier commit. Une sortie
+ * **absente** n'est délibérément pas comptée comme périmée : le programme qui
+ * pose la question s'exécute depuis ces fichiers, ils existent donc forcément.
+ * Un dossier jamais compilé n'est pas un logiciel en retard, c'est un dépôt
+ * qu'on vient de cloner — et l'annoncer comme une mise à jour disponible
+ * n'aiderait personne.
+ */
+export function buildIsStale(root: string, commitEpochSeconds: number): boolean {
+  const outputs = [
+    path.join(root, 'dist', 'main', 'main.mjs'),
+    path.join(root, 'dist', 'renderer', 'index.html'),
+  ];
+  for (const file of outputs) {
+    try {
+      if (fs.statSync(file).mtimeMs / 1000 < commitEpochSeconds) return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
+async function commitEpoch(root: string): Promise<number | null> {
+  try {
+    const raw = await run('git log -1 --format=%ct', root, GIT_TIMEOUT_MS);
+    const seconds = Number(raw);
+    return Number.isFinite(seconds) ? seconds : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function checkForUpdates(root: string): Promise<UpdateCheckResult> {
   if (!isGitCheckout(root)) {
     return {
@@ -116,17 +161,29 @@ export async function checkForUpdates(root: string): Promise<UpdateCheckResult> 
 
   const currentCommit = await run('git rev-parse HEAD', root, GIT_TIMEOUT_MS).catch(() => undefined);
 
+  // Indépendant du dépôt distant : un `git pull` fait à la main laisse le code
+  // à jour et le logiciel compilé en arrière. Se contenter de comparer les
+  // commits reviendrait alors à affirmer que tout va bien devant un écran qui
+  // montre le contraire.
+  const epoch = await commitEpoch(root);
+  const staleBuild = epoch !== null && buildIsStale(root, epoch);
+
   try {
     await run(`git fetch origin ${branch} --quiet`, root, GIT_TIMEOUT_MS);
   } catch (err) {
     return {
       supported: true,
-      reason: `Vérification impossible : ${extractGitError(err)}. Vérifiez votre connexion internet.`,
+      // Sans réseau mais compilation en retard : la reconstruction, elle, est
+      // possible tout de suite et suffit à retrouver l'interface attendue.
+      reason: staleBuild
+        ? undefined
+        : `Vérification impossible : ${extractGitError(err)}. Vérifiez votre connexion internet.`,
       branch,
       currentCommit,
-      available: false,
+      available: staleBuild,
       behind: 0,
       changes: [],
+      staleBuild,
     };
   }
 
@@ -137,9 +194,10 @@ export async function checkForUpdates(root: string): Promise<UpdateCheckResult> 
       branch,
       currentCommit,
       remoteCommit,
-      available: false,
+      available: staleBuild,
       behind: 0,
       changes: [],
+      staleBuild,
     };
   }
 
@@ -158,9 +216,10 @@ export async function checkForUpdates(root: string): Promise<UpdateCheckResult> 
     branch,
     currentCommit,
     remoteCommit,
-    available: behind > 0,
+    available: behind > 0 || staleBuild,
     behind,
     changes,
+    staleBuild,
   };
 }
 

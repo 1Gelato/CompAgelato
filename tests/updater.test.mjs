@@ -91,6 +91,51 @@ test('le build annonce le commit réellement en place, et suit la mise à jour',
   }
 });
 
+test('code à jour mais logiciel compilé avant : la mise à jour est proposée quand même', async () => {
+  // Le piège que ce contrôle existe pour attraper : un `git pull` fait à la
+  // main laisse le dépôt à jour et `dist/` en arrière. En ne comparant que les
+  // commits, la vérification répondait « vous avez déjà la dernière version »
+  // à un poste qui affichait pourtant l'ancienne interface — sans aucun bouton
+  // pour en sortir.
+  const { base, local } = await makeRepoPair();
+
+  // Datation explicite plutôt que l'horloge : un commit et une compilation
+  // faits dans la même seconde rendraient le test capricieux.
+  const dated = (secondsFromNow) => {
+    const when = new Date(Date.now() + secondsFromNow * 1000);
+    for (const rel of [['dist', 'main', 'main.mjs'], ['dist', 'renderer', 'index.html']]) {
+      const file = path.join(local, ...rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, '', 'utf8');
+      fs.utimesSync(file, when, when);
+    }
+  };
+
+  try {
+    // Un dépôt jamais compilé n'est pas un logiciel en retard : c'est un clone
+    // tout neuf, et l'annoncer comme une mise à jour n'aiderait personne.
+    let result = await checkForUpdates(local);
+    assert.equal(result.staleBuild, false, 'un dist absent ne doit pas être pris pour un retard');
+    assert.equal(result.available, false);
+
+    // Compilation postérieure au dernier commit : rien à signaler.
+    dated(3600);
+    result = await checkForUpdates(local);
+    assert.equal(result.staleBuild, false, 'une compilation postérieure au commit est à jour');
+    assert.equal(result.available, false);
+
+    // Compilation antérieure : c'est exactement l'état où l'écran annonçait
+    // « vous avez déjà la dernière version » en affichant l'ancienne interface.
+    dated(-3600);
+    result = await checkForUpdates(local);
+    assert.equal(result.staleBuild, true, 'une compilation antérieure au commit doit être vue');
+    assert.equal(result.available, true, 'le bouton doit rester atteignable');
+    assert.equal(result.behind, 0, 'aucun commit ne manque pourtant : rien à tirer, tout à recompiler');
+  } finally {
+    await cleanup(base);
+  }
+});
+
 test('hors d’un dépôt git, le build est absent sans faire échouer l’écran', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'compagelato-nogit-build-'));
   assert.equal(await currentBuild(dir), null);

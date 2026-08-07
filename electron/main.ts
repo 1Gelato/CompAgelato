@@ -25,6 +25,8 @@ import {
 } from './offline';
 import { autoBackupOptionsFromEnv, startAutoBackup } from './services/autoBackup';
 import { defaultServerBackupDir, startServerBackup } from './services/serverBackup';
+import { applyUpdate, checkForUpdates } from './services/updater';
+import { projectRoot } from './handlers';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
@@ -257,6 +259,80 @@ async function ensureServerReachable(): Promise<void> {
   }
 }
 
+/**
+ * La mise à jour vient à l'utilisateur, il ne va pas la chercher.
+ *
+ * Aller fouiller un écran de réglages pour savoir s'il existe une nouvelle
+ * version n'est demandé par aucun autre logiciel, et c'est le meilleur moyen de
+ * faire tourner pendant des semaines une copie périmée sans le savoir. La
+ * vérification se fait donc seule au démarrage, et ne dérange que lorsqu'il y a
+ * effectivement quelque chose à installer.
+ */
+async function proposeUpdateAtStartup(): Promise<void> {
+  let check;
+  try {
+    check = await checkForUpdates(projectRoot);
+  } catch {
+    // Pas de réseau, pas de dépôt git : le démarrage n'a pas à en souffrir.
+    return;
+  }
+  if (!check.supported || !check.available) return;
+
+  const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+  const many = check.behind > 1;
+  const { response } = await dialog.showMessageBox(window!, {
+    type: 'info',
+    title: 'Mise à jour disponible',
+    message:
+      check.behind > 0
+        ? `${check.behind} amélioration${many ? 's' : ''} disponible${many ? 's' : ''}`
+        : 'Une reconstruction est nécessaire',
+    detail:
+      check.behind > 0
+        ? check.changes.slice(0, 8).map((c) => `• ${c}`).join('\n')
+        : 'Le code est à jour, mais le logiciel qui s’exécute a été compilé avant : ' +
+          'les nouveautés ne s’afficheront qu’après reconstruction.',
+    buttons: ['Installer maintenant', 'Plus tard'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (response !== 0) return;
+
+  const result = await applyUpdate(projectRoot, (step) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('toast', { tone: 'info', title: step });
+    }
+  });
+
+  if (!result.success) {
+    await dialog.showMessageBox(window!, {
+      type: 'error',
+      title: 'Mise à jour impossible',
+      message: result.message,
+      detail: result.localChanges?.length
+        ? `Fichiers modifiés sur ce poste :\n${result.localChanges.slice(0, 10).join('\n')}\n\n` +
+          'Réglages → Mises à jour propose « Réparer et installer » pour les rétablir.'
+        : undefined,
+      buttons: ['OK'],
+    });
+    return;
+  }
+
+  const { response: restart } = await dialog.showMessageBox(window!, {
+    type: 'info',
+    title: 'Mise à jour installée',
+    message: 'CompaGelato doit redémarrer pour utiliser la nouvelle version.',
+    buttons: ['Redémarrer maintenant', 'Plus tard'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (restart === 0) {
+    store.flushSync();
+    app.relaunch();
+    app.exit(0);
+  }
+}
+
 app.whenReady().then(async () => {
   const dataDir = app.getPath('userData');
   // Le magasin ne connaît pas Electron : on lui indique où vivre.
@@ -284,6 +360,13 @@ app.whenReady().then(async () => {
 
   mainWindow = createWindow();
   setMainWindow(mainWindow);
+
+  // Quelques secondes après l'ouverture : le temps que la fenêtre soit peinte,
+  // pour ne pas poser une boîte de dialogue sur un écran encore vide.
+  mainWindow.webContents.once('did-finish-load', () => {
+    const timer = setTimeout(() => void proposeUpdateAtStartup(), 4000);
+    timer.unref?.();
+  });
 
   if (isRemote()) {
     const toWindow = (channel: string, payload: unknown) => {
