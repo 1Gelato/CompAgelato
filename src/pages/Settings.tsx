@@ -1051,6 +1051,20 @@ export function Settings({
               <span>{info.isPackaged ? 'version installée' : 'mode développement'}</span>
             </div>
             {/*
+              Une machine peut porter plusieurs copies du dépôt : on en met une
+              à jour, on en lance une autre, et l'écran ne change jamais sans
+              qu'aucun message ne l'explique. Ce chemin est celui du logiciel
+              qui s'exécute — c'est là qu'il faut faire le `git pull`.
+            */}
+            {info.appPath && (
+              <p className="tiny muted" style={{ marginTop: 8 }}>
+                Logiciel exécuté depuis :{' '}
+                <span className="mono" style={{ userSelect: 'text' }}>
+                  {info.appPath}
+                </span>
+              </p>
+            )}
+            {/*
               Chaque machine exécute sa copie : mettre le serveur à jour ne met
               pas ce poste à jour. Sans le dire, on cherche une nouveauté qui ne
               peut pas apparaître — et on conclut que la mise à jour ne marche

@@ -300,6 +300,13 @@ export interface AppInfo {
    * nouveauté qui ne peut pas apparaître.
    */
   serverBuild?: string;
+  /**
+   * Le dossier d'où s'exécute le logiciel. Une machine peut porter plusieurs
+   * copies du dépôt : on en met une à jour, on en lance une autre, et rien ne
+   * change jamais à l'écran sans qu'aucun message ne l'explique. Afficher ce
+   * chemin rend la confusion impossible à tenir plus de trois secondes.
+   */
+  appPath?: string;
   electron: string;
   node: string;
   /** `win32`, `darwin`, `linux` — ou le système du téléphone en mode mobile. */

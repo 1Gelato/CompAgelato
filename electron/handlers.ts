@@ -288,6 +288,7 @@ export const coreHandlers: Registry = {
       return {
         version: appVersion(),
         build: (await currentBuild(projectRoot)) ?? undefined,
+        appPath: projectRoot,
         electron: process.versions.electron ?? '',
         node: process.versions.node,
         platform: process.platform,

@@ -93,6 +93,7 @@ const desktopHandlers: Registry = {
       return {
         version: app.getVersion(),
         build: (await currentBuild(projectRoot)) ?? undefined,
+        appPath: projectRoot,
         electron: process.versions.electron,
         node: process.versions.node,
         platform: process.platform,
@@ -414,6 +415,7 @@ const remoteDesktopHandlers: Registry = {
       const local: Omit<AppInfo, 'userDataPath' | 'watchFolder' | 'documentsPath' | 'watchFolderInsideApp'> = {
         version: app.getVersion(),
         build: (await currentBuild(projectRoot)) ?? undefined,
+        appPath: projectRoot,
         electron: process.versions.electron,
         node: process.versions.node,
         platform: process.platform,
