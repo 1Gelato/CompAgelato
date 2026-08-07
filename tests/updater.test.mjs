@@ -136,6 +136,36 @@ test('code à jour mais logiciel compilé avant : la mise à jour est proposée 
   }
 });
 
+test('commit détaché : on dit que la comparaison a échoué, pas que tout va bien', async () => {
+  // Le mensonge qui a coûté une soirée : sans branche suivie, `origin/<branche>`
+  // ne se résout pas, la comparaison ne donne rien — et l'écran annonçait
+  // pourtant « vous avez déjà la dernière version » à un poste resté des
+  // semaines en arrière.
+  const { base, local } = await makeRepoPair();
+  try {
+    // Un commit de plus sur le distant, pour qu'il y ait réellement du retard.
+    const autre = path.join(base, 'autre-detache');
+    await git(['clone', path.join(base, 'remote.git'), autre], base);
+    await git(['config', 'user.email', 'test@example.com'], autre);
+    await git(['config', 'user.name', 'Test'], autre);
+    fs.writeFileSync(path.join(autre, 'README.md'), 'nouveauté\n');
+    await git(['commit', '-am', 'nouveauté'], autre);
+    await git(['push', 'origin', 'main'], autre);
+
+    // Le poste se détache de sa branche : c'est l'état constaté sur le terrain.
+    const head = await git(['rev-parse', 'HEAD'], local);
+    await git(['checkout', '--detach', head], local);
+
+    const result = await checkForUpdates(local);
+    assert.equal(result.supported, true);
+    assert.ok(result.reason, 'un échec de comparaison doit être signalé, jamais tu');
+    assert.match(result.reason, /détaché|aucune branche suivie/i);
+    assert.equal(result.behind, 0);
+  } finally {
+    await cleanup(base);
+  }
+});
+
 test('hors d’un dépôt git, le build est absent sans faire échouer l’écran', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'compagelato-nogit-build-'));
   assert.equal(await currentBuild(dir), null);

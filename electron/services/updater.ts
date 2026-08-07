@@ -188,7 +188,29 @@ export async function checkForUpdates(root: string): Promise<UpdateCheckResult> 
   }
 
   const remoteCommit = await run(`git rev-parse origin/${branch}`, root, GIT_TIMEOUT_MS).catch(() => undefined);
-  if (!remoteCommit || remoteCommit === currentCommit) {
+
+  // Branche distante introuvable — le poste est sur un commit détaché, ou sur
+  // une branche qui n'existe pas sur le dépôt. La comparaison n'a alors rien
+  // donné, et l'annoncer comme « vous avez déjà la dernière version » est un
+  // mensonge : c'est précisément l'état où l'on reste des semaines en arrière
+  // avec un écran qui affirme le contraire. On le dit, et on dit quoi faire.
+  if (!remoteCommit) {
+    return {
+      supported: true,
+      reason:
+        `Impossible de situer « ${branch} » sur le dépôt : ce poste n'est probablement ` +
+        `sur aucune branche suivie (commit détaché). Aucune comparaison n'a pu être faite — ` +
+        `l'état de ce poste vis-à-vis du dépôt est inconnu.`,
+      branch,
+      currentCommit,
+      available: staleBuild,
+      behind: 0,
+      changes: [],
+      staleBuild,
+    };
+  }
+
+  if (remoteCommit === currentCommit) {
     return {
       supported: true,
       branch,
