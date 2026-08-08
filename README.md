@@ -466,6 +466,7 @@ Notes de fonctionnement :
   Environment=COMPAGELATO_TOKEN=un-secret-long
   ExecStart=/usr/bin/node dist/server/server.mjs
   Restart=always
+  RestartSec=2
 
   [Install]
   WantedBy=multi-user.target

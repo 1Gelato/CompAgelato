@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
@@ -199,6 +200,38 @@ function placeInFolder(source: string, folder: string): string {
   }
 }
 
+/**
+ * Que se passera-t-il si ce processus s'arrête ?
+ *
+ * `always` — il repart tout seul. `on-failure` — il ne repart qu'en cas de
+ * sortie en erreur, une sortie propre le laisserait mort. `no` — rien ne le
+ * relancera, l'arrêt est définitif.
+ *
+ * Sur le bureau (Electron) la question ne se pose pas : c'est l'application
+ * elle-même qui se relance. Ailleurs, on interroge systemd — en se gardant bien
+ * de conclure « pas de superviseur » quand on n'a simplement pas pu savoir : ce
+ * doute bloquerait un redémarrage légitime.
+ */
+export function restartPolicy(): 'always' | 'on-failure' | 'no' {
+  // Hors systemd : personne ne veille.
+  if (!process.env.INVOCATION_ID) return 'no';
+  try {
+    // systemd n'expose pas le nom de l'unité ; il se lit dans le cgroup.
+    const cgroup = fs.readFileSync('/proc/self/cgroup', 'utf8');
+    const unit = cgroup.match(/([\w@.\\-]+\.service)/)?.[1];
+    if (!unit) return 'always';
+    const raw = execFileSync('systemctl', ['show', unit, '-p', 'Restart', '--value'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    }).trim();
+    if (!raw) return 'always';
+    return raw === 'no' ? 'no' : raw === 'always' ? 'always' : 'on-failure';
+  } catch {
+    // systemd présent mais illisible : on fait confiance plutôt que de refuser.
+    return 'always';
+  }
+}
+
 export function appVersion(): string {
   try {
     const raw = fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8');
@@ -325,9 +358,25 @@ export const coreHandlers: Registry = {
       throw new Error('Le serveur ne se ferme pas depuis le navigateur.');
     },
     async relaunch() {
-      // Après une mise à jour : le superviseur (systemd) relance le service.
+      // Ce bouton s'actionne **depuis un navigateur**, souvent d'une autre
+      // machine, parfois d'un autre bâtiment. Quitter en espérant que quelqu'un
+      // nous relance, c'est offrir d'éteindre un serveur qu'on n'a pas sous la
+      // main : sans politique de redémarrage, la sortie est définitive et il
+      // faut aller sur place. On vérifie donc avant, et on refuse en
+      // l'expliquant plutôt que de laisser l'utilisateur devant un 502.
+      const policy = restartPolicy();
+      if (policy === 'no') {
+        throw new Error(
+          "Redémarrage refusé : rien ne relancerait ce serveur, il resterait éteint. " +
+            'Ajoutez « Restart=always » à la section [Service] de son unité systemd, ' +
+            'puis « sudo systemctl daemon-reload ».',
+        );
+      }
       store.flushSync();
-      setTimeout(() => process.exit(0), 300);
+      // `on-failure` ne relance pas une sortie propre : dans ce cas seulement,
+      // on sort en erreur pour que le superviseur fasse son travail.
+      const code = policy === 'always' ? 0 : 1;
+      setTimeout(() => process.exit(code), 300);
     },
     async connection(): Promise<Connection> {
       // Servie par le serveur : la question « à quel serveur se brancher »
