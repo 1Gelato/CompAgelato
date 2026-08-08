@@ -135,6 +135,31 @@ pré-rempli d'après vos modèles, avec le document en pièce jointe et vos flye
 à cocher ou décocher. Il s'ouvre en brouillon dans votre messagerie : rien n'est
 envoyé sans votre relecture.
 
+**Notifications sur le poste**
+Quand quelqu'un d'autre ajoute quelque chose — une écriture dans un cahier, une
+facture, un relevé —, une notification du système apparaît sur votre
+ordinateur : bulle Windows, centre de notifications macOS. Un clic ouvre la page
+concernée.
+
+**Jamais pour vos propres gestes.** Le serveur annonce chaque arrivée en
+nommant son auteur ; votre poste écarte ce que vous avez fait vous-même. C'est
+la condition pour que ces notifications restent utiles : celle qui répète ce
+qu'on vient de taper finit par être coupée, et c'est celle qui comptait qu'on
+rate ensuite. Une arrivée sans auteur — un fichier déposé directement dans le
+dossier du serveur — est en revanche annoncée à tout le monde, puisque c'est
+justement ce qu'on veut apprendre.
+
+Trois autres garde-fous : rien ne s'affiche quand la fenêtre CompaGelato est
+déjà sous vos yeux (réglable), un import de trois cents pièces fait **une**
+notification et non trois cents, et une relecture forcée n'annonce rien —
+elle repasse sur ce qui était déjà là. Chaque source se coupe séparément dans
+**Réglages → Notifications sur ce poste**.
+
+Ces notifications n'existent qu'en mode branché sur le serveur : sur une base
+locale, il n'y a personne d'autre pour ajouter quoi que ce soit. Elles ne
+remplacent pas les notifications sur téléphone (ntfy), qui restent le moyen de
+prévenir quelqu'un qui n'est pas devant un ordinateur.
+
 **Relevés de compte et rapprochement bancaire**
 Vous déposez les relevés exportés par votre banque (CSV ou Excel) dans un
 dossier — celui que vous utilisez déjà, où qu'il soit sur le disque. Toutes les
@@ -920,7 +945,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **149 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **164 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
@@ -942,6 +967,16 @@ npm run test:all
   par « À propos », qui doit **changer** quand le dépôt reçoit un commit de
   plus : c'est toute son utilité, puisque le numéro de version, lui, ne bouge
   jamais.
+- **15 de ces tests portent sur les notifications du poste** — parce que la
+  règle qui les rend supportables est aussi celle qu'on casse sans s'en
+  apercevoir : ne jamais notifier l'auteur de son propre geste. Sont vérifiés
+  ce filtre et ses deux limites (une arrivée sans auteur passe, et un poste qui
+  n'a pas encore lu son identité ne se croit pas l'auteur de tout), la coupure
+  par source, le silence quand la fenêtre est au premier plan, le défaut
+  utilisable sans rien régler, la mémoire bornée qui empêche un serveur
+  redémarré de rejouer ses annonces, et le regroupement d'un import massif en
+  une seule annonce. Une annonce qui échoue ne fait jamais échouer
+  l'enregistrement qui l'a déclenchée.
 - **14 de ces tests portent sur les factures brouillon** — parce que l'erreur
   qu'ils empêchent est silencieuse : une pièce provisoire comptée comme
   définitive gonfle le chiffre d'affaires et vide le stock une fois de trop,
@@ -1034,7 +1069,7 @@ npm run test:all
   fois, fichier d'origine intact, et surtout : serveur injoignable, rien n'est
   marqué envoyé, tout repart au retour), et repli en local qui ne perd pas la
   liaison enregistrée.
-- **13 tests des comptes et des droits** — le jeton partagé continue de faire
+- **14 tests des comptes et des droits** — le jeton partagé continue de faire
   foi tant qu'aucun compte n'existe, la création du premier gérant bascule le
   serveur en connexion obligatoire, ni mot de passe ni jeton de session ne se
   retrouvent en clair dans la base, un livreur atteint ses tournées et lit les
@@ -1044,7 +1079,9 @@ npm run test:all
   un relevé, un identifiant inconnu renvoie le même message qu'un mot de passe
   erroné, une rafale de tentatives verrouille, révoquer une session coupe
   l'accès dans la seconde, et le dernier gérant ne peut ni se rétrograder ni se
-  supprimer.
+  supprimer. Une arrivée annoncée sur le flux d'événements porte l'identifiant
+  de son auteur — c'est ce qui permet à chaque poste d'écarter ses propres
+  gestes, et cela se vérifie contre un vrai serveur, pas en théorie.
 - **11 tests du hors-ligne** — un vrai serveur, un vrai poste (le module
   `offline` tel que l'application l'utilise) et une vraie coupure : le serveur
   est **tué puis relancé** en cours de test. Sont vérifiés : le stock initial

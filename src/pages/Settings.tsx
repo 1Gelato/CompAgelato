@@ -10,7 +10,7 @@ import type {
   UpdateCheckResult,
 } from '@shared/api';
 import { mayCall } from '@shared/api';
-import { ROLE_LABEL, type Role, type UserSummary } from '@shared/types';
+import { DEFAULT_DESKTOP_NOTIFY, ROLE_LABEL, type Role, type UserSummary } from '@shared/types';
 import { AddressInput } from '../components/AddressInput';
 import {
   Badge,
@@ -211,6 +211,12 @@ export function Settings({
       toast.push({ tone: 'error', title: 'Échec', text: errorMessage(err) });
     }
   };
+
+  // Les réglages de notification forment un tout : les enregistrer champ par
+  // champ effacerait les autres, puisque `update` remplace la valeur entière.
+  const notify = { ...DEFAULT_DESKTOP_NOTIFY, ...(settings.desktopNotify ?? {}) };
+  const patchNotify = (changes: Partial<typeof notify>) =>
+    patch({ desktopNotify: { ...notify, ...changes } });
 
   const chooseFolder = async () => {
     const folder = await window.api.app.chooseFolder(settings.watchFolder);
@@ -518,6 +524,44 @@ export function Settings({
               >
                 Analyser les relevés
               </Button>
+            </div>
+          </div>
+        </Card>
+
+        <Card
+          title="Notifications sur ce poste"
+          subtitle="Une bulle Windows quand quelque chose arrive — jamais pour vos propres gestes"
+        >
+          <div className="col" style={{ gap: 13 }}>
+            <div className="infobox">
+              Ces notifications sont celles du système, sur <strong>cet ordinateur</strong>.
+              Elles n'apparaissent qu'en mode branché sur le serveur, puisque c'est le seul cas
+              où quelqu'un d'autre peut ajouter quelque chose. Ce que vous saisissez vous-même
+              ne vous est jamais notifié : une notification qui répète vos propres gestes finit
+              par se faire couper, et c'est celle qui comptait qu'on rate ensuite.
+            </div>
+
+            <div className="col" style={{ gap: 9 }}>
+              <Switch
+                checked={notify.registers}
+                onChange={(v) => patchNotify({ registers: v })}
+                label="Nouvelle écriture dans un cahier (SAV, consommables, événementiel)"
+              />
+              <Switch
+                checked={notify.documents}
+                onChange={(v) => patchNotify({ documents: v })}
+                label="Nouvelle pièce comptable arrivée sur le serveur"
+              />
+              <Switch
+                checked={notify.statements}
+                onChange={(v) => patchNotify({ statements: v })}
+                label="Nouveau relevé bancaire importé"
+              />
+              <Switch
+                checked={notify.whenFocused}
+                onChange={(v) => patchNotify({ whenFocused: v })}
+                label="Notifier même quand la fenêtre CompaGelato est au premier plan"
+              />
             </div>
           </div>
         </Card>

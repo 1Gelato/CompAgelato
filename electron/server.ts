@@ -527,7 +527,18 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
           return;
         }
         try {
-          const result = await handleUpload(kind, fileName, body, documentKind);
+          // Même contexte que pour un appel de canal : sans lui, l'import
+          // n'aurait pas d'auteur et le poste qui vient d'envoyer le fichier
+          // recevrait une notification pour son propre geste.
+          const result = await withContext(
+            {
+              identity: caller.identity,
+              role: caller.role,
+              token: caller.token,
+              from: clientAddress(req),
+            },
+            () => handleUpload(kind, fileName, body, documentKind),
+          );
           sendJson(res, 200, { ok: true, result: result ?? null });
         } catch (err) {
           sendJson(res, 400, { ok: false, error: (err as Error).message ?? String(err) });

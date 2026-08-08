@@ -25,6 +25,7 @@ import {
 import { recomputeProductQty } from './stock';
 import { applyDocumentToStock, resolveDocumentLines } from './stock';
 import { storePath } from './paths';
+import { announce } from './activity';
 
 /* ------------------------------------------------------------------ */
 /* Dossier surveillé                                                    */
@@ -555,6 +556,10 @@ export async function scanFolder(options: ScanOptions = {}): Promise<ScanReport>
   const folder = ensureWatchFolder(store.settings.watchFolder);
   const files = await listCandidateFiles(folder);
 
+  // Les pièces réellement créées par ce passage : c'est ce qui mérite d'être
+  // annoncé, à la différence de celles simplement relues.
+  const fresh: AccountingDocument[] = [];
+
   const report: ScanReport = {
     scanned: files.length,
     imported: 0,
@@ -601,7 +606,10 @@ export async function scanFolder(options: ScanOptions = {}): Promise<ScanReport>
         });
         report.documents.push(doc);
         if (existed) report.updated++;
-        else report.imported++;
+        else {
+          report.imported++;
+          fresh.push(doc);
+        }
       }
     } catch (err) {
       report.failed++;
@@ -611,7 +619,42 @@ export async function scanFolder(options: ScanOptions = {}): Promise<ScanReport>
 
   store.flushSync();
   report.durationMs = Date.now() - startedAt;
+  announceImported(fresh);
   return report;
+}
+
+/**
+ * Une annonce par passage, jamais une par fichier.
+ *
+ * Le premier import en compte plusieurs centaines : autant de bulles ferait
+ * couper les notifications pour de bon, et la seule information utile serait
+ * perdue avec elles. Seules les pièces réellement nouvelles comptent — une
+ * relecture forcée repasse sur ce qui était déjà là et n'annonce donc rien.
+ */
+export function announceImported(fresh: AccountingDocument[]): void {
+  if (!fresh.length) return;
+  if (fresh.length === 1) {
+    const doc = fresh[0];
+    announce(
+      'document',
+      `Nouvelle pièce : ${doc.number}`,
+      [doc.clientNameRaw, euroLike(doc.totalTTC)].filter(Boolean).join(' — ') ||
+        'Arrivée dans le dossier surveillé.',
+    );
+    return;
+  }
+  const listed = fresh.slice(0, 4).map((d) => d.number).join(', ');
+  announce(
+    'document',
+    `${fresh.length} nouvelles pièces`,
+    fresh.length > 4 ? `${listed}…` : listed,
+  );
+}
+
+/** « 216,00 € TTC », sans dépendre du formatage de l'interface. */
+function euroLike(value: number | undefined): string {
+  if (value === undefined || !Number.isFinite(value)) return '';
+  return `${value.toFixed(2).replace('.', ',')} € TTC`;
 }
 
 /** Ré-analyse un fichier précis (bouton « Relire » de l'interface). */

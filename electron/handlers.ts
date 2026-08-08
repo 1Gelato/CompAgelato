@@ -51,8 +51,10 @@ import {
 import { defaultWatchFolder, newId, nowIso, store } from './store';
 import { folderWatcher } from './watcher';
 import { resolvePath } from './services/paths';
+import { setActivityPublisher } from './services/activity';
 import {
   KIND_FOLDER,
+  announceImported,
   ensureWatchFolder,
   markManual,
   removeDocument,
@@ -155,6 +157,10 @@ export function setBroadcast(fn: (channel: string, payload: unknown) => void): v
 export function send(channel: string, payload: unknown): void {
   broadcast(channel, payload);
 }
+
+// Les annonces d'arrivée empruntent le même chemin que les autres événements.
+// L'indirection évite que les services métier connaissent la diffusion.
+setActivityPublisher((event) => send('activity', event));
 
 /* ------------------------------------------------------------------ */
 /* Aides partagées                                                     */
@@ -547,6 +553,9 @@ export const coreHandlers: Registry = {
       const folder = kind ? path.join(root, KIND_FOLDER[kind]) : root;
       fs.mkdirSync(folder, { recursive: true });
       const added: AccountingDocument[] = [];
+      // Ce qui existait avant : une pièce simplement mise à jour par un dépôt
+      // n'est pas une arrivée, et ne doit donc rien annoncer.
+      const before = new Set(store.db.documents.map((d) => d.id));
 
       for (const source of filePaths) {
         if (!source || !fs.existsSync(source)) continue;
@@ -557,6 +566,7 @@ export const coreHandlers: Registry = {
 
       store.flushSync();
       if (added.length) send('documents-changed', { imported: added.length });
+      announceImported(added.filter((d) => !before.has(d.id)));
       return added;
     },
 

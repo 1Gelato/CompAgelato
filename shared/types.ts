@@ -613,6 +613,54 @@ export interface Settings {
   emailSubjectTemplate?: string;
   /** Corps type des e-mails ; {client}, {type}, {numero}, {date} sont remplacés. */
   emailBodyTemplate?: string;
+  /** Notifications du système sur le poste. */
+  desktopNotify?: DesktopNotifySettings;
+}
+
+/**
+ * Ce qui mérite une notification du système sur le poste.
+ *
+ * Réglage de confort, pas de sécurité : le serveur annonce de toute façon
+ * chaque arrivée, c'est le poste qui décide s'il la montre.
+ */
+export interface DesktopNotifySettings {
+  /** Nouvelle écriture dans un cahier (SAV, consommables, événementiel). */
+  registers: boolean;
+  /** Nouvelle pièce comptable arrivée sur le serveur. */
+  documents: boolean;
+  /** Nouveau relevé bancaire importé. */
+  statements: boolean;
+  /**
+   * Notifier aussi quand la fenêtre CompaGelato est au premier plan. Faux par
+   * défaut : sous les yeux de l'utilisateur, l'écriture apparaît d'elle-même et
+   * une bulle système ne ferait que répéter ce qu'il voit déjà.
+   */
+  whenFocused: boolean;
+}
+
+export const DEFAULT_DESKTOP_NOTIFY: DesktopNotifySettings = {
+  registers: true,
+  documents: true,
+  statements: true,
+  whenFocused: false,
+};
+
+/**
+ * Une arrivée annoncée à tous les postes branchés.
+ *
+ * `by` porte l'auteur : chaque poste écarte ce qu'il a lui-même provoqué —
+ * être prévenu de sa propre saisie n'apprend rien et use la confiance qu'on
+ * accorde aux notifications. `null` quand personne n'est identifiable : un
+ * fichier déposé directement dans le dossier surveillé du serveur, par
+ * exemple, qui est justement ce qu'on veut savoir.
+ */
+export interface ActivityEvent {
+  source: 'register' | 'document' | 'statement';
+  title: string;
+  text: string;
+  /** Identifiant du compte à l'origine, `null` si l'arrivée n'a pas d'auteur. */
+  by: ID | null;
+  at: string;
 }
 
 /* ------------------------------------------------------------------ */

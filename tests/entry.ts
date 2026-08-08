@@ -33,7 +33,11 @@ export { store as dataStore, isForeignPath, defaultWatchFolder } from '../electr
 // Ingestion d'une pièce et tableau de bord : c'est là que se joue le sort des
 // factures brouillon, qui ne doivent ni compter dans le chiffre d'affaires ni
 // sortir du stock.
-export { ingestParsedDocument } from '../electron/services/documents';
+export { ingestParsedDocument, announceImported } from '../electron/services/documents';
 export { buildDashboard } from '../electron/services/dashboard';
 export { applyAllPending } from '../electron/services/stock';
-export { awaitsStock } from '../shared/types';
+export { awaitsStock, DEFAULT_DESKTOP_NOTIFY } from '../shared/types';
+// Notifications du poste : la décision de montrer ou non vit hors d'Electron,
+// donc elle se vérifie sans ouvrir de fenêtre.
+export { shouldNotify, SeenActivity, SOURCE_PAGE } from '../electron/services/desktopNotify';
+export { announce, setActivityPublisher } from '../electron/services/activity';

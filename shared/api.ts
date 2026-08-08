@@ -769,11 +769,13 @@ export interface Api {
   };
   /** Événements poussés par le processus principal (scan de dossier, alertes…). */
   /**
-   * `session-lost` n'est poussé que par le bureau branché : le navigateur lit
-   * ce cas dans la réponse HTTP, l'IPC ne transporte lui qu'un message.
+   * `session-lost` et `go-to-page` ne sont poussés que par le bureau branché :
+   * le premier parce que le navigateur lit ce cas dans la réponse HTTP, le
+   * second parce qu'il vient d'un clic sur une notification du système, que
+   * seul le processus principal reçoit.
    */
   on(
-    event: 'documents-changed' | 'scan-progress' | 'toast' | 'session-lost',
+    event: 'documents-changed' | 'scan-progress' | 'toast' | 'session-lost' | 'go-to-page',
     handler: (payload: any) => void,
   ): () => void;
 }

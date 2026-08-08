@@ -249,6 +249,52 @@ test('le dernier gérant ne peut pas se retirer lui-même les droits', async () 
   assert.match(suppression.payload.error, /votre propre compte/);
 });
 
+test('une arrivée est annoncée à tous, en nommant son auteur', async () => {
+  // C'est ce qui permet à chaque poste d'écarter ses propres gestes : sans
+  // auteur sur l'annonce, chacun serait prévenu de ce qu'il vient de saisir.
+  const controller = new AbortController();
+  const annonce = (async () => {
+    const res = await fetch(`${BASE}/api/events?token=${gerantToken}`, {
+      signal: controller.signal,
+    });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      for (const line of buffer.split('\n')) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const frame = JSON.parse(line.slice(5).trim());
+          if (frame.channel === 'activity') return frame.payload;
+        } catch {
+          /* trame incomplète : on attend la suite */
+        }
+      }
+    }
+    return null;
+  })();
+
+  // Le gérant écrit dans un cahier ; l'annonce doit porter *son* identifiant.
+  const moi = await callOk('auth', 'status', [], gerantToken);
+  await callOk(
+    'registers',
+    'save',
+    [{ kind: 'sav', title: 'Machine en panne', clientName: 'CAMPING LES AJONCS' }],
+    gerantToken,
+  );
+
+  const payload = await annonce;
+  controller.abort();
+  assert.ok(payload, 'aucune annonce reçue sur le flux');
+  assert.equal(payload.source, 'register');
+  assert.equal(payload.by, moi.identity.userId, 'l’annonce ne nomme pas son auteur');
+  assert.match(payload.title, /SAV/);
+});
+
 test('arrêt propre', async () => {
   const exited = new Promise((resolve) => child.once('exit', resolve));
   child.kill('SIGTERM');

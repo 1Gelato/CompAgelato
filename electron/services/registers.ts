@@ -14,6 +14,7 @@ import {
   notificationFor,
 } from './registerRules';
 import { sendNotification } from './notify';
+import { announce } from './activity';
 
 /**
  * Les trois cahiers (SAV, consommables, événementiel) et le parc de machines.
@@ -34,13 +35,19 @@ function clientNameOf(entry: RegisterEntry): string | undefined {
   return entry.clientName;
 }
 
-/** Notification téléphone, sans jamais bloquer l'enregistrement. */
+/**
+ * Prévient qui doit l'être, sans jamais bloquer l'enregistrement.
+ *
+ * Deux destinations pour un même message : les téléphones abonnés au sujet
+ * ntfy, et les postes branchés sur le serveur, qui en feront une notification
+ * du système. Le texte est écrit une seule fois — un cahier ne raconte pas
+ * deux histoires différentes selon l'écran qui le lit.
+ */
 function pushNotification(entry: RegisterEntry, occasion: 'created' | 'confirmed'): void {
   const { notifyTopic, notifyUrl } = store.settings;
-  void sendNotification(
-    { topic: notifyTopic, url: notifyUrl },
-    notificationFor(entry, clientNameOf(entry), occasion),
-  );
+  const payload = notificationFor(entry, clientNameOf(entry), occasion);
+  void sendNotification({ topic: notifyTopic, url: notifyUrl }, payload);
+  announce('register', payload.title, payload.message);
 }
 
 /** Refuse de valider un devis si le parc ne suit pas, en nommant les manques. */

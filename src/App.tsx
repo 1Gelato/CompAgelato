@@ -175,7 +175,14 @@ function Shell({
         text: payload.text,
       });
     });
+    // Clic sur une notification du système : la page annoncée s'ouvre. Le
+    // processus principal ne connaît pas les droits de l'utilisateur, donc on
+    // vérifie ici que la page lui est bien accessible.
+    const offGoTo = window.api.on('go-to-page', (target: string) => {
+      if (PAGES.some((p) => p.id === target)) setPage(target as Page);
+    });
     return () => {
+      offGoTo();
       offChanged();
       offProgress();
       offToast();

@@ -1,7 +1,8 @@
-import { BrowserWindow, Menu, app, dialog, nativeTheme, shell } from 'electron';
+import { BrowserWindow, Menu, Notification, app, dialog, nativeTheme, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { ActivityEvent } from '@shared/types';
 import { store } from './store';
 import { registerIpc, setMainWindow } from './ipc';
 import { folderWatcher } from './watcher';
@@ -29,6 +30,7 @@ import { defaultServerBackupDir, startServerBackup } from './services/serverBack
 import { applyUpdate, checkForUpdates } from './services/updater';
 import { initFolders } from './folders';
 import { uploadWatcher } from './services/uploadWatcher';
+import { SOURCE_PAGE, SeenActivity, shouldNotify } from './services/desktopNotify';
 import { projectRoot } from './handlers';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -341,7 +343,65 @@ async function proposeUpdateAtStartup(): Promise<void> {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Notifications du système                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Qui je suis, vu du serveur.
+ *
+ * Indispensable pour écarter mes propres gestes : le serveur annonce à tout le
+ * monde, y compris à celui qui vient d'agir. Relu à chaque ouverture du flux —
+ * une session peut avoir changé de compte entre-temps. En cas d'échec on garde
+ * la valeur précédente : mieux vaut un filtre un peu vieux que plus de filtre
+ * du tout.
+ */
+let myUserId: string | null = null;
+const seenActivity = new SeenActivity();
+
+async function refreshIdentity(): Promise<void> {
+  try {
+    const status = (await remoteCall('auth', 'status', [])) as {
+      identity?: { userId?: string } | null;
+    };
+    myUserId = status?.identity?.userId ?? null;
+  } catch {
+    /* serveur injoignable : on garde ce qu'on savait */
+  }
+}
+
+function showActivity(event: ActivityEvent): void {
+  if (!event?.source || !event.title) return;
+  if (!Notification.isSupported()) return;
+  if (!seenActivity.accept(event)) return;
+
+  const focused = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused());
+  const decision = shouldNotify(event, {
+    myUserId,
+    windowFocused: focused,
+    settings: store.settings.desktopNotify,
+  });
+  if (!decision) return;
+
+  const notification = new Notification({ title: event.title, body: event.text });
+  // Cliquer sur la bulle amène là où la nouveauté se trouve : une notification
+  // qui n'ouvre rien oblige à retrouver soi-même ce dont elle parlait.
+  notification.on('click', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('go-to-page', SOURCE_PAGE[event.source]);
+  });
+  notification.show();
+}
+
 app.whenReady().then(async () => {
+  // Windows rattache les bulles à cet identifiant : sans lui, une application
+  // non empaquetée voit ses notifications attribuées à « electron.exe », voire
+  // silencieusement ignorées.
+  if (process.platform === 'win32') app.setAppUserModelId('fr.ogelato.compagelato');
+
   const dataDir = app.getPath('userData');
   // Le magasin ne connaît pas Electron : on lui indique où vivre.
   store.init({
@@ -422,14 +482,20 @@ app.whenReady().then(async () => {
       (channel, payload) => {
         schedulePull();
         toWindow(channel, payload);
+        if (channel === 'activity') showActivity(payload as ActivityEvent);
       },
       {
         // Flux rouvert = serveur revenu : rejouer la file, resynchroniser.
         onOpen: () => {
           if (isOffline()) void backOnline();
+          // L'identité peut avoir changé depuis la dernière ouverture (autre
+          // compte, session reprise) : sans elle, on ne sait plus distinguer
+          // ses propres gestes de ceux des autres.
+          void refreshIdentity();
         },
       },
     );
+    void refreshIdentity();
 
     // Synchronisation de départ, puis d'entretien — un delta vide est minuscule.
     if (!isOffline()) {

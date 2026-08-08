@@ -27,6 +27,7 @@ import {
 } from './bankStatement';
 import { round2 } from './text';
 import { storePath } from './paths';
+import { announce } from './activity';
 
 export const STATEMENT_EXTENSIONS = new Set(['.csv', '.xlsx', '.xls', '.xlsm']);
 
@@ -182,6 +183,18 @@ export async function importStatementFile(filePath: string): Promise<BankImportR
 
   if (store.settings.autoReconcile && created.length) {
     report.reconciled = autoReconcile(created.map((t) => t.id)).matched;
+  }
+  if (report.imported > 0) {
+    announce(
+      'statement',
+      `Relevé importé — ${report.imported} opération${report.imported > 1 ? 's' : ''}`,
+      [
+        path.basename(filePath),
+        report.reconciled ? `${report.reconciled} rapprochée(s) automatiquement` : '',
+      ]
+        .filter(Boolean)
+        .join(' — '),
+    );
   }
   return report;
 }
