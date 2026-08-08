@@ -251,7 +251,7 @@ if __name__ == "__main__":
 
 
 def build_two_column(filename, *, number, date, client_ref, client_name, client_street,
-                      client_city, client_email, lines, vat=20.0):
+                      client_city, client_email, lines, vat=20.0, title="FACTURE"):
     """Reproduit le gabarit « vendeur à gauche / client à droite, mêmes lignes »
     de certains logiciels de facturation, avec un tableau récapitulatif de TVA
     en bas de page — la mise en forme qui a révélé les bugs d'extraction."""
@@ -264,7 +264,7 @@ def build_two_column(filename, *, number, date, client_ref, client_name, client_
     # En-tête à deux colonnes : vendeur (gauche) / document + client (droite).
     header = Table(
         [
-            ["EXEMPLE SARL", "FACTURE"],
+            ["EXEMPLE SARL", title],
             ["1 rue du Test", f"N° : {number}"],
             ["44000 - ville CEDEX", f"Date : {date}"],
             ["France", ""],
@@ -335,5 +335,18 @@ if __name__ == "__main__":
         lines=[
             ("Bac gastro inox GN 1/3", 2, "Pièce", 45.00, 0),
             ("Cuillère bois 95mm (x100)", 3, "Carton", 4.20, 50),
+        ],
+    )
+
+    # Facture brouillon (BRO) : elle tient lieu de proforma, la facture
+    # définitive suivra. Titre neutre exprès — seul le préfixe du numéro
+    # trahit la pièce provisoire, comme sur bien des exemplaires réels.
+    build_two_column(
+        "BRO00001041.pdf", number="BRO00001041", date="12/06/2026",
+        client_ref="CL9002", client_name="GLACIER DU MARCHE",
+        client_street="4 PLACE DU MARCHE", client_city="44000 NANTES",
+        client_email="contact@glacierdumarche.fr",
+        lines=[
+            ("Bac gastro inox GN 1/3", 4, "Pièce", 45.00, 0),
         ],
     )

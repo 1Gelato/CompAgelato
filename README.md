@@ -41,6 +41,22 @@ mauvaise colonne.
 Les fichiers d'origine ne sont **jamais** modifiés ni déplacés. Un fichier déjà
 importé et inchangé est ignoré : rescanner ne crée pas de doublon.
 
+**Les factures brouillon ne comptent pas deux fois.** Beaucoup d'entreprises
+émettent une facture brouillon en lieu et place d'un proforma : elle sert à
+réclamer le règlement sans avancer la TVA, et la facture définitive suit
+toujours. CompaGelato reconnaît ces pièces — au titre (« FACTURE BROUILLON »,
+« PROVISOIRE ») comme au préfixe du numéro (MEG émet `BRO00001041`, puis la
+`FAC` correspondante) — et les enregistre au statut **Brouillon** : elles
+n'entrent pas dans le chiffre d'affaires, ne sortent rien du stock et
+n'apparaissent pas dans les pièces « en attente ». Quand la facture définitive
+arrive, c'est elle qui compte, une seule fois. Vous gardez la main : changer le
+statut à la main sur une pièce précise l'emporte sur le lecteur, et une pièce
+dont le stock est déjà sorti garde le sien — le mouvement, lui, a bien eu lieu.
+
+Si des brouillons avaient été importés avant que le lecteur ne sache les
+reconnaître, **Documents → Tout relire (forcer)** les rattrape : la relecture
+recalcule le statut des pièces que vous n'avez pas modifiées vous-même.
+
 **Vos corrections tiennent.** Si vous rattachez une facture au bon client,
 rectifiez un total mal lu ou saisissez une échéance, une relecture du fichier ne
 défait rien : les champs corrigés à la main sont mémorisés comme tels. Les
@@ -870,7 +886,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **129 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **133 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
@@ -892,6 +908,15 @@ npm run test:all
   par « À propos », qui doit **changer** quand le dépôt reçoit un commit de
   plus : c'est toute son utilité, puisque le numéro de version, lui, ne bouge
   jamais.
+- **11 de ces tests portent sur les factures brouillon** — parce que l'erreur
+  qu'ils empêchent est silencieuse : une pièce provisoire comptée comme
+  définitive gonfle le chiffre d'affaires et vide le stock une fois de trop,
+  sans que rien ne le signale. Sont vérifiés la reconnaissance au titre comme
+  au préfixe du numéro (et son garde-fou : `BROCHURE-2026` n'est pas un
+  brouillon), un vrai PDF brouillon lu avec ses totaux intacts, l'exclusion du
+  chiffre d'affaires, du stock appliqué en masse et du compteur « en attente »,
+  la relecture qui rattrape une pièce importée avant que le lecteur ne sache la
+  reconnaître, et le statut choisi à la main qui tient bon face au lecteur.
 - **13 de ces tests portent sur les sauvegardes automatiques** — et visent
   surtout ce qui rend une sauvegarde automatique digne de confiance plutôt que
   le fait qu'elle ait lieu : une base inchangée n'est pas réécrite (sans quoi

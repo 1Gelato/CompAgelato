@@ -256,6 +256,9 @@ export function parseEInvoiceXml(xml: string): ParsedDocument | null {
 
   return {
     kind,
+    // Une facture structurée est une pièce définitive : elle est émise pour
+    // être déposée et payée, pas pour tenir lieu de proforma.
+    draft: false,
     number: number || 'SANS-NUMERO',
     date,
     dueDate,

@@ -1,10 +1,11 @@
 import crypto from 'node:crypto';
-import type {
-  AccountingDocument,
-  ID,
-  Product,
-  StockApplyReport,
-  StockMove,
+import {
+  awaitsStock,
+  type AccountingDocument,
+  type ID,
+  type Product,
+  type StockApplyReport,
+  type StockMove,
 } from '@shared/types';
 import { newId, nowIso, store, today } from '../store';
 import { invoiceQtyToStockUnits } from './packaging';
@@ -303,9 +304,7 @@ export function adjustStock(productId: ID, newQty: number, note?: string): Produ
 
 /** Applique le stock de toutes les factures validées qui ne l'ont pas encore été. */
 export function applyAllPending(): { applied: number; reports: StockApplyReport[] } {
-  const pending = store.db.documents.filter(
-    (d) => !d.stockApplied && d.kind !== 'quote' && d.status !== 'cancelled' && d.status !== 'draft',
-  );
+  const pending = store.db.documents.filter(awaitsStock);
   const reports = pending.map((d) => applyDocumentToStock(d.id));
   return { applied: reports.reduce((s, r) => s + r.applied, 0), reports };
 }

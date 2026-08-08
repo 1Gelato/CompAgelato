@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
-import type { ScanReport, Settings as SettingsType } from '@shared/types';
+import { awaitsStock, type ScanReport, type Settings as SettingsType } from '@shared/types';
 import type { AuthIdentity, ChannelName } from '@shared/api';
 import { mayCall } from '@shared/api';
 import { Icons, Spinner, ToastProvider, useToast } from './components/ui';
@@ -245,9 +245,7 @@ function Shell({
   );
 
   const badges = useMemo(() => {
-    const pending = documents.filter(
-      (d) => !d.stockApplied && d.kind !== 'quote' && d.status !== 'cancelled',
-    ).length;
+    const pending = documents.filter(awaitsStock).length;
     const low = products.filter((p) => !p.archived && p.minQty > 0 && p.qtyOnHand < p.minQty).length;
     // « À traiter » au sens des cahiers : demandes et interventions ouvertes.
     const open = registerEntries.filter((e) => e.status === 'open').length;

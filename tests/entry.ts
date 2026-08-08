@@ -30,3 +30,10 @@ export { CHANNELS } from '../shared/api';
 // Le magasin lui-même : sans Electron, il se pilote en Node. C'est ainsi qu'on
 // vérifie la restauration d'une sauvegarde venue d'une autre machine.
 export { store as dataStore, isForeignPath, defaultWatchFolder } from '../electron/store';
+// Ingestion d'une pièce et tableau de bord : c'est là que se joue le sort des
+// factures brouillon, qui ne doivent ni compter dans le chiffre d'affaires ni
+// sortir du stock.
+export { ingestParsedDocument } from '../electron/services/documents';
+export { buildDashboard } from '../electron/services/dashboard';
+export { applyAllPending } from '../electron/services/stock';
+export { awaitsStock } from '../shared/types';

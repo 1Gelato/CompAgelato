@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   extractPdf,
   parsePdfDocument,
+  detectDraft,
   parseEInvoiceXml,
   extractClient,
   isWatermarkItem,
@@ -350,4 +351,40 @@ test("le téléphone du vendeur fusionné sur la ligne d'adresse n'est jamais pr
     'Port. : 06 00 00 00 00   56100 LORIENT',
   ]);
   assert.equal(phone, null);
+});
+
+/* ------------------------------------------------------------------ */
+/* Pièces provisoires (factures brouillon tenant lieu de proforma)      */
+/* ------------------------------------------------------------------ */
+
+test('une facture brouillon est reconnue à son titre', () => {
+  assert.equal(detectDraft('FACTURE BROUILLON\nN° : 1041'), true);
+  assert.equal(detectDraft('Facture provisoire — ne vaut pas facture'), true);
+  assert.equal(detectDraft('FACTURE\nN° : FA-2026-0142'), false);
+});
+
+test('le préfixe BRO du numéro suffit, même sous un titre neutre', () => {
+  // MEG émet BRO00001041 puis la FAC correspondante : sans ce repère, la
+  // vente serait comptée deux fois.
+  assert.equal(detectDraft('FACTURE', '', 'BRO00001041'), true);
+  assert.equal(detectDraft('FACTURE', '', 'FAC00001041'), false);
+  // Un vrai numéro de facture commençant par « BRO » sans chiffre derrière
+  // n'est pas un brouillon : le repère est le préfixe suivi du compteur.
+  assert.equal(detectDraft('FACTURE', '', 'BROCHURE-2026'), false);
+});
+
+test('facture brouillon PDF : lue comme provisoire, totaux intacts', async () => {
+  const file = path.join(pdfDir, 'BRO00001041.pdf');
+  const doc = parsePdfDocument(await extractPdf(file), file);
+  assert.equal(doc.kind, 'invoice');
+  assert.equal(doc.number, 'BRO00001041');
+  assert.equal(doc.draft, true);
+  assert.equal(doc.totalHT, 180);
+  assert.equal(doc.totalTTC, 216);
+});
+
+test('une facture définitive reste définitive', async () => {
+  const file = path.join(pdfDir, 'FA-2026-0142.pdf');
+  const doc = parsePdfDocument(await extractPdf(file), file);
+  assert.equal(doc.draft, false);
 });

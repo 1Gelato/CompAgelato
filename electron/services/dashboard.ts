@@ -1,4 +1,4 @@
-import type { Client, DashboardStats, Product } from '@shared/types';
+import { awaitsStock, type Client, type DashboardStats, type Product } from '@shared/types';
 import { store } from '../store';
 import { round2 } from './text';
 
@@ -9,8 +9,11 @@ const MONTHS_FR = [
 
 export function buildDashboard(): DashboardStats {
   const db = store.db;
-  const invoices = db.documents.filter((d) => d.kind === 'invoice' && d.status !== 'cancelled');
-  const credits = db.documents.filter((d) => d.kind === 'credit' && d.status !== 'cancelled');
+  // Les pièces provisoires — brouillons tenant lieu de proforma — sont mises de
+  // côté : la facture définitive arrive ensuite et compterait la vente deux fois.
+  const final = (d: { status: string }) => d.status !== 'cancelled' && d.status !== 'draft';
+  const invoices = db.documents.filter((d) => d.kind === 'invoice' && final(d));
+  const credits = db.documents.filter((d) => d.kind === 'credit' && final(d));
   const quotes = db.documents.filter((d) => d.kind === 'quote');
 
   // Les avoirs viennent en déduction du chiffre d'affaires.
@@ -85,9 +88,7 @@ export function buildDashboard(): DashboardStats {
     quotes: quotes.length,
     revenueHT,
     revenueTTC,
-    unappliedDocuments: db.documents.filter(
-      (d) => !d.stockApplied && d.kind !== 'quote' && d.status !== 'cancelled',
-    ).length,
+    unappliedDocuments: db.documents.filter(awaitsStock).length,
     lowStock: lowStock.slice(0, 20),
     outOfStock,
     stockValue: round2(stockValue),

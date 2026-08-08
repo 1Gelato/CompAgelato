@@ -15,6 +15,12 @@ export interface ParsedLine {
 
 export interface ParsedDocument {
   kind: DocumentKind;
+  /**
+   * Pièce provisoire (« facture brouillon » tenant lieu de proforma). Elle ne
+   * doit ni compter dans le chiffre d'affaires ni sortir du stock : la vraie
+   * facture arrive ensuite, et la vente serait comptée deux fois.
+   */
+  draft: boolean;
   number: string;
   date: string | null;
   dueDate: string | null;
@@ -50,6 +56,27 @@ export function detectKind(text: string, fileName = ''): DocumentKind {
   // Repli sur le nom de fichier / dossier.
   if (/devis|dev[-_]?\d/.test(normalize(fileName))) return 'quote';
   return 'invoice';
+}
+
+/**
+ * La pièce est-elle provisoire ?
+ *
+ * Beaucoup de logiciels émettent une « facture brouillon » qui tient lieu de
+ * proforma : elle sert à réclamer le règlement, mais la vraie facture est émise
+ * ensuite. Comptée comme définitive, la vente apparaîtrait **deux fois** — dans
+ * le chiffre d'affaires comme dans les sorties de stock.
+ *
+ * Deux repères : le numéro, quand le logiciel de facturation préfixe ses
+ * brouillons (MEG émet des BRO00001041 puis la FAC correspondante), et le
+ * titre. Le filigrane « PROVISOIRE » que ces pièces portent souvent, lui, est
+ * retiré du texte avant analyse : on ne peut pas compter dessus.
+ */
+export function detectDraft(text: string, fileName = '', number = ''): boolean {
+  if (/^bro[-_ ]?\d/i.test(number.trim())) return true;
+  const head = normalize(`${fileName} ${text.slice(0, 1200)}`);
+  return /\bbrouillon\b|\bprovisoire\b|non valable pour encaissement|ne (?:vaut|tient) pas (?:lieu de )?facture/.test(
+    head,
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -591,6 +618,7 @@ export function parsePdfDocument(extract: PdfExtract, filePath: string): ParsedD
 
   const kind = detectKind(fullText, fileName);
   const number = extractNumber(fullText, filePath);
+  const draft = detectDraft(fullText, fileName, number.value);
   const { date, dueDate } = extractDates(textLines);
   const totals = extractTotals(textLines);
   const client = extractClient(textLines);
@@ -622,6 +650,7 @@ export function parsePdfDocument(extract: PdfExtract, filePath: string): ParsedD
 
   return {
     kind,
+    draft,
     number: number.value,
     date,
     dueDate,

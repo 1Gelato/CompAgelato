@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AccountingDocument, Client, DocumentLine, EmailDraft, Product } from '@shared/types';
+import {
+  awaitsStock,
+  type AccountingDocument,
+  type Client,
+  type DocumentLine,
+  type EmailDraft,
+  type Product,
+} from '@shared/types';
 import type { EmailPreparation, ProductSuggestion } from '@shared/api';
 import {
   Badge,
@@ -68,7 +75,7 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
   const filtered = useMemo(() => {
     return documents.filter((doc) => {
       if (kind !== 'all' && doc.kind !== kind) return false;
-      if (stockFilter === 'todo' && (doc.stockApplied || doc.kind === 'quote')) return false;
+      if (stockFilter === 'todo' && !awaitsStock(doc)) return false;
       if (stockFilter === 'done' && !doc.stockApplied) return false;
       if (!search) return true;
       const client = doc.clientId ? clientIndex.get(doc.clientId) : undefined;
@@ -210,7 +217,7 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
     }
   };
 
-  const pendingCount = documents.filter((d) => !d.stockApplied && d.kind !== 'quote' && d.status !== 'cancelled').length;
+  const pendingCount = documents.filter(awaitsStock).length;
 
   return (
     <>

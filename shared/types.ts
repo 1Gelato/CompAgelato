@@ -167,6 +167,23 @@ export interface AccountingDocument extends Syncable {
 }
 
 /**
+ * La pièce attend-elle encore une sortie de stock ?
+ *
+ * Trois cas ne sortent jamais rien : un devis n'engage rien, une pièce annulée
+ * non plus, et un brouillon tient lieu de proforma — la facture définitive
+ * suivra, et c'est elle qui décrémentera le stock. Compter ces pièces dans les
+ * « en attente » afficherait un travail à faire qui ne se fera jamais.
+ *
+ * Définie une seule fois : le compteur du bandeau latéral, celui du tableau de
+ * bord et l'application en masse du stock doivent dire la même chose.
+ */
+export function awaitsStock(doc: AccountingDocument): boolean {
+  if (doc.stockApplied) return false;
+  if (doc.kind === 'quote') return false;
+  return doc.status !== 'cancelled' && doc.status !== 'draft';
+}
+
+/**
  * Nature d'un article du stock. Le stock ne contient pas que des consommables :
  * on y suit aussi les machines vendues (glace, granité…) et les pièces
  * détachées utilisées en SAV.

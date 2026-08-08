@@ -222,6 +222,29 @@ export function markManual(doc: AccountingDocument, ...fields: ManualField[]): v
 }
 
 /**
+ * Statut déduit de la lecture du fichier.
+ *
+ * Un devis n'est jamais définitif, une « facture brouillon » non plus : elle
+ * tient lieu de proforma et la vraie facture suit, si bien qu'une pièce
+ * provisoire comptée comme définitive ferait apparaître la vente deux fois.
+ *
+ * On recalcule ce statut à chaque relecture plutôt que de conserver l'ancien :
+ * c'est ce qui permet de rattraper les pièces importées avant que le lecteur
+ * ne sache reconnaître les brouillons. Deux garde-fous : un statut choisi à la
+ * main est réappliqué juste après (il figure dans `manualFields`), et une pièce
+ * dont le stock est déjà sorti garde le sien — le mouvement, lui, a bien eu
+ * lieu, et le rétropédaler dans le dos de l'utilisateur serait pire.
+ */
+function autoStatus(
+  parsed: ParsedDocument,
+  kind: DocumentKind,
+  existing: AccountingDocument | undefined,
+): AccountingDocument['status'] {
+  if (existing?.stockApplied) return existing.status;
+  return parsed.draft || kind === 'quote' ? 'draft' : 'confirmed';
+}
+
+/**
  * Transforme un document analysé en enregistrement de la base : rattachement
  * du client, association des lignes au stock, contrôle des doublons.
  */
@@ -290,7 +313,7 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
     totalHT: round2(totalHT),
     totalVAT: round2(totalVAT),
     totalTTC: round2(totalTTC),
-    status: existing?.status ?? (kind === 'quote' ? 'draft' : 'confirmed'),
+    status: autoStatus(parsed, kind, existing),
     lines: existing && existing.stockApplied ? existing.lines : toLines(parsed.lines),
     sourceFile: ctx.filePath ? storePath(ctx.filePath) : existing?.sourceFile,
     sourceFormat: ctx.sourceFormat,
@@ -467,6 +490,9 @@ export async function parseTabularDocuments(
 
     documents.push({
       kind,
+      // Une ligne de journal de ventes décrit une pièce déjà émise : le
+      // caractère provisoire, lui, se lit sur le document lui-même.
+      draft: false,
       number,
       date: parseDate(get(head, 'date')),
       dueDate: parseDate(get(head, 'dueDate')),
