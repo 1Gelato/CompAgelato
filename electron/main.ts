@@ -27,6 +27,8 @@ import {
 import { autoBackupOptionsFromEnv, startAutoBackup } from './services/autoBackup';
 import { defaultServerBackupDir, startServerBackup } from './services/serverBackup';
 import { applyUpdate, checkForUpdates } from './services/updater';
+import { initFolders } from './folders';
+import { uploadWatcher } from './services/uploadWatcher';
 import { projectRoot } from './handlers';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -353,6 +355,7 @@ app.whenReady().then(async () => {
     })(),
   });
   initConnection(dataDir);
+  initFolders(dataDir);
   if (isRemote()) {
     initOffline(dataDir);
     await ensureServerReachable();
@@ -442,6 +445,27 @@ app.whenReady().then(async () => {
     // lui, se restaure — c'est ce qui fait que les données existent vraiment à
     // deux endroits.
     stopBackups = startServerBackup({ dir: defaultServerBackupDir(dataDir) });
+
+    // Les dossiers de comptabilité de ce poste montent tout seuls au serveur.
+    // C'est le pont qui manquait : le serveur surveille le sien, pas celui où
+    // le logiciel de compta dépose réellement ses PDF.
+    uploadWatcher.setListener(({ sent, failed, offline }) => {
+      if (sent) {
+        toWindow('documents-changed', { imported: sent });
+        toWindow('toast', {
+          tone: 'success',
+          title: `${sent} pièce${sent > 1 ? 's' : ''} envoyée${sent > 1 ? 's' : ''} au serveur`,
+        });
+      }
+      if (failed.length && !offline) {
+        toWindow('toast', {
+          tone: 'warn',
+          title: `${failed.length} fichier(s) refusé(s)`,
+          text: failed[0]?.error,
+        });
+      }
+    });
+    void uploadWatcher.start();
   } else {
     folderWatcher.setNotifier((channel, payload) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
@@ -529,6 +553,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   stopEvents?.();
   stopBackups?.();
+  void uploadWatcher.stop();
   store.flushSync();
   void folderWatcher.stop();
 });

@@ -155,7 +155,16 @@ export async function downloadToCache(route: string, fileName: string): Promise<
 }
 
 /** Envoie un fichier du poste au serveur (import de liste, pièce jointe…). */
-export async function uploadFile(kind: string, filePath: string): Promise<unknown> {
+export async function uploadFile(
+  kind: string,
+  filePath: string,
+  /**
+   * Type de pièce, quand l'appelant le connaît déjà : le fichier vient d'un
+   * dossier que l'utilisateur avait rangé « Factures ». Le serveur le classe
+   * alors sans redeviner, et le tri fait sur le poste survit au voyage.
+   */
+  documentKind?: string,
+): Promise<unknown> {
   if (!fs.existsSync(filePath)) throw new RemoteError('Fichier introuvable sur ce poste.');
   let response: Response;
   try {
@@ -164,6 +173,7 @@ export async function uploadFile(kind: string, filePath: string): Promise<unknow
       headers: {
         'Content-Type': 'application/octet-stream',
         'X-File-Name': encodeURIComponent(path.basename(filePath)),
+        ...(documentKind ? { 'X-File-Kind': documentKind } : {}),
         ...authHeaders(),
       },
       body: fs.readFileSync(filePath),

@@ -20,6 +20,8 @@ import {
   Th,
   useToast,
 } from '../components/ui';
+import { WatchedFolders } from '../components/WatchedFolders';
+import type { UploadFolderKind } from '@shared/api';
 import { useSort } from '../lib/sort';
 import { matchesAmount } from '../lib/search';
 import {
@@ -35,6 +37,10 @@ import { dateFr, dateTimeFr, euro, KIND_LABEL, matches, num, percent, STATUS_LAB
 
 type KindFilter = 'all' | 'invoice' | 'quote' | 'credit';
 type StockFilter = 'all' | 'todo' | 'done';
+
+/** Types gérés par cette page. Hors du composant : une liste recréée à chaque
+ *  rendu relancerait la lecture des dossiers en boucle. */
+const DOCUMENT_FOLDER_KINDS: UploadFolderKind[] = ['invoice', 'quote', 'credit'];
 
 export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (force?: boolean) => void }) {
   const { data: documents, loading } = useDocuments();
@@ -250,6 +256,17 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
             Analyser le dossier
           </Button>
         </div>
+      </div>
+
+      {/*
+        Le réglage des dossiers vit ici, sur la page où l'on s'en sert : c'est
+        en regardant ses factures qu'on se demande d'où elles viennent.
+      */}
+      <div style={{ marginBottom: 14 }}>
+        <WatchedFolders
+          kinds={DOCUMENT_FOLDER_KINDS}
+          subtitle="Là où votre logiciel de comptabilité dépose ses pièces — elles montent toutes seules"
+        />
       </div>
 
       {loading && !documents.length ? (

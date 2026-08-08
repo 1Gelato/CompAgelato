@@ -28,7 +28,7 @@ import {
 import { round2 } from './text';
 import { storePath } from './paths';
 
-const STATEMENT_EXTENSIONS = new Set(['.csv', '.xlsx', '.xls', '.xlsm']);
+export const STATEMENT_EXTENSIONS = new Set(['.csv', '.xlsx', '.xls', '.xlsm']);
 
 /* ------------------------------------------------------------------ */
 /* Dossier des relevés                                                  */

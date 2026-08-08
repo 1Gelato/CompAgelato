@@ -511,6 +511,44 @@ Les autres postes n'ont alors plus qu'à être branchés à leur tour (Réglages
 Serveur). Un poste branché n'utilise plus sa base locale : elle reste sur son
 disque, intacte, mais n'est plus lue.
 
+### Les dossiers du poste montent tout seuls
+
+En mode branché, c'est le serveur qui surveille **son** dossier. Or le logiciel
+de comptabilité écrit ses PDF sur le **poste**, souvent dans un autre bâtiment :
+il fallait donc ouvrir l'application et désigner les fichiers un à un, à chaque
+export. Un partage réseau ne résout rien dès que les deux machines ne sont pas
+sur le même réseau — et exposer un partage de fichiers sur Internet n'est pas
+une option.
+
+Le poste surveille donc **ses propres dossiers** et envoie au serveur ce qui y
+arrive. Le réglage vit sur la page où l'on s'en sert :
+
+| Page | Ce qu'on y désigne |
+|---|---|
+| **Documents** | les dossiers de factures, devis et avoirs |
+| **Banque** | le dossier des relevés exportés par la banque |
+
+Désigner un dossier envoie d'abord ce qui s'y trouve déjà, puis tout nouveau
+fichier. Le type choisi voyage avec la pièce : un fichier venu du dossier
+« Factures » du poste est rangé dans `Factures` côté serveur, au lieu d'être
+redeviné puis posé en vrac. Ça marche par l'adresse Funnel comme par Tailscale
+— donc depuis le travail comme de chez soi, sans VPN ni partage réseau.
+
+Trois garanties, et ce sont elles que les tests visent :
+
+- **Aucun fichier perdu.** Un envoi n'est retenu comme fait qu'une fois le
+  serveur d'accord. Coupure, serveur éteint, session expirée : le fichier reste
+  à envoyer et repart au passage suivant.
+- **Aucun envoi en boucle.** Ce qui est parti est mémorisé. Et comme le serveur
+  compare les contenus avant de ranger, un envoi en trop ne crée jamais de
+  doublon — la mémoire est une économie, pas une garantie fragile.
+- **Aucun fichier touché.** On lit, on envoie. Rien n'est déplacé, renommé ni
+  supprimé : le dossier de comptabilité reste tel que son propriétaire l'a rangé.
+
+La liste appartient à l'appareil, comme l'adresse du serveur : `D:\Compta` n'a
+aucun sens sur le téléphone du livreur. Elle vit dans `dossiers.json`, à côté de
+`connexion.json`, et ne se synchronise jamais.
+
 ### Comptes et rôles
 
 Le jeton partagé protège les données, pas les personnes : tous ceux qui le
@@ -777,6 +815,7 @@ electron/                 Processus principal (Node)
                           toucher aux signatures des gestionnaires
   remote.ts               Proxy HTTP du processus principal : les canaux métier
                           renvoyés au serveur, fichiers rapatriés, flux SSE
+  folders.ts              Dossiers du poste à surveiller (propre à l'appareil)
   offline.ts              Miroir local, file d'attente d'intentions et rejeu :
                           le mode branché qui survit aux coupures
   server.ts               Serveur HTTP zéro dépendance : API, SSE, fichiers,
@@ -792,6 +831,7 @@ electron/                 Processus principal (Node)
     autoBackup.ts         Sauvegardes automatiques : rien à réécrire quand la
                           base n'a pas bougé, recopie qui se rattrape
     serverBackup.ts       La copie du serveur que chaque poste rapatrie chez lui
+    uploadWatcher.ts      Les dossiers du poste surveillés et envoyés au serveur
     pdf.ts                Extraction PDF, reconstruction lignes et colonnes
     parseInvoice.ts       Lecture des factures/devis français
     facturx.ts            Factur-X (CII) et UBL 2.1
@@ -904,7 +944,7 @@ npm run test:all
   pièce marquée « envoyée », copie de la base téléchargeable par un gérant mais
   fermée sans jeton, base écrite au bon endroit et arrêt propre sur
   SIGTERM.
-- **15 tests de l'application branchée sur le serveur** — le proxy du processus
+- **17 tests de l'application branchée sur le serveur** — le proxy du processus
   principal est exercé tel quel contre un vrai serveur : formes acceptées pour
   l'adresse, liaison enregistrée sur le poste puis relue au démarrage suivant,
   jeton conservé quand seule l'adresse change et effacé au retour en local,
@@ -916,7 +956,10 @@ npm run test:all
   nom qui partira à l'imprimante, facture déposée depuis le poste puis analysée
   sur le serveur, fichier absent expliqué, copie de sécurité rapatriée par le
   poste — écrite la première fois, ignorée tant que le serveur n'a pas bougé,
-  reprise dès qu'une fiche y est saisie — et repli en local qui ne perd pas la
+  reprise dès qu'une fiche y est saisie —, dossiers du poste surveillés et
+  envoyés (pièce rangée dans le sous-dossier de son type, jamais renvoyée deux
+  fois, fichier d'origine intact, et surtout : serveur injoignable, rien n'est
+  marqué envoyé, tout repart au retour), et repli en local qui ne perd pas la
   liaison enregistrée.
 - **13 tests des comptes et des droits** — le jeton partagé continue de faire
   foi tant qu'aucun compte n'existe, la création du premier gérant bascule le

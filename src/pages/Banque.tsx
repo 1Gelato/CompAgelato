@@ -25,6 +25,8 @@ import {
   Th,
   useToast,
 } from '../components/ui';
+import { WatchedFolders } from '../components/WatchedFolders';
+import type { UploadFolderKind } from '@shared/api';
 import { useSort } from '../lib/sort';
 import { matchesAmount } from '../lib/search';
 import {
@@ -50,6 +52,10 @@ type FlowFilter = 'all' | 'in' | 'out';
 type MatchFilter = 'all' | 'todo' | 'done';
 
 const CATEGORIES = Object.keys(BANK_CATEGORY_LABEL) as BankCategory[];
+
+/** Hors du composant : une liste recréée à chaque rendu relancerait la
+ *  lecture des dossiers en boucle. */
+const STATEMENT_FOLDER_KINDS: UploadFolderKind[] = ['statement'];
 
 export function Banque() {
   const { data: transactions, loading } = useBankTransactions();
@@ -247,6 +253,15 @@ export function Banque() {
 
   return (
     <div className="col" style={{ gap: 18 }}>
+      {/*
+        Le dossier des relevés se règle ici, là où on les consulte, et non
+        dans un écran de réglages qui n'a rien à voir avec la banque.
+      */}
+      <WatchedFolders
+        kinds={STATEMENT_FOLDER_KINDS}
+        subtitle="Là où votre banque dépose ses relevés exportés — ils montent tout seuls"
+      />
+
       {summary && transactions.length > 0 && (
         <div className="grid grid--stats">
           <Stat

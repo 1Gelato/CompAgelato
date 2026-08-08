@@ -72,6 +72,7 @@ export const CHANNELS = {
   updates: ['check', 'apply'],
   auth: ['status', 'login', 'logout', 'me', 'changePassword', 'users', 'saveUser', 'removeUser', 'sessions', 'revokeSession'],
   sync: ['pull', 'status', 'retry', 'discard'],
+  folders: ['list', 'save', 'remove', 'syncNow', 'pick'],
 } as const;
 
 export type ChannelMap = typeof CHANNELS;
@@ -257,6 +258,15 @@ export const CHANNEL_ACCESS: Record<ChannelName, readonly Role[]> = {
   'sync:status': LOCAL,
   'sync:retry': LOCAL,
   'sync:discard': LOCAL,
+
+  // Les dossiers surveillés désignent des chemins de **cette machine** :
+  // `D:\Compta\Factures` n'existe pas sur le serveur, et le navigateur n'a
+  // aucun disque à proposer. Ces canaux ne sortent donc jamais du poste.
+  'folders:list': LOCAL,
+  'folders:save': LOCAL,
+  'folders:remove': LOCAL,
+  'folders:syncNow': LOCAL,
+  'folders:pick': LOCAL,
 };
 
 /** Ce rôle peut-il appeler ce canal ? */
@@ -283,6 +293,22 @@ export const COLLECTION_CHANNEL: Record<SyncedCollection, ChannelName> = {
   registerEntries: 'registers:list',
   eventMachines: 'machines:list',
 };
+
+/** Type d'un dossier surveillé : trois types de pièces, plus les relevés. */
+export type UploadFolderKind = 'invoice' | 'quote' | 'credit' | 'statement';
+
+export interface UploadFolder {
+  id: string;
+  path: string;
+  kind: UploadFolderKind;
+}
+
+export interface UploadSummary {
+  sent: number;
+  failed: { file: string; error: string }[];
+  /** Serveur injoignable : ce qui reste partira au passage suivant. */
+  offline: boolean;
+}
 
 export interface AppInfo {
   version: string;
@@ -727,6 +753,19 @@ export interface Api {
     retry(): Promise<SyncStatus>;
     /** Abandonne une intention dont le rejeu a échoué. */
     discard(intentId: ID): Promise<SyncStatus>;
+  };
+  /**
+   * Dossiers de ce poste surveillés et envoyés au serveur : le logiciel de
+   * comptabilité y dépose ses pièces, elles montent toutes seules.
+   */
+  folders: {
+    list(): Promise<UploadFolder[]>;
+    save(input: { id?: string; path: string; kind: UploadFolderKind }): Promise<UploadFolder[]>;
+    remove(id: string): Promise<UploadFolder[]>;
+    /** Passage immédiat, sans attendre la surveillance. */
+    syncNow(): Promise<UploadSummary>;
+    /** Ouvre le sélecteur de dossier du poste. */
+    pick(current?: string): Promise<string | null>;
   };
   /** Événements poussés par le processus principal (scan de dossier, alertes…). */
   /**

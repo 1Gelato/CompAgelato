@@ -22,6 +22,7 @@ import type {
   BankTransaction,
   Client,
   DeliveryRoute,
+  DocumentKind,
   EmailDraft,
   EventMachine,
   ID,
@@ -50,6 +51,7 @@ import { defaultWatchFolder, newId, nowIso, store } from './store';
 import { folderWatcher } from './watcher';
 import { resolvePath } from './services/paths';
 import {
+  KIND_FOLDER,
   ensureWatchFolder,
   markManual,
   removeDocument,
@@ -484,8 +486,17 @@ export const coreHandlers: Registry = {
      * pièce est alors déduit de son contenu, comme pour tout fichier trouvé
      * hors des sous-dossiers Factures/Devis/Avoirs.
      */
-    async addFiles(filePaths: string[]): Promise<AccountingDocument[]> {
-      const folder = ensureWatchFolder(store.settings.watchFolder);
+    /**
+     * `kind` est renseigné quand l'appelant sait déjà de quoi il s'agit — un
+     * poste qui surveille son propre dossier « Factures », par exemple. La
+     * pièce est alors rangée dans le sous-dossier correspondant plutôt qu'en
+     * vrac à la racine, et le classement fait par l'utilisateur survit au
+     * voyage. Sans indication, le type reste deviné du contenu, comme avant.
+     */
+    async addFiles(filePaths: string[], kind?: DocumentKind): Promise<AccountingDocument[]> {
+      const root = ensureWatchFolder(store.settings.watchFolder);
+      const folder = kind ? path.join(root, KIND_FOLDER[kind]) : root;
+      fs.mkdirSync(folder, { recursive: true });
       const added: AccountingDocument[] = [];
 
       for (const source of filePaths) {

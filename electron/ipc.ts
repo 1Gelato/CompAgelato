@@ -2,7 +2,15 @@ import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AppInfo, Connection, EmailOutcome, PrintOutcome } from '@shared/api';
+import type {
+  AppInfo,
+  Connection,
+  EmailOutcome,
+  PrintOutcome,
+  UploadFolder,
+  UploadFolderKind,
+  UploadSummary,
+} from '@shared/api';
 import { CHANNELS } from '@shared/api';
 import type { AccountingDocument, EmailDraft, ID } from '@shared/types';
 import {
@@ -30,6 +38,8 @@ import { addAttachment, attachmentsFolder } from './services/attachments';
 import { printFile } from './services/printing';
 import { buildMailto, safeFileName } from './services/mail';
 import { currentBuild } from './services/updater';
+import { listFolders, removeFolder, saveFolder } from './folders';
+import { uploadWatcher } from './services/uploadWatcher';
 import {
   KIND_LABEL,
   buildDocumentEml,
@@ -87,7 +97,42 @@ const connectionHandlers = {
   },
 };
 
+/**
+ * Dossiers surveillés : toujours traités sur le poste, dans les deux montages.
+ * Ils désignent des chemins de cette machine — le serveur ne les connaît pas,
+ * et le navigateur n'a aucun disque à proposer.
+ */
+const folderHandlers = {
+  async list(): Promise<UploadFolder[]> {
+    return listFolders();
+  },
+  async save(input: { id?: string; path: string; kind: UploadFolderKind }): Promise<UploadFolder[]> {
+    saveFolder(input);
+    // La surveillance repart sur la nouvelle liste, et le premier passage
+    // envoie ce qui s'y trouve déjà : désigner un dossier plein doit suffire.
+    await uploadWatcher.start();
+    return listFolders();
+  },
+  async remove(id: string): Promise<UploadFolder[]> {
+    const folders = removeFolder(id);
+    await uploadWatcher.start();
+    return folders;
+  },
+  async syncNow(): Promise<UploadSummary> {
+    return uploadWatcher.now();
+  },
+  async pick(current?: string): Promise<string | null> {
+    const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+      title: 'Choisir un dossier à surveiller',
+      defaultPath: current || undefined,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    return result.canceled || !result.filePaths[0] ? null : result.filePaths[0];
+  },
+};
+
 const desktopHandlers: Registry = {
+  folders: folderHandlers,
   app: {
     async info(): Promise<AppInfo> {
       return {
@@ -407,6 +452,7 @@ async function pickThenUpload(
 }
 
 const remoteDesktopHandlers: Registry = {
+  folders: folderHandlers,
   app: {
     async info(): Promise<AppInfo> {
       // Le build est celui de **ce poste** : c'est son code qui s'exécute sous

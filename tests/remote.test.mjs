@@ -12,7 +12,11 @@ import {
   defaultServerBackupDir,
   downloadToCache,
   initConnection,
+  initFolders,
+  pendingFiles,
   pullServerBackup,
+  saveFolder,
+  uploadPending,
   isRemote,
   normalizeServerUrl,
   pingServer,
@@ -298,6 +302,72 @@ test('copie de sécurité : le poste rapatrie la base du serveur, sans doublon',
     apres.clients.some((c) => c.name === 'SORBETS DU PORT'),
     'la copie doit refléter l’état du serveur au moment où elle est prise',
   );
+});
+
+test('dossiers du poste : déposés ici, rangés là-bas, et jamais renvoyés deux fois', async () => {
+  // Le geste que ce mécanisme supprime : ouvrir l'application et désigner un à
+  // un les fichiers que la comptabilité vient d'écrire dans un dossier.
+  const compta = path.join(tmpRoot, 'compta-factures');
+  fs.mkdirSync(compta, { recursive: true });
+  initFolders(posteDir);
+  saveFolder({ path: compta, kind: 'invoice' });
+
+  // Un dossier déjà surveillé ne peut pas l'être deux fois : un fichier n'a
+  // pas à partir en double.
+  assert.throws(() => saveFolder({ path: compta, kind: 'quote' }), /déjà surveillé/i);
+
+  fs.copyFileSync(fixturePdf, path.join(compta, 'FA-2026-0142.pdf'));
+  // Le balayage écarte ce qui vient d'être écrit — un PDF encore en cours de
+  // production partirait tronqué. On date donc le fichier dans le passé.
+  const vieux = new Date(Date.now() - 10_000);
+  fs.utimesSync(path.join(compta, 'FA-2026-0142.pdf'), vieux, vieux);
+
+  const premier = await uploadPending();
+  assert.equal(premier.offline, false);
+  assert.equal(premier.sent, 1, `envoi attendu, obtenu ${JSON.stringify(premier)}`);
+
+  // Rangée côté serveur dans « Factures » : le classement fait sur le poste
+  // survit au voyage, au lieu d'atterrir en vrac à la racine.
+  const rangee = path.join(watchDir, 'Factures', 'FA-2026-0142.pdf');
+  assert.ok(fs.existsSync(rangee), 'la pièce doit être rangée dans le sous-dossier de son type');
+
+  // Deuxième passage : rien de neuf, donc rien ne repart.
+  const second = await uploadPending();
+  assert.equal(second.sent, 0, 'un fichier déjà envoyé ne doit pas repartir');
+
+  // Le dossier ne retient que ce qui le concerne : un relevé n'est pas une pièce.
+  fs.writeFileSync(path.join(compta, 'notes.txt'), 'rien', 'utf8');
+  const restants = await pendingFiles({ id: 'x', path: compta, kind: 'invoice' }, Date.now() + 60_000);
+  assert.deepEqual(restants, [], 'un fichier d’un autre type ne doit pas être proposé');
+
+  // Le fichier d'origine n'est ni déplacé ni supprimé : le dossier de
+  // comptabilité reste tel que son propriétaire l'a rangé.
+  assert.ok(fs.existsSync(path.join(compta, 'FA-2026-0142.pdf')));
+});
+
+test('dossiers du poste : serveur injoignable, rien n’est perdu ni marqué envoyé', async () => {
+  const compta = path.join(tmpRoot, 'compta-hors-ligne');
+  fs.mkdirSync(compta, { recursive: true });
+  initFolders(path.join(tmpRoot, 'poste-hors-ligne'));
+  saveFolder({ path: compta, kind: 'quote' });
+
+  fs.copyFileSync(fixturePdf, path.join(compta, 'DE-2026-0001.pdf'));
+  const vieux = new Date(Date.now() - 10_000);
+  fs.utimesSync(path.join(compta, 'DE-2026-0001.pdf'), vieux, vieux);
+
+  // Adresse morte : c'est la coupure réseau, pas un refus du serveur.
+  saveConnection({ serverUrl: '127.0.0.1:4599', token: TOKEN });
+  const coupe = await uploadPending();
+  assert.equal(coupe.offline, true, 'une coupure doit être reconnue comme telle');
+  assert.equal(coupe.sent, 0);
+
+  // Et surtout : le fichier reste à envoyer. Le marquer aurait été le perdre.
+  saveConnection({ serverUrl: `127.0.0.1:${PORT}`, token: TOKEN });
+  const reprise = await uploadPending();
+  assert.equal(reprise.sent, 1, 'le fichier retenu doit repartir au retour du serveur');
+
+  // Remis à sa place d'origine pour les tests suivants.
+  initFolders(posteDir);
 });
 
 test('repli : le poste retombe en local sans perdre sa liaison enregistrée', () => {

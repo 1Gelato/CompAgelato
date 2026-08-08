@@ -32,6 +32,20 @@ import { storePath } from './paths';
 
 export const SUBFOLDERS = ['Factures', 'Devis', 'Avoirs', 'Clients', 'Releves', 'Pieces-jointes', 'Exports'] as const;
 
+/**
+ * Où ranger une pièce dont on connaît déjà le type.
+ *
+ * Un poste qui surveille ses propres dossiers sait ce qu'il envoie : le fichier
+ * vient de *son* dossier « Factures ». Sans cette table, tout atterrirait en
+ * vrac à la racine du dossier surveillé et le type serait redevinné du contenu
+ * — en perdant en route un classement que l'utilisateur avait déjà fait.
+ */
+export const KIND_FOLDER: Record<DocumentKind, string> = {
+  invoice: 'Factures',
+  quote: 'Devis',
+  credit: 'Avoirs',
+};
+
 /** Crée le dossier de travail et ses sous-dossiers s'ils n'existent pas. */
 export function ensureWatchFolder(folder: string): string {
   fs.mkdirSync(folder, { recursive: true });
@@ -69,7 +83,7 @@ export function ensureWatchFolder(folder: string): string {
   return folder;
 }
 
-const DOC_EXTENSIONS = new Set(['.pdf', '.xml', '.csv', '.xlsx', '.xls', '.xlsm']);
+export const DOC_EXTENSIONS = new Set(['.pdf', '.xml', '.csv', '.xlsx', '.xls', '.xlsm']);
 const IGNORED_DIRS = new Set([
   // « Releves » a son propre lecteur (services/bank.ts) : un relevé de compte
   // n'est pas une pièce comptable à rapprocher du stock.

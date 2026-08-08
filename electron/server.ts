@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHANNELS, CHANNEL_ACCESS, mayCall } from '@shared/api';
 import type { AuthIdentity, ChannelName } from '@shared/api';
-import type { Role } from '@shared/types';
+import type { DocumentKind, Role } from '@shared/types';
 import { coreHandlers, emlFilePath, setBroadcast } from './handlers';
 import { store, newId } from './store';
 import { resolvePath } from './services/paths';
@@ -204,7 +204,15 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
 
   const uploadDir = path.join(os.tmpdir(), 'compagelato-uploads');
 
-  async function handleUpload(kind: string, fileName: string, body: Buffer): Promise<unknown> {
+  async function handleUpload(
+    kind: string,
+    fileName: string,
+    body: Buffer,
+    // Type déjà connu de l'appelant : un poste qui surveille son propre dossier
+    // « Factures » sait ce qu'il envoie. La pièce est alors rangée dans le
+    // sous-dossier correspondant, au lieu d'être redevinée puis posée en vrac.
+    documentKind?: DocumentKind,
+  ): Promise<unknown> {
     // Chaque téléversement a son propre dossier, ce qui laisse au fichier son
     // nom d'origine : c'est celui-là qui sera rangé dans le dossier surveillé
     // ou dans la bibliothèque de pièces jointes.
@@ -222,7 +230,7 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
         case 'bank':
           return await coreHandlers.bank.importFrom(file);
         case 'documents':
-          return await coreHandlers.documents.addFiles([file]);
+          return await coreHandlers.documents.addFiles([file], documentKind);
         case 'attachments':
           return await coreHandlers.attachments.addFiles([file]);
         case 'restore':
@@ -509,13 +517,17 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
         }
 
         const fileName = decodeURIComponent(String(req.headers['x-file-name'] ?? ''));
+        // En-tête facultatif : seul un type connu est retenu, un intitulé
+        // fantaisiste est ignoré plutôt que de créer un sous-dossier inattendu.
+        const declared = String(req.headers['x-file-kind'] ?? '');
+        const documentKind = (['invoice', 'quote', 'credit'] as const).find((k) => k === declared);
         const body = await readBody(req, UPLOAD_LIMIT);
         if (!body.length) {
           sendJson(res, 400, { ok: false, error: 'Fichier vide.' });
           return;
         }
         try {
-          const result = await handleUpload(kind, fileName, body);
+          const result = await handleUpload(kind, fileName, body, documentKind);
           sendJson(res, 200, { ok: true, result: result ?? null });
         } catch (err) {
           sendJson(res, 400, { ok: false, error: (err as Error).message ?? String(err) });

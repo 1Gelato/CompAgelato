@@ -22,6 +22,10 @@ export * from '../electron/services/serverBackup';
 export * from '../electron/connection';
 export * from '../electron/remote';
 export * from '../electron/offline';
+// Dossiers du poste surveillés et envoyés au serveur : ni Electron ni chokidar
+// dans le cœur, donc exerçable contre un vrai serveur.
+export * from '../electron/folders';
+export { pendingFiles, uploadPending } from '../electron/services/uploadWatcher';
 export { CHANNELS } from '../shared/api';
 // Le magasin lui-même : sans Electron, il se pilote en Node. C'est ainsi qu'on
 // vérifie la restauration d'une sauvegarde venue d'une autre machine.
