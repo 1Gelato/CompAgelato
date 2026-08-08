@@ -64,6 +64,7 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
   const [emailing, setEmailing] = useState<AccountingDocument | null>(null);
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [confirmReread, setConfirmReread] = useState(false);
 
   // La fiche ouverte doit refléter les données rechargées après chaque écriture.
   useEffect(() => {
@@ -253,6 +254,20 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
           <Button icon={<Icons.download size={14} />} onClick={exportCsv} title="Exporter en CSV" />
           <Button icon={<Icons.plus size={14} />} onClick={addFiles} loading={adding}>
             Ajouter des pièces
+          </Button>
+          {/*
+            « Analyser le dossier » saute les fichiers inchangés — c'est ce qui
+            rend un passage quotidien instantané. Mais quand c'est le *lecteur*
+            qui a progressé, et non les fichiers, plus rien ne peut corriger les
+            pièces déjà en base : d'où cette relecture intégrale.
+          */}
+          <Button
+            icon={<Icons.refresh size={14} />}
+            onClick={() => setConfirmReread(true)}
+            loading={scanning}
+            title="Relire tous les fichiers, même ceux qui n’ont pas changé"
+          >
+            Tout relire
           </Button>
           <Button
             variant="primary"
@@ -454,6 +469,32 @@ export function Documents({ scanning, onScan }: { scanning: boolean; onScan: (fo
       )}
 
       {emailing && <EmailDialog document={emailing} onClose={() => setEmailing(null)} />}
+
+      <ConfirmDialog
+        open={confirmReread}
+        title="Relire tous les fichiers ?"
+        confirmLabel="Tout relire"
+        message={
+          <>
+            <p>
+              Les {documents.length} pièces déjà importées seront relues depuis leur fichier
+              d’origine, y compris celles qui n’ont pas changé. C’est ce qu’il faut faire après une
+              mise à jour qui améliore la lecture — sans quoi seules les nouvelles pièces en
+              profitent.
+            </p>
+            <p className="muted" style={{ marginTop: 8 }}>
+              Vos corrections manuelles sont conservées, ainsi que les repères d’impression et
+              d’envoi. Les pièces dont le stock est déjà déduit gardent leurs quantités. Sur
+              plusieurs centaines de fichiers, comptez une à deux minutes.
+            </p>
+          </>
+        }
+        onConfirm={() => {
+          setConfirmReread(false);
+          onScan(true);
+        }}
+        onCancel={() => setConfirmReread(false)}
+      />
     </>
   );
 }

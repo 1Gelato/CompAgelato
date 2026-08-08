@@ -66,8 +66,15 @@ statut à la main sur une pièce précise l'emporte sur le lecteur, et une pièc
 dont le stock est déjà sorti garde le sien — le mouvement, lui, a bien eu lieu.
 
 Si des brouillons avaient été importés avant que le lecteur ne sache les
-reconnaître, **Documents → Tout relire (forcer)** les rattrape : la relecture
-recalcule le statut des pièces que vous n'avez pas modifiées vous-même.
+reconnaître, **Documents → Tout relire** les rattrape : la relecture recalcule
+le statut des pièces que vous n'avez pas modifiées vous-même.
+
+**« Analyser le dossier » ne suffit pas dans ce cas**, et c'est voulu : il saute
+les fichiers inchangés, ce qui rend le passage quotidien instantané. Mais quand
+c'est le *lecteur* qui a progressé — et non les fichiers —, plus rien ne
+viendrait corriger les pièces déjà en base. **Tout relire** les reprend toutes,
+même inchangées. Vos corrections manuelles, vos repères d'impression et d'envoi
+et les quantités déjà déduites sont conservés.
 
 **Le cas d'une location, reprises comprises.** Vous partez avec une machine et
 dix cartons de mix, la brouillon annonce 1 200 €. Au retour, trois cartons
