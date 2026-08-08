@@ -36,7 +36,19 @@ client est enjambée plutôt que prise pour lui, les libellés de contact du ven
 (Tél., Port., Email...) qui se glissent dans l'adresse du client sont retirés, et l'appariement des colonnes du tableau
 d'articles respecte l'ordre gauche→droite plutôt que la seule position, ce qui
 évite qu'une valeur légèrement décalée (alignement à droite) ne tombe dans la
-mauvaise colonne.
+mauvaise colonne. Tout le pavé vendeur n'est pas étiqueté : le nom du gérant,
+imprimé seul en bas de la colonne de gauche, se retrouve fusionné avec la ligne
+de code postal du client — il est retiré lui aussi, sans quoi il s'invitait dans
+l'adresse de tous les clients.
+
+**Un interlocuteur n'est pas une adresse.** Certains logiciels de facturation
+obligent à choisir entre une raison sociale et un nom de personne : facturer une
+association ou une mairie en gardant le nom du contact impose alors de le ranger
+dans la première ligne d'adresse. CompaGelato le reconnaît et le range dans le
+champ **Contact** de la fiche, l'adresse postale restant propre. Le repère est
+étroit — ligne sans chiffre, suivie d'un numéro de voie — et dans le doute la
+ligne reste dans l'adresse : un contact manqué se rattrape, une adresse amputée
+non.
 
 Les fichiers d'origine ne sont **jamais** modifiés ni déplacés. Un fichier déjà
 importé et inchangé est ignoré : rescanner ne crée pas de doublon.
@@ -901,7 +913,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **143 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **149 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
@@ -936,6 +948,14 @@ npm run test:all
   change **après** la déduction du stock garde ses quantités déduites, et doit
   donc le dire — mais se taire quand le montant n'a pas bougé, et quand le
   total a été fixé à la main.
+- **6 de ces tests portent sur le bloc client d'une facture réelle** — pavé
+  vendeur et pavé client fusionnés colonne à colonne : la raison sociale
+  retenue comme nom plutôt que l'interlocuteur, l'interlocuteur sorti de
+  l'adresse postale et rangé en contact, le gérant du vendeur qui ne s'invite
+  pas dans l'adresse du client, le téléphone et l'e-mail qui restent ceux du
+  client — et les deux garde-fous : un client sans interlocuteur garde son
+  adresse entière, et une ligne d'adresse sans numéro de voie (« Place du
+  Marché ») n'est jamais prise pour un contact.
 - **13 de ces tests portent sur les sauvegardes automatiques** — et visent
   surtout ce qui rend une sauvegarde automatique digne de confiance plutôt que
   le fait qu'elle ait lieu : une base inchangée n'est pas réécrite (sans quoi

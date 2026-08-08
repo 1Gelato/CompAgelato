@@ -158,10 +158,12 @@ export function createClientFromDocument(
   siret?: string | null,
   email?: string | null,
   phone?: string | null,
+  contact?: string | null,
 ): Client {
   const parsed = parseAddressLine(address ?? '');
   return upsertClient({
     name: name.trim(),
+    contact: contact?.trim() || undefined,
     siret: siret ?? undefined,
     email: email ?? undefined,
     phone: phone ?? undefined,
@@ -175,8 +177,13 @@ export function createClientFromDocument(
  * Complète l'e-mail / le téléphone d'une fiche existante à partir d'un
  * document comptable, sans jamais écraser une valeur déjà saisie.
  */
-export function fillClientContact(id: ID, email?: string | null, phone?: string | null): void {
-  if (!email && !phone) return;
+export function fillClientContact(
+  id: ID,
+  email?: string | null,
+  phone?: string | null,
+  contact?: string | null,
+): void {
+  if (!email && !phone && !contact) return;
   store.mutate((db) => {
     const client = db.clients.find((c) => c.id === id);
     if (!client) return;
@@ -187,6 +194,10 @@ export function fillClientContact(id: ID, email?: string | null, phone?: string 
     }
     if (!client.phone && phone) {
       client.phone = phone;
+      changed = true;
+    }
+    if (!client.contact && contact?.trim()) {
+      client.contact = contact.trim();
       changed = true;
     }
     if (changed) client.updatedAt = nowIso();

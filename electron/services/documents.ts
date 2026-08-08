@@ -289,12 +289,13 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
       parsed.clientSiret,
       parsed.clientEmail,
       parsed.clientPhone,
+      parsed.clientContact,
     ).id;
     warnings.push('Nouvelle fiche client créée automatiquement.');
   } else if (clientId) {
     // Fiche déjà connue : on complète l'e-mail / le téléphone s'ils manquaient,
     // sans jamais écraser une valeur déjà saisie à la main.
-    fillClientContact(clientId, parsed.clientEmail, parsed.clientPhone);
+    fillClientContact(clientId, parsed.clientEmail, parsed.clientPhone, parsed.clientContact);
   }
 
   const totalHT = parsed.totalHT ?? 0;
@@ -519,6 +520,7 @@ export async function parseTabularDocuments(
       clientSiret: null,
       clientEmail: null,
       clientPhone: null,
+      clientContact: null,
       currency: 'EUR',
       totalHT: totalHT ?? (lines.length ? round2(lines.reduce((s, l) => s + (l.totalHT ?? 0), 0)) : null),
       totalVAT,

@@ -388,3 +388,77 @@ test('une facture définitive reste définitive', async () => {
   const doc = parsePdfDocument(await extractPdf(file), file);
   assert.equal(doc.draft, false);
 });
+
+/* ------------------------------------------------------------------ */
+/* Bloc client : raison sociale, interlocuteur, fuite du vendeur        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Gabarit réel d'une facture EURL O'GELATO : pavé vendeur à gauche, pavé client
+ * à droite, fusionnés ligne à ligne par l'extraction PDF. Le client est une
+ * association : sa fiche porte une raison sociale, et l'interlocuteur est rangé
+ * faute de place dans la première ligne d'adresse.
+ */
+const BLOC_DEUX_COLONNES = [
+  'Siret : **********0011',
+  'N° TVA : NC',
+  'N° client : CLT00000339',
+  'Tél. : 09 54 93 49 90   SNSM LE CROISIC',
+  'Port. : 06 98 72 20 40   LUCIE DEBEC',
+  'Email : contact@ogelato.fr   2 PLACE DU TREHIC',
+  'Monsieur Hervé GUEGUEN - GERANT   44490 LE CROISIC',
+  'FRANCE',
+  'N° Siret : NC',
+  'N° Siren : NC',
+  'Tel : 06 42 10 30 28',
+  'Email : lucile.dedec@snsm.org',
+];
+
+test('le nom retenu est la raison sociale, pas l’interlocuteur', () => {
+  assert.equal(extractClient(BLOC_DEUX_COLONNES).name, 'SNSM LE CROISIC');
+});
+
+test('l’interlocuteur sort de l’adresse et devient un contact', () => {
+  const { contact, address } = extractClient(BLOC_DEUX_COLONNES);
+  assert.equal(contact, 'LUCIE DEBEC');
+  assert.equal(address, '2 PLACE DU TREHIC, 44490 LE CROISIC');
+});
+
+test('le gérant du vendeur ne s’invite pas dans l’adresse du client', () => {
+  // Sans nettoyage, « Monsieur Hervé GUEGUEN - GERANT » — imprimé seul en bas du
+  // pavé de gauche — se collait à la ligne de code postal de chaque client.
+  const { address } = extractClient(BLOC_DEUX_COLONNES);
+  assert.ok(!/GUEGUEN/i.test(address), `nom du vendeur dans l’adresse : ${address}`);
+});
+
+test('le téléphone et l’e-mail retenus restent ceux du client', () => {
+  const { email, phone } = extractClient(BLOC_DEUX_COLONNES);
+  assert.equal(email, 'lucile.dedec@snsm.org');
+  assert.equal(phone, '0642103028');
+});
+
+test('un client sans interlocuteur garde son adresse entière', () => {
+  const { contact, address, name } = extractClient([
+    'Facturé à :',
+    'LES GLACES DU PORT',
+    '12 QUAI DU COMMERCE',
+    '56100 LORIENT',
+  ]);
+  assert.equal(name, 'LES GLACES DU PORT');
+  assert.equal(contact, null);
+  assert.equal(address, '12 QUAI DU COMMERCE, 56100 LORIENT');
+});
+
+test('une ligne d’adresse sans numéro de voie n’est pas prise pour un contact', () => {
+  // Le repère exige que la ligne suivante commence par un numéro : dans le
+  // doute, la ligne reste dans l'adresse. Une adresse amputée coûte plus cher
+  // qu'un contact manqué.
+  const { contact, address } = extractClient([
+    'Facturé à :',
+    'MAIRIE DE PORNICHET',
+    'Place du Marché',
+    '44380 PORNICHET',
+  ]);
+  assert.equal(contact, null);
+  assert.equal(address, 'Place du Marché, 44380 PORNICHET');
+});

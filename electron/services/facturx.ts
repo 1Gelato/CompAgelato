@@ -267,6 +267,7 @@ export function parseEInvoiceXml(xml: string): ParsedDocument | null {
     clientSiret,
     clientEmail,
     clientPhone,
+    clientContact: null,
     currency: currency || 'EUR',
     totalHT,
     totalVAT,

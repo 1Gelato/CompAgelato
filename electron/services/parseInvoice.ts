@@ -29,6 +29,8 @@ export interface ParsedDocument {
   clientSiret: string | null;
   clientEmail: string | null;
   clientPhone: string | null;
+  /** Interlocuteur nommé sur la pièce, quand il n'est pas le client lui-même. */
+  clientContact: string | null;
   currency: string;
   totalHT: number | null;
   totalVAT: number | null;
@@ -253,8 +255,39 @@ const PHONE_LABEL = /^(t[ée]l\.?|port\.?|mobile|gsm)\b/i;
  * repéré par le grand espacement laissé par les colonnes.
  */
 function stripSellerColumnNoise(line: string): string {
-  const match = line.match(/^(t[ée]l\.?|port\.?|fax|e-?mail|site\s*web|mobile)\b\s*[:.]?\s*.*?\s{2,}(.+)$/i);
-  return match ? match[2].trim() : line;
+  const labelled = line.match(/^(t[ée]l\.?|port\.?|fax|e-?mail|site\s*web|mobile)\b\s*[:.]?\s*.*?\s{2,}(.+)$/i);
+  if (labelled) return labelled[2].trim();
+  // Tout le bloc vendeur n'est pas étiqueté. Le nom du gérant, imprimé seul en
+  // bas du pavé de gauche (« Monsieur Hervé GUEGUEN - GERANT »), se retrouve
+  // fusionné avec la ligne de code postal du client — et atterrissait dans
+  // l'adresse de tous ses propres clients. Quand la partie droite commence par
+  // un code postal, elle est à elle seule la ligne d'adresse : ce qui la
+  // précède, de l'autre côté du grand espacement, vient de l'autre colonne.
+  const postcodeColumn = line.match(/^.*\S\s{2,}(\d{5}\s+\S.*)$/);
+  return postcodeColumn ? postcodeColumn[1].trim() : line;
+}
+
+/**
+ * Une ligne d'adresse qui est en fait le nom d'une personne.
+ *
+ * Certains logiciels de facturation obligent à choisir entre une raison
+ * sociale et un nom de personne. Facturer une association ou une mairie en
+ * gardant le nom de l'interlocuteur impose alors de le ranger dans la
+ * **première ligne d'adresse** — d'où « SNSM LE CROISIC / LUCIE DEBEC / 2
+ * PLACE DU TREHIC ». Ce n'est pas une adresse postale, c'est un contact.
+ *
+ * Le repère est volontairement étroit : aucun chiffre sur la ligne, et la
+ * suivante commence par un **numéro de voie** — un petit nombre, jamais un code
+ * postal à cinq chiffres, sans quoi « Place du Marché » suivi de « 44380
+ * PORNICHET » passerait pour un interlocuteur et l'adresse perdrait sa rue.
+ * Dans le doute, on laisse la ligne dans l'adresse : un contact manqué se
+ * rattrape, une adresse amputée non.
+ */
+function looksLikeContactLine(line: string, next: string | undefined): boolean {
+  const c = line.trim();
+  if (c.length < 3 || /\d/.test(c)) return false;
+  if (/^(france|belgique|suisse|luxembourg)$/i.test(c)) return false;
+  return !!next && /^\d{1,4}(?!\d)/.test(next.trim());
 }
 
 /** Un code client (« CL0012 », « CLT00000127 ») n'est pas un nom : lettres/chiffres, sans espace. */
@@ -268,11 +301,14 @@ export function extractClient(lines: string[]): {
   siret: string | null;
   email: string | null;
   phone: string | null;
+  /** Interlocuteur nommé dans le bloc client, quand il n'est pas le client. */
+  contact: string | null;
 } {
   let name: string | null = null;
   const addressParts: string[] = [];
   let email: string | null = null;
   let phone: string | null = null;
+  let contact: string | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -327,8 +363,9 @@ export function extractClient(lines: string[]): {
     // nom peut avoir été précédé d'une ligne d'identification du vendeur, qui
     // n'a rien à faire dans l'adresse du client.
     let addressDone = false;
-    for (const raw of candidates.slice(candidates.indexOf(nameFrom) + 1)) {
-      const c = stripSellerColumnNoise(raw);
+    const after = candidates.slice(candidates.indexOf(nameFrom) + 1);
+    for (let k = 0; k < after.length; k++) {
+      const c = stripSellerColumnNoise(after[k]);
       if (!email) {
         const found = c.match(EMAIL_RE);
         if (found) email = found[0];
@@ -338,6 +375,15 @@ export function extractClient(lines: string[]): {
         if (found) phone = found[0].replace(/[\s.-]/g, '');
       }
       if (addressDone) continue;
+      // Première ligne du bloc : c'est peut-être l'interlocuteur rangé faute de
+      // place ailleurs, auquel cas il ne fait pas partie de l'adresse postale.
+      if (!addressParts.length && !contact) {
+        const next = after[k + 1] ? stripSellerColumnNoise(after[k + 1]) : undefined;
+        if (looksLikeContactLine(c, next)) {
+          contact = c.replace(/\s{2,}/g, ' ').trim();
+          continue;
+        }
+      }
       addressParts.push(c.replace(/\s{2,}/g, ' ').trim());
       if (/\b\d{5}\b/.test(c)) addressDone = true; // code postal atteint → fin d'adresse
     }
@@ -356,6 +402,7 @@ export function extractClient(lines: string[]): {
     siret,
     email,
     phone,
+    contact,
   };
 }
 
@@ -659,6 +706,7 @@ export function parsePdfDocument(extract: PdfExtract, filePath: string): ParsedD
     clientSiret: client.siret,
     clientEmail: client.email,
     clientPhone: client.phone,
+    clientContact: client.contact,
     currency,
     totalHT: totals.totalHT,
     totalVAT: totals.totalVAT,
