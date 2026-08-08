@@ -270,11 +270,37 @@ export function extractClient(lines: string[]): {
     }
     if (!candidates.length) continue;
 
-    name = candidates[0].replace(/\s{2,}/g, ' ').trim();
+    // Le nom n'est pas forcément la première ligne rencontrée.
+    //
+    // Un gabarit très répandu place « N° client : CLT00000132 » dans le bloc
+    // de droite, juste au-dessus du « Siret : … » du **vendeur**, le nom du
+    // client n'arrivant qu'ensuite, collé à une étiquette de la colonne de
+    // gauche (« Tél. : 09 54 93 49 90   Monsieur THIERRY SALOMON »). Prendre la
+    // première ligne venue donnait alors « Siret : 80184990200011 » comme nom
+    // de client — sur toutes les factures du gabarit à la fois.
+    //
+    // Une ligne d'identification (SIRET, TVA, IBAN…) reste dans la liste, car
+    // elle sert à lire l'adresse et le contact ; elle ne peut simplement pas
+    // *être* le nom. On avance jusqu'à la première ligne qui en soit un.
+    const nameFrom = candidates.find((raw) => {
+      const c = stripSellerColumnNoise(raw).replace(/\s{2,}/g, ' ').trim();
+      if (c.length < 3) return false;
+      if (IDENTITY_LINE.test(c)) return false;
+      if (looksLikeReferenceCode(c)) return false;
+      // Une étiquette de contact seule (« Tél. : 09 54 93 49 90 ») n'est pas un
+      // nom ; celle qui traîne un nom derrière elle a déjà été nettoyée.
+      if (PHONE_LABEL.test(c) || EMAIL_RE.test(c)) return false;
+      return true;
+    });
+    if (!nameFrom) continue;
+    name = stripSellerColumnNoise(nameFrom).replace(/\s{2,}/g, ' ').trim();
     // L'adresse s'arrête au code postal, mais on continue de parcourir les
     // lignes suivantes (SIRET, téléphone, e-mail) pour récupérer le contact.
+    // Elle démarre **après le nom retenu**, et non après la première ligne : le
+    // nom peut avoir été précédé d'une ligne d'identification du vendeur, qui
+    // n'a rien à faire dans l'adresse du client.
     let addressDone = false;
-    for (const raw of candidates.slice(1)) {
+    for (const raw of candidates.slice(candidates.indexOf(nameFrom) + 1)) {
       const c = stripSellerColumnNoise(raw);
       if (!email) {
         const found = c.match(EMAIL_RE);

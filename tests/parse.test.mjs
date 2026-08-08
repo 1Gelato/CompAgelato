@@ -292,6 +292,27 @@ test('un code client (« CL9001 ») n’est jamais pris pour un nom', () => {
   assert.equal(name, 'LES GLACES DU PORT');
 });
 
+test('le SIRET du vendeur intercalé avant le nom du client n’est jamais pris pour ce nom', () => {
+  // Gabarit réel, constaté sur un lot entier de factures : la mention
+  // « N° client » est imprimée dans la colonne de droite, juste au-dessus du
+  // « Siret : » du **vendeur**, et le nom du client n'arrive qu'à la ligne
+  // suivante, collé à une étiquette de la colonne de gauche. Prendre la
+  // première ligne venue donnait « Siret : 80184990200011 » comme client sur
+  // toutes les pièces à la fois.
+  const { name, address } = extractClient([
+    "EURL O'GELATO",
+    '27 RUE JACQUES DAGUERRE',
+    '44600 - ST NAZAIRE CEDEX 4460   N° client : CLT00000132',
+    'Siret : 80184990200011',
+    'Tél. : 09 54 93 49 90   Monsieur THIERRY SALOMON',
+    'Port. : 06 98 72 20 40   385 chemin des chenes',
+    'Email : contact@ogelato.fr   26230 Grignan',
+  ]);
+  assert.equal(name, 'Monsieur THIERRY SALOMON');
+  // Et la ligne SIRET du vendeur ne s'invite pas non plus dans l'adresse.
+  assert.equal(address, '385 chemin des chenes, 26230 Grignan');
+});
+
 test('une ligne mélangeant vendeur et client par colonnes est nettoyée dans l’adresse', () => {
   const { address } = extractClient([
     'Siret : 00000000000000   N° client : CL9001',

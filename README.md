@@ -31,8 +31,9 @@ clients déjà connus.
 Certains logiciels de facturation impriment le bloc vendeur et le bloc client
 côte à côte, sur les mêmes lignes visuelles (« Siret : ...   N° client : ... »).
 CompaGelato détecte ce mélange — un code client n'est jamais pris pour un nom,
-les libellés de contact du vendeur (Tél., Port., Email...) qui se glissent dans
-l'adresse du client sont retirés, et l'appariement des colonnes du tableau
+une ligne d'identification du vendeur (« Siret : … ») intercalée avant le nom du
+client est enjambée plutôt que prise pour lui, les libellés de contact du vendeur
+(Tél., Port., Email...) qui se glissent dans l'adresse du client sont retirés, et l'appariement des colonnes du tableau
 d'articles respecte l'ordre gauche→droite plutôt que la seule position, ce qui
 évite qu'une valeur légèrement décalée (alignement à droite) ne tombe dans la
 mauvaise colonne.
@@ -869,7 +870,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **126 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **129 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
