@@ -301,6 +301,24 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
   const totalVAT = parsed.totalVAT ?? 0;
   const totalTTC = parsed.totalTTC ?? round2(totalHT + totalVAT);
 
+  // Une pièce dont le stock est déjà sorti garde ses lignes : les mouvements
+  // enregistrés doivent continuer de correspondre à ce qui a été déduit. Les
+  // totaux, eux, suivent le fichier. Si le montant a changé entre-temps — une
+  // facture corrigée, un brouillon devenu définitif —, la pièce afficherait
+  // donc un montant qui ne correspond plus à la marchandise sortie, sans que
+  // rien ne le signale. On le signale.
+  const totalChanged =
+    !!existing?.stockApplied &&
+    !existing.manualFields?.includes('totalHT') &&
+    round2(totalHT) !== round2(existing.totalHT);
+  if (totalChanged && existing) {
+    warnings.push(
+      `Montant modifié après la déduction du stock : ${existing.totalHT.toFixed(2)} € → ` +
+        `${round2(totalHT).toFixed(2)} € HT. Les quantités déduites sont restées celles de la ` +
+        'version précédente — annulez la déduction puis refaites-la pour que le stock suive.',
+    );
+  }
+
   const doc: AccountingDocument = {
     id: existing?.id ?? newId('doc'),
     kind,

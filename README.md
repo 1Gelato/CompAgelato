@@ -57,6 +57,21 @@ Si des brouillons avaient été importés avant que le lecteur ne sache les
 reconnaître, **Documents → Tout relire (forcer)** les rattrape : la relecture
 recalcule le statut des pièces que vous n'avez pas modifiées vous-même.
 
+**Le cas d'une location, reprises comprises.** Vous partez avec une machine et
+dix cartons de mix, la brouillon annonce 1 200 €. Au retour, trois cartons
+reviennent : la facture définitive tombe à 900 €. Les deux pièces portent des
+numéros différents, ce sont donc deux documents distincts — la brouillon reste
+visible au statut Brouillon (pratique pour savoir ce qui est parti), et seule la
+définitive compte : **900 € de chiffre d'affaires, sept cartons sortis du
+stock**. Vous n'avez aucune reprise à saisir nulle part : la facture définitive
+est déjà le net, c'est elle qui fait foi.
+
+Un cas seulement demande votre attention, et le logiciel vous le signale : une
+pièce **relue sous le même numéro** avec un montant différent **après** que son
+stock a été déduit. Les quantités déduites restent alors celles de la version
+précédente — l'avertissement vous dit de quel montant à quel montant, et il
+suffit d'annuler la déduction puis de la refaire.
+
 **Vos corrections tiennent.** Si vous rattachez une facture au bon client,
 rectifiez un total mal lu ou saisissez une échéance, une relecture du fichier ne
 défait rien : les champs corrigés à la main sont mémorisés comme tels. Les
@@ -886,7 +901,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **133 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **143 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
@@ -908,7 +923,7 @@ npm run test:all
   par « À propos », qui doit **changer** quand le dépôt reçoit un commit de
   plus : c'est toute son utilité, puisque le numéro de version, lui, ne bouge
   jamais.
-- **11 de ces tests portent sur les factures brouillon** — parce que l'erreur
+- **14 de ces tests portent sur les factures brouillon** — parce que l'erreur
   qu'ils empêchent est silencieuse : une pièce provisoire comptée comme
   définitive gonfle le chiffre d'affaires et vide le stock une fois de trop,
   sans que rien ne le signale. Sont vérifiés la reconnaissance au titre comme
@@ -917,6 +932,10 @@ npm run test:all
   chiffre d'affaires, du stock appliqué en masse et du compteur « en attente »,
   la relecture qui rattrape une pièce importée avant que le lecteur ne sache la
   reconnaître, et le statut choisi à la main qui tient bon face au lecteur.
+  Trois portent sur l'écart qu'on ne voyait pas : une pièce dont le montant
+  change **après** la déduction du stock garde ses quantités déduites, et doit
+  donc le dire — mais se taire quand le montant n'a pas bougé, et quand le
+  total a été fixé à la main.
 - **13 de ces tests portent sur les sauvegardes automatiques** — et visent
   surtout ce qui rend une sauvegarde automatique digne de confiance plutôt que
   le fait qu'elle ait lieu : une base inchangée n'est pas réécrite (sans quoi

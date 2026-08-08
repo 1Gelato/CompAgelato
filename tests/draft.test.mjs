@@ -113,3 +113,41 @@ test('un statut choisi à la main tient bon face au lecteur', () => {
   const relu = ingestParsedDocument(parsed('BRO00001042', { draft: true }), { sourceFormat: 'pdf' });
   assert.equal(relu.status, 'paid', 'la décision de l’utilisateur l’emporte');
 });
+
+test('un montant qui change après la déduction du stock ne passe pas en silence', () => {
+  // Cas réel : une pièce corrigée, ou un brouillon devenu facture définitive
+  // sous le même numéro. Les lignes restent figées pour que les mouvements de
+  // stock enregistrés gardent un sens — mais l'écart doit être dit.
+  const doc = ingestParsedDocument(parsed('FAC00005555', { ht: 500 }), { sourceFormat: 'pdf' });
+  dataStore.mutate(() => {
+    doc.stockApplied = true;
+  });
+  const relu = ingestParsedDocument(parsed('FAC00005555', { ht: 800 }), { sourceFormat: 'pdf' });
+  assert.equal(relu.totalHT, 800);
+  assert.ok(
+    relu.warnings.some((w) => /Montant modifié après la déduction du stock/.test(w)),
+    `aucun avertissement : ${JSON.stringify(relu.warnings)}`,
+  );
+});
+
+test('un montant inchangé ne déclenche aucun avertissement', () => {
+  const doc = ingestParsedDocument(parsed('FAC00006666', { ht: 500 }), { sourceFormat: 'pdf' });
+  dataStore.mutate(() => {
+    doc.stockApplied = true;
+  });
+  const relu = ingestParsedDocument(parsed('FAC00006666', { ht: 500 }), { sourceFormat: 'pdf' });
+  assert.deepEqual(relu.warnings, []);
+});
+
+test('un total corrigé à la main n’est pas signalé comme un écart', () => {
+  // Le lecteur relit 800 € mais l'utilisateur a fixé 500 € : c'est sa valeur
+  // qui est conservée, il n'y a donc aucun écart à signaler.
+  const doc = ingestParsedDocument(parsed('FAC00007777', { ht: 500 }), { sourceFormat: 'pdf' });
+  dataStore.mutate(() => {
+    doc.stockApplied = true;
+    doc.manualFields = ['totalHT'];
+  });
+  const relu = ingestParsedDocument(parsed('FAC00007777', { ht: 800 }), { sourceFormat: 'pdf' });
+  assert.equal(relu.totalHT, 500);
+  assert.deepEqual(relu.warnings, []);
+});
