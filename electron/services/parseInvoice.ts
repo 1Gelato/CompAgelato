@@ -21,6 +21,12 @@ export interface ParsedDocument {
    * facture arrive ensuite, et la vente serait comptée deux fois.
    */
   draft: boolean;
+  /**
+   * Le type a-t-il été lu sur la pièce, ou seulement supposé ? Voir
+   * `detectKindDetailed` : c'est ce qui décide si le classement du dossier
+   * d'origine peut le contredire.
+   */
+  kindSure: boolean;
   number: string;
   date: string | null;
   dueDate: string | null;
@@ -51,13 +57,41 @@ export interface ParsedDocument {
 /* ------------------------------------------------------------------ */
 
 export function detectKind(text: string, fileName = ''): DocumentKind {
+  return detectKindDetailed(text, fileName).kind;
+}
+
+/**
+ * Le type, et surtout : est-il **lu** ou seulement supposé ?
+ *
+ * La distinction décide d'un conflit réel. Un poste désigne des dossiers à
+ * envoyer au serveur (« ici mes factures, là mes devis ») et ce classement sert
+ * d'indice au lecteur. Mais l'étiquette peut être fausse — un dossier de devis
+ * déclaré « Factures » d'un clic de trop —, et sans cette certitude l'indice
+ * écrasait ce que la pièce disait d'elle-même : des centaines de devis rangés
+ * en factures, gonflant le chiffre d'affaires et réclamant des sorties de stock
+ * qu'un devis ne fait jamais.
+ *
+ * `sure` est donc vrai dès que le type vient du document — son titre ou son
+ * nom de fichier — et faux pour le seul cas où rien n'a été lu et où l'on
+ * retombe sur « facture », le type le plus courant. Là, et là seulement,
+ * l'indice du dossier a le dernier mot.
+ */
+export function detectKindDetailed(
+  text: string,
+  fileName = '',
+): { kind: DocumentKind; sure: boolean } {
   const head = normalize(`${fileName} ${text.slice(0, 1200)}`);
-  if (/\bavoir\b|note de credit|credit note/.test(head)) return 'credit';
-  if (/\bdevis\b|proforma|pro forma|quotation|estimate/.test(head)) return 'quote';
-  if (/\bfacture\b|invoice|\bfa\b/.test(head)) return 'invoice';
-  // Repli sur le nom de fichier / dossier.
-  if (/devis|dev[-_]?\d/.test(normalize(fileName))) return 'quote';
-  return 'invoice';
+  if (/\bavoir\b|note de credit|credit note/.test(head)) return { kind: 'credit', sure: true };
+  if (/\bdevis\b|proforma|pro forma|quotation|estimate/.test(head)) {
+    return { kind: 'quote', sure: true };
+  }
+  if (/\bfacture\b|invoice|\bfa\b/.test(head)) return { kind: 'invoice', sure: true };
+  // Repli sur le nom de fichier : « DEV00000622.pdf » dit ce qu'il est.
+  // L'espace est obligatoire dans l'alternative : `normalize` sépare lettres et
+  // chiffres, si bien que « DEV00000622 » devient « dev 00000622 » — sans lui,
+  // ce repli ne se déclenchait jamais sur les noms des logiciels de facturation.
+  if (/devis|\bdev[-_ ]?\d/.test(normalize(fileName))) return { kind: 'quote', sure: true };
+  return { kind: 'invoice', sure: false };
 }
 
 /**
@@ -663,7 +697,7 @@ export function parsePdfDocument(extract: PdfExtract, filePath: string): ParsedD
   const fullText = textLines.join('\n');
   const fileName = path.basename(filePath);
 
-  const kind = detectKind(fullText, fileName);
+  const { kind, sure: kindSure } = detectKindDetailed(fullText, fileName);
   const number = extractNumber(fullText, filePath);
   const draft = detectDraft(fullText, fileName, number.value);
   const { date, dueDate } = extractDates(textLines);
@@ -697,6 +731,7 @@ export function parsePdfDocument(extract: PdfExtract, filePath: string): ParsedD
 
   return {
     kind,
+    kindSure,
     draft,
     number: number.value,
     date,

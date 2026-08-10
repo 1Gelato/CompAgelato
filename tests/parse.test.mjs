@@ -6,6 +6,7 @@ import {
   extractPdf,
   parsePdfDocument,
   detectDraft,
+  detectKindDetailed,
   parseEInvoiceXml,
   extractClient,
   isWatermarkItem,
@@ -461,4 +462,43 @@ test('une ligne d’adresse sans numéro de voie n’est pas prise pour un conta
   ]);
   assert.equal(contact, null);
   assert.equal(address, 'Place du Marché, 44380 PORNICHET');
+});
+
+/* ------------------------------------------------------------------ */
+/* Type lu ou supposé : qui l'emporte sur le classement du dossier      */
+/* ------------------------------------------------------------------ */
+
+test('un titre DEVIS est une lecture, pas une supposition', () => {
+  const r = detectKindDetailed('DEVIS\nN° : DEV00000622', 'DEV00000622.pdf');
+  assert.deepEqual(r, { kind: 'quote', sure: true });
+});
+
+test('le nom de fichier d’un logiciel de facturation suffit', () => {
+  // « DEV00000622 » devient « dev 00000622 » une fois normalisé : le repli
+  // doit tolérer cette séparation, sinon il ne se déclenche jamais.
+  const r = detectKindDetailed('Prestation location machine', 'DEV00000622.pdf');
+  assert.deepEqual(r, { kind: 'quote', sure: true });
+});
+
+test('un document illisible retombe sur « facture », en le disant', () => {
+  // C'est le seul cas où le classement du dossier a le dernier mot.
+  const r = detectKindDetailed('Document scanné illisible', 'scan001.pdf');
+  assert.deepEqual(r, { kind: 'invoice', sure: false });
+});
+
+test('un mot qui commence par « dev » n’est pas un devis', () => {
+  const r = detectKindDetailed('Prestation', 'developpement-2026.pdf');
+  assert.equal(r.kind, 'invoice');
+  assert.equal(r.sure, false);
+});
+
+test('avoir et facture restent reconnus, et sûrs', () => {
+  assert.deepEqual(detectKindDetailed('AVOIR N° AV-12', 'AV-12.pdf'), {
+    kind: 'credit',
+    sure: true,
+  });
+  assert.deepEqual(detectKindDetailed('FACTURE\nN° : FAC00002222', 'FAC00002222.pdf'), {
+    kind: 'invoice',
+    sure: true,
+  });
 });

@@ -28,6 +28,15 @@ Un document dont le nom du client n'est précédé d'aucun libellé (« Client :
 « Facturé à »…) est tout de même rattaché : le texte de la pièce est comparé aux
 clients déjà connus.
 
+**La pièce a le dernier mot sur son type.** Vous pouvez désigner des dossiers à
+envoyer au serveur en les étiquetant « Factures », « Devis » ou « Avoirs ». Cette
+étiquette n'est qu'un **indice** : si le document dit ce qu'il est — par son
+titre ou par son nom de fichier —, c'est lui qui l'emporte. Un dossier de devis
+déclaré « Factures » d'un clic de trop ne transforme donc pas des centaines de
+devis en factures, ce qui gonflerait le chiffre d'affaires et réclamerait des
+sorties de stock qu'un devis ne fait jamais. L'étiquette du dossier ne décide
+que dans le seul cas où rien n'a pu être lu.
+
 Certains logiciels de facturation impriment le bloc vendeur et le bloc client
 côte à côte, sur les mêmes lignes visuelles (« Siret : ...   N° client : ... »).
 CompaGelato détecte ce mélange — un code client n'est jamais pris pour un nom,
@@ -945,7 +954,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **164 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **169 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
@@ -967,6 +976,13 @@ npm run test:all
   par « À propos », qui doit **changer** quand le dépôt reçoit un commit de
   plus : c'est toute son utilité, puisque le numéro de version, lui, ne bouge
   jamais.
+- **5 de ces tests portent sur le type de la pièce** — non pas « sait-on lire
+  DEVIS », mais « sait-on qu'on l'a lu » : c'est cette certitude qui décide si
+  le classement d'un dossier peut contredire le document. Sont vérifiés le
+  titre, le nom de fichier d'un logiciel de facturation (« DEV00000622 »
+  devient « dev 00000622 » une fois normalisé — sans tolérer cette séparation,
+  le repli ne se déclenchait jamais), le document illisible qui l'admet, et
+  « developpement-2026.pdf » qui n'est pas un devis.
 - **15 de ces tests portent sur les notifications du poste** — parce que la
   règle qui les rend supportables est aussi celle qu'on casse sans s'en
   apercevoir : ne jamais notifier l'auteur de son propre geste. Sont vérifiés

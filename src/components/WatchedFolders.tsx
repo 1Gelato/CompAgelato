@@ -66,9 +66,12 @@ export function WatchedFolders({
       setBusy(true);
       const all = await window.api.folders.save({ path: picked, kind });
       setFolders(all.filter((f) => kinds.includes(f.kind)));
+      // Le type est nommé : le sélecteur est petit et démarre sur « Factures »,
+      // si bien qu'un dossier de devis pouvait être déclaré facture sans que
+      // rien ne le dise. Le lecteur ne s'y trompe plus, mais l'utilisateur si.
       toast.push({
         tone: 'success',
-        title: 'Dossier surveillé',
+        title: `Dossier surveillé comme « ${KIND_LABEL[kind]} »`,
         text: 'Ce qui s’y trouve déjà part au serveur, et tout nouveau fichier suivra.',
       });
     } catch (err) {

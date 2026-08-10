@@ -251,7 +251,10 @@ function autoStatus(
  */
 export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext): AccountingDocument {
   const settings = store.settings;
-  const kind = ctx.kindHint ?? parsed.kind;
+  // Ce que la pièce dit d'elle-même l'emporte sur le dossier d'où elle vient :
+  // un dossier de devis déclaré « Factures » ne transforme pas des devis en
+  // factures. L'indice du dossier ne sert que lorsque rien n'a pu être lu.
+  const kind = parsed.kindSure ? parsed.kind : (ctx.kindHint ?? parsed.kind);
 
   // Un même numéro de pièce ne doit exister qu'une fois.
   const existing = store.db.documents.find(
@@ -473,11 +476,14 @@ export async function parseTabularDocuments(
     const head = rows[0];
     const warnings: string[] = [];
 
+    // Un journal de ventes porte parfois une colonne « type ». Quand elle est
+    // là, elle est lue ; sinon le classement du dossier reste le seul indice.
     const kindRaw = normalize(get(head, 'kind') ?? '');
     let kind: DocumentKind = kindHint ?? 'invoice';
-    if (kindRaw.includes('devis') || kindRaw.includes('proforma')) kind = 'quote';
-    else if (kindRaw.includes('avoir')) kind = 'credit';
-    else if (kindRaw.includes('facture')) kind = 'invoice';
+    let kindSure = false;
+    if (kindRaw.includes('devis') || kindRaw.includes('proforma')) (kind = 'quote'), (kindSure = true);
+    else if (kindRaw.includes('avoir')) (kind = 'credit'), (kindSure = true);
+    else if (kindRaw.includes('facture')) (kind = 'invoice'), (kindSure = true);
 
     const lines: ParsedLine[] = hasLineDetail
       ? rows
@@ -513,6 +519,7 @@ export async function parseTabularDocuments(
       // Une ligne de journal de ventes décrit une pièce déjà émise : le
       // caractère provisoire, lui, se lit sur le document lui-même.
       draft: false,
+      kindSure,
       number,
       date: parseDate(get(head, 'date')),
       dueDate: parseDate(get(head, 'dueDate')),
