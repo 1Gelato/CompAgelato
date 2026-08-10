@@ -182,6 +182,23 @@ const DOCUMENT_META =
   /valable jusqu|date d emission|bon pour accord|date et signature|devis gratuit|conditions? (generale|de vente)|acompte demande|reglement|echeance/;
 
 /**
+ * « Libellé : valeur » propre au document.
+ *
+ * Sur les gabarits à deux colonnes, la ligne pays du vendeur fusionne avec le
+ * champ que le logiciel imprime en face : « FRANCE  Date de livraison :
+ * 03/07/2026 », « FRANCE  N° TVA : NC ». Énumérer ces mentions une par une
+ * était sans fin — on reconnaît la FORME, un intitulé suivi de deux-points, et
+ * la liste des intitulés reste celle des champs d'un en-tête de pièce.
+ *
+ * Testé sur la chaîne brute : `normalize` retire la ponctuation.
+ */
+const DOCUMENT_LABEL =
+  /\b(dates?|n[°ºo]|num[ée]ros?|r[ée]f(?:[ée]rence)?|tva|siret|siren|client|devis|factures?|avoirs?|[ée]ch[ée]ances?|acomptes?|r[èe]glements?|livraison|[ée]mission|validit[ée]|page)\b[^:\n]{0,24}:/i;
+
+/** Une date écrite sur la ligne : mention du document, jamais un nom. */
+const CONTAINS_DATE = /\b\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}\b/;
+
+/**
  * Cette chaîne peut-elle être le nom d'un client ?
  *
  * Garde-fou volontairement étroit : il n'essaie pas de reconnaître un vrai nom
@@ -190,9 +207,12 @@ const DOCUMENT_META =
  * rattache la pièce au mauvais client et, pire, le mémorise.
  */
 export function looksLikeClientName(value: string): boolean {
-  const n = normalize(value);
+  const raw = String(value ?? '').trim();
+  const n = normalize(raw);
   if (n.length < 3) return false;
   if (COUNTRY_ONLY.test(n)) return false;
+  if (CONTAINS_DATE.test(raw)) return false;
+  if (DOCUMENT_LABEL.test(raw)) return false;
   if (DOCUMENT_META.test(n)) return false;
   return true;
 }

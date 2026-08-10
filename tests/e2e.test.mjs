@@ -491,12 +491,11 @@ test('la surveillance du dossier importe un fichier déposé sans intervention',
   const dropped = path.join(watchFolder, 'Factures', 'FA-2026-0199.pdf');
   // Les chemins sont enregistrés relativement au dossier de travail.
   const droppedRelative = 'Factures/FA-2026-0199.pdf';
-  fs.copyFileSync(path.join(pdfDir, 'FA-2026-0143.pdf'), dropped);
-  // Contenu rendu unique : une copie byte-à-byte d'une pièce déjà en base est
-  // désormais reconnue comme la même pièce (même empreinte) et comptée une
-  // seule fois — c'est voulu. Ce test-ci vérifie autre chose : qu'un fichier
-  // NOUVEAU déposé pendant que le logiciel tourne est repris tout seul.
-  fs.appendFileSync(dropped, '\n% exemplaire distinct pour le test\n');
+  // Une pièce réellement distincte de celles déjà en base : recopier une
+  // facture existante n'aurait vérifié que le dédoublonnage (même numéro, même
+  // contenu ⇒ même pièce, à juste titre), pas ce qu'on veut voir ici — qu'un
+  // fichier NOUVEAU déposé pendant que le logiciel tourne est repris seul.
+  fs.copyFileSync(path.join(pdfDir, 'FA-2026-DEUXCOL.pdf'), dropped);
 
   // La surveillance attend la fin d'écriture puis regroupe les événements.
   const deadline = Date.now() + 30000;
@@ -509,10 +508,9 @@ test('la surveillance du dossier importe un fichier déposé sans intervention',
 
   const imported = documents.find((d) => d.sourceFile === droppedRelative);
   assert.ok(imported, `fichier non repris automatiquement (${documents.length} document(s) en base)`);
-  assert.equal(imported.totalHT, 143.7);
-  // Même contenu qu'une facture déjà connue : le numéro lu est identique,
-  // la pièce est donc mise à jour plutôt que dupliquée.
-  assert.equal(documents.length, before);
+  assert.equal(imported.totalHT, 96.3);
+  // Une pièce de plus : c'est bien un ajout, pas la mise à jour d'une autre.
+  assert.equal(documents.length, before + 1);
 
   await page.evaluate(() => window.api.settings.update({ autoScan: false }));
 });

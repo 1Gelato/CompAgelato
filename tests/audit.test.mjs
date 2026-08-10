@@ -21,6 +21,7 @@ import {
   saveFolder,
   removeFolder,
   matchClient,
+  looksLikeClientName,
 } from './build/services.mjs';
 
 /**
@@ -481,4 +482,109 @@ test('un alias portant le nom d’une autre fiche n’attire plus les pièces', 
   const vraie = { id: 'cli_v', name: 'Madame HYACINTHE GNAWA', aliases: [], archived: false };
   const match = matchClient([pollue, vraie], 'Madame HYACINTHE GNAWA');
   assert.equal(match?.client.id, 'cli_v', 'l’alias parasite gagne encore');
+});
+
+/* ------------------------------------------------------------------ */
+/* Les quatre gabarits réels d'EURL O'GELATO                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Tous impriment le pavé vendeur à gauche et le client à droite, fusionnés
+ * ligne à ligne. La ligne « FRANCE » du vendeur se retrouve donc collée au
+ * champ que le logiciel imprime en face — et se présentait comme un nom de
+ * client. Énumérer ces mentions une par une était sans fin : « valable
+ * jusqu'au » était couvert, « Date de livraison » et « N° TVA » ne l'étaient
+ * pas. C'est la forme qui est reconnue désormais.
+ */
+const GABARITS = {
+  'bon de livraison': {
+    lignes: [
+      'BON DE LIVRAISON',
+      "EURL O'GELATO                    N° : BDL00000308",
+      "27 RUE JACQUES DAGUERRE          Date d'émission : 03/07/2026",
+      '44600 - ST NAZAIRE CEDEX 4460    N° client : CL0280',
+      'FRANCE                           Date de livraison : 03/07/2026',
+      'Siret : 80184990200011',
+      "L'ERE GLACIERE ***",
+      'Tél. : 09 54 93 49 90            Fabrice ABRARD',
+      'Port. : 06 98 72 20 40           7 Rue des Ajoncs',
+      'Email : contact@ogelato.fr       56410 Erdeven',
+      'FRANCE',
+      'Tel 1 : 02 90 74 41 13',
+    ],
+    nom: "L'ERE GLACIERE ***",
+    contact: 'Fabrice ABRARD',
+  },
+  "facture d'acompte": {
+    lignes: [
+      "FACTURE D'ACOMPTE",
+      "EURL O'GELATO                    N° : FAC00000755",
+      '44600 - ST NAZAIRE CEDEX 4460    En référence : DEV00000411',
+      'FRANCE                           N° TVA : NC',
+      'Siret : 80184990200011           N° client : CLT00000194',
+      'Tél. : 09 54 93 49 90            AB Airlines',
+      'Port. : 06 98 72 20 40           FRÉDÉRIC LE TROADEC',
+      'Email : contact@ogelato.fr       5 PLACE DE LA LIBERTÉ',
+      'Monsieur Hervé GUEGUEN - GERANT  29200 BREST',
+      'FRANCE',
+    ],
+    nom: 'AB Airlines',
+    contact: 'FRÉDÉRIC LE TROADEC',
+  },
+  'devis (client nommé)': {
+    lignes: [
+      'DEVIS',
+      "EURL O'GELATO                    N° : DEV00000614",
+      '44600 - ST NAZAIRE CEDEX 4460    N° client : CLT00000362',
+      "FRANCE                           Devis valable jusqu'au 29/08/2026",
+      'Siret : 80184990200011',
+      'Monsieur COLINE DIAS',
+      'Tél. : 09 54 93 49 90            HALLE MARTENOT',
+      'Port. : 06 98 72 20 40           PLACE DES LICES',
+      'Email : contact@ogelato.fr       35000 RENNES',
+      'FRANCE',
+    ],
+    nom: 'Monsieur COLINE DIAS',
+    contact: null,
+  },
+};
+
+for (const [gabarit, attendu] of Object.entries(GABARITS)) {
+  test(`gabarit « ${gabarit} » : le client lu est celui du document`, () => {
+    const { name, contact } = extractClient(attendu.lignes);
+    assert.equal(name, attendu.nom);
+    if (attendu.contact) assert.equal(contact, attendu.contact);
+  });
+}
+
+test('une mention du document collée au pays du vendeur n’est pas un nom', () => {
+  // La forme, pas la liste : un intitulé suivi de deux-points, ou une date sur
+  // la ligne. C'est ce qui a fait attribuer des centaines de pièces au même
+  // client — le nom lu, identique d'une pièce à l'autre, était mémorisé comme
+  // alias et attirait ensuite tout le reste.
+  for (const mention of [
+    'FRANCE Date de livraison : 03/07/2026',
+    'FRANCE N° TVA : NC',
+    "FRANCE Devis valable jusqu'au 29/08/2026",
+    'FRANCE En référence : DEV00000411',
+    "FRANCE Date d'émission : 03/07/2026",
+    'FRANCE N° client : CL0280',
+  ]) {
+    assert.equal(looksLikeClientName(mention), false, `accepté à tort : ${mention}`);
+  }
+});
+
+test('les vrais noms de clients passent toujours', () => {
+  for (const nom of [
+    "L'ERE GLACIERE ***",
+    'AB Airlines',
+    'Monsieur COLINE DIAS',
+    'Madame NATHALIE GARDY',
+    'SAS LE CAP Brasserie 1930',
+    'ACCOORD - Centre socioculturel',
+    'EARL De Le Pierre de Py',
+    'FRANCE BOISSONS',
+  ]) {
+    assert.equal(looksLikeClientName(nom), true, `rejeté à tort : ${nom}`);
+  }
 });

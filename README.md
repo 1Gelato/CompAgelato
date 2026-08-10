@@ -50,6 +50,15 @@ imprimé seul en bas de la colonne de gauche, se retrouve fusionné avec la lign
 de code postal du client — il est retiré lui aussi, sans quoi il s'invitait dans
 l'adresse de tous les clients.
 
+**Une mention du document n'est jamais un nom de client.** Sur les gabarits à
+deux colonnes, la ligne « FRANCE » du pavé vendeur fusionne avec le champ
+imprimé en face : « FRANCE  Date de livraison : 03/07/2026 », « FRANCE  N° TVA :
+NC ». Ces lignes se présentaient comme des noms de clients — et comme elles sont
+identiques d'une pièce à l'autre, elles rattachaient des centaines de pièces au
+même client. CompaGelato reconnaît désormais leur **forme** — un intitulé suivi
+de deux-points, ou une date sur la ligne — plutôt qu'une liste de mentions à
+rallonge, qui laissait toujours passer la suivante.
+
 **Le bloc client n'est pas toujours là où on le cherche.** Sur certains
 gabarits, « N° client : » est imprimé en haut à droite tandis que le bloc client
 arrive bien plus bas : la lecture traverse d'abord toute la colonne du vendeur.
@@ -996,7 +1005,7 @@ assumée : un fichier monté au serveur sous une mauvaise étiquette reste
 rangé dans le sous-dossier de l'étiquette (le type en base, lui, est le bon,
 et les copies en double n'oscillent plus).
 
-- **207 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **212 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
