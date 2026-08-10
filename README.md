@@ -85,6 +85,14 @@ explicite : **Réglages → Réparer les rattachements clients → Oublier les
 orthographes apprises**, puis **Documents → Tout relire**. Vos fiches, vos
 pièces et vos rattachements corrigés à la main ne sont pas touchés.
 
+**Un nom non reconnu n'est jamais rattaché au jugé.** Une pièce n'est reliée à
+un client que sur une certitude : même SIRET, même nom, ou une orthographe que
+vous avez vous-même confirmée. Quand le nom lu ne correspond à rien, la pièce
+reste **sans client** — visible, corrigeable en un clic — et le voisin le plus
+proche n'est qu'une piste écrite dans les avertissements. Rattacher « au plus
+proche » attribuait des dizaines de pièces à un client vu deux fois dans
+l'année, sans que rien ne permette de s'en apercevoir.
+
 **Un rapprochement par ressemblance reste une hypothèse.** Quand une pièce est
 rattachée à un client par ressemblance, l'orthographe lue n'est plus mémorisée
 dans la fiche. Elle l'était, et cela transformait une supposition en certitude :
@@ -1015,7 +1023,7 @@ assumée : un fichier monté au serveur sous une mauvaise étiquette reste
 rangé dans le sous-dossier de l'étiquette (le type en base, lui, est le bon,
 et les copies en double n'oscillent plus).
 
-- **213 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **215 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,

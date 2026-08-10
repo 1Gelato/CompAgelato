@@ -501,9 +501,19 @@ app.whenReady().then(async () => {
     if (!isOffline()) {
       void pullNow().catch(() => markOffline());
     }
-    const upkeep = setInterval(() => {
-      if (!isOffline()) schedulePull();
-    }, 5 * 60_000);
+    // Entretien : synchronisation régulière quand tout va bien, tentative de
+    // reconnexion quand le serveur a lâché. Sans cette seconde branche, un
+    // poste passé hors ligne y restait : seule la réouverture du flux
+    // d'événements le ramenait, et si ce flux n'avait jamais coupé — un simple
+    // appel en délai dépassé suffit à passer hors ligne — plus rien ne le
+    // rattrapait. Il fallait alors réenregistrer l'adresse et redémarrer.
+    const upkeep = setInterval(
+      () => {
+        if (isOffline()) void backOnline();
+        else schedulePull();
+      },
+      60_000,
+    );
     upkeep.unref();
 
     // Copie de sécurité du poste. Le miroir hors-ligne permet de *travailler*

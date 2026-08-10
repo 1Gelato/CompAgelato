@@ -622,3 +622,72 @@ test('oublier les orthographes apprises libère les pièces mal rattachées', ()
   assert.equal(dataStore.db.clients.length, 1);
   assert.equal(dataStore.db.clients[0].name, 'Rondeau Vincent');
 });
+
+test('un nom non reconnu ne rattache RIEN, il propose', () => {
+  // Règle demandée, et la bonne : rattacher « au plus proche » attribuait des
+  // dizaines de pièces à un client vu deux fois dans l'année, sans que
+  // personne puisse s'en apercevoir. Mieux vaut une pièce sans client, visible
+  // et corrigeable, qu'une pièce faussement rattachée.
+  dataStore.mutate((db) => {
+    db.clients.length = 0;
+    db.clients.push({
+      id: 'cli_r',
+      code: 'C1',
+      name: 'Rondeau Vincent',
+      address: {},
+      tags: [],
+      aliases: [],
+      archived: false,
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    });
+    db.settings.autoCreateClients = false;
+  });
+  const doc = ingestParsedDocument(
+    // Assez proche pour franchir le seuil de ressemblance (85 %), et pourtant
+    // ce n'est pas lui : c'est exactement le cas qui faisait les dégâts.
+    piece('FAC-INCONNU', { clientName: 'Rondeau Vincent SARL' }),
+    { sourceFormat: 'pdf', filePath: '/srv/Factures/FAC-INCONNU.pdf', sourceHash: 'hInconnu' },
+  );
+  assert.equal(doc.clientId, undefined, 'la pièce a été rattachée au jugé');
+  assert.ok(
+    doc.warnings.some((w) => /Client non reconnu/.test(w) && /Rondeau Vincent/.test(w)),
+    `la piste devrait être proposée : ${JSON.stringify(doc.warnings)}`,
+  );
+});
+
+test('un nom exact, un SIRET ou une orthographe confirmée rattachent toujours', () => {
+  dataStore.mutate((db) => {
+    db.clients.length = 0;
+    db.clients.push({
+      id: 'cli_exact',
+      code: 'C1',
+      name: 'AB Airlines',
+      siret: '81234567800019',
+      address: {},
+      tags: [],
+      aliases: ['ABAIRLINES'],
+      archived: false,
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    });
+    db.settings.autoCreateClients = false;
+  });
+  const parNom = ingestParsedDocument(piece('FAC-N', { clientName: 'AB Airlines' }), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Factures/FAC-N.pdf',
+    sourceHash: 'hN',
+  });
+  const parAlias = ingestParsedDocument(piece('FAC-A', { clientName: 'ABAIRLINES' }), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Factures/FAC-A.pdf',
+    sourceHash: 'hA',
+  });
+  const parSiret = ingestParsedDocument(
+    piece('FAC-S', { clientName: 'illisible', clientSiret: '81234567800019' }),
+    { sourceFormat: 'pdf', filePath: '/srv/Factures/FAC-S.pdf', sourceHash: 'hS' },
+  );
+  assert.equal(parNom.clientId, 'cli_exact');
+  assert.equal(parAlias.clientId, 'cli_exact');
+  assert.equal(parSiret.clientId, 'cli_exact');
+});

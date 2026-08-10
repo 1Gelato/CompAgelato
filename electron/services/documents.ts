@@ -331,18 +331,21 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
   let clientId: ID | undefined;
   {
     const match = matchClient(store.db.clients, parsed.clientName, parsed.clientSiret);
-    if (match) {
+    if (match && match.method !== 'fuzzy') {
+      // Rattachement CERTAIN seulement : même SIRET, même nom, ou orthographe
+      // que l'utilisateur a lui-même confirmée.
       clientId = match.client.id;
-      if (match.method === 'fuzzy') {
-        // Le nom lu n'est **pas** mémorisé comme alias : un rapprochement par
-        // ressemblance est une hypothèse, et l'inscrire dans la fiche la
-        // transformait en certitude. Pire, l'alias servait ensuite lui-même de
-        // point de comparaison — une première erreur en attirait des dizaines
-        // d'autres, toutes vers le même client, sans que rien ne le dise.
-        // Seule une confirmation de l'utilisateur (`documents.setClient`)
-        // apprend une orthographe.
-        warnings.push(`Client rapproché par ressemblance (${Math.round(match.score * 100)} %) — à confirmer.`);
-      }
+    } else if (match) {
+      // Ressemblance : une hypothèse, jamais un rattachement. Une pièce dont le
+      // nom n'a pas été reconnu doit rester SANS client — la rattacher « au
+      // plus proche » attribuait des dizaines de pièces à un client vu deux
+      // fois dans l'année, et personne ne pouvait s'en apercevoir. La piste est
+      // conservée dans l'avertissement : un clic suffit à la confirmer, et
+      // c'est cette confirmation qui apprend l'orthographe.
+      warnings.push(
+        `Client non reconnu — piste possible : « ${match.client.name} » ` +
+          `(${Math.round(match.score * 100)} % de ressemblance). À rattacher à la main.`,
+      );
     }
   }
   // Beaucoup de factures n'écrivent pas « Client : » : le nom figure seul dans
