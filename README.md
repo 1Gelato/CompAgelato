@@ -75,6 +75,16 @@ lecture désormais corrigée, et le garder figerait l'erreur pour toujours. Le
 lien ne tient que si la lecture est identique — c'est le cas d'une fiche
 simplement renommée, où recréer une fiche au nom lu fabriquerait un doublon.
 
+**Réparer les rattachements hérités.** Les orthographes apprises
+automatiquement avant cette correction gardent leur pouvoir : une pièce dont le
+nom est pourtant lu correctement peut encore repartir vers la mauvaise fiche,
+avec un score de 0,97 et sans le moindre signe — il suffit que cette chaîne
+dorme dans les orthographes de cette fiche. On ne peut pas distinguer après
+coup ce qui a été appris tout seul de ce que vous avez confirmé, d'où un geste
+explicite : **Réglages → Réparer les rattachements clients → Oublier les
+orthographes apprises**, puis **Documents → Tout relire**. Vos fiches, vos
+pièces et vos rattachements corrigés à la main ne sont pas touchés.
+
 **Un rapprochement par ressemblance reste une hypothèse.** Quand une pièce est
 rattachée à un client par ressemblance, l'orthographe lue n'est plus mémorisée
 dans la fiche. Elle l'était, et cela transformait une supposition en certitude :
@@ -1005,7 +1015,7 @@ assumée : un fichier monté au serveur sous une mauvaise étiquette reste
 rangé dans le sous-dossier de l'étiquette (le type en base, lui, est le bon,
 et les copies en double n'oscillent plus).
 
-- **212 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **213 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,

@@ -22,6 +22,7 @@ import {
   removeFolder,
   matchClient,
   looksLikeClientName,
+  forgetLearnedAliases,
 } from './build/services.mjs';
 
 /**
@@ -587,4 +588,37 @@ test('les vrais noms de clients passent toujours', () => {
   ]) {
     assert.equal(looksLikeClientName(nom), true, `rejeté à tort : ${nom}`);
   }
+});
+
+test('oublier les orthographes apprises libère les pièces mal rattachées', () => {
+  // Le puits empoisonné : un nom pourtant lu correctement repartait vers la
+  // mauvaise fiche parce que cette chaîne dormait dans ses orthographes, avec
+  // un score de 0,97. Le garde-fou « alias qui nomme une AUTRE fiche » ne le
+  // rattrape pas quand le vrai client n'a, lui, aucune fiche.
+  dataStore.mutate((db) => {
+    db.clients.length = 0;
+    db.clients.push({
+      id: 'cli_puits',
+      code: 'C1',
+      name: 'Rondeau Vincent',
+      address: {},
+      tags: [],
+      aliases: ['Monsieur LOIC GASNIER', "L'École des Chefs"],
+      archived: false,
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    });
+  });
+  const avant = matchClient(dataStore.db.clients, 'Monsieur LOIC GASNIER');
+  assert.equal(avant?.client.id, 'cli_puits', 'préparation : l’alias doit encore capter');
+
+  const { clients, aliases } = forgetLearnedAliases();
+  assert.equal(clients, 1);
+  assert.equal(aliases, 2);
+
+  const apres = matchClient(dataStore.db.clients, 'Monsieur LOIC GASNIER');
+  assert.equal(apres, null, 'la fiche capte encore après l’oubli');
+  // Les fiches elles-mêmes sont intactes.
+  assert.equal(dataStore.db.clients.length, 1);
+  assert.equal(dataStore.db.clients[0].name, 'Rondeau Vincent');
 });

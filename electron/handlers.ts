@@ -67,6 +67,7 @@ import {
   importProductsFile,
   mergeClients,
   nextProductSku,
+  forgetLearnedAliases,
   removeClient,
   upsertClient,
 } from './services/clients';
@@ -442,6 +443,11 @@ export const coreHandlers: Registry = {
     async remove(id: ID) {
       removeClient(id);
       store.flushSync();
+    },
+    async forgetAliases() {
+      const result = forgetLearnedAliases();
+      store.flushSync();
+      return result;
     },
     async importFrom(filePath: string, mapping?: Record<string, string>) {
       const report = await importClientsFile(filePath, mapping);

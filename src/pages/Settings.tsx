@@ -861,6 +861,53 @@ export function Settings({
 
         {isManager && (
           <>
+        <Card
+          title="Réparer les rattachements clients"
+          subtitle="Oublier les orthographes apprises toutes seules sur les fiches"
+        >
+          <div className="col" style={{ gap: 13 }}>
+            <div className="infobox">
+              Jusqu'à récemment, chaque rapprochement par ressemblance
+              <strong> inscrivait le nom lu comme orthographe de la fiche retenue</strong>. Une
+              hypothèse devenait ainsi une certitude — et cette orthographe servait ensuite de
+              point de comparaison, attirant les pièces suivantes vers la même fiche. Le mécanisme
+              est retiré, mais les orthographes déjà enregistrées gardent leur pouvoir : une pièce
+              dont le nom est pourtant lu correctement peut encore repartir vers le mauvais client.
+              <br />
+              <br />
+              Ce bouton les efface toutes. Rien d'autre n'est touché : ni vos fiches, ni vos
+              pièces, ni vos rattachements corrigés à la main. Relancez ensuite
+              <strong> Documents → Tout relire</strong> pour que chaque pièce retrouve son client.
+            </div>
+            <div className="row">
+              <Button
+                icon={<Icons.refresh size={14} />}
+                loading={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    const { clients, aliases } = await window.api.clients.forgetAliases();
+                    refreshAll();
+                    toast.push({
+                      tone: 'success',
+                      title: aliases
+                        ? `${aliases} orthographe(s) oubliée(s) sur ${clients} fiche(s)`
+                        : 'Aucune orthographe apprise à oublier',
+                      text: aliases ? 'Lancez « Tout relire » sur la page Documents.' : undefined,
+                    });
+                  } catch (err) {
+                    toast.push({ tone: 'error', title: 'Échec', text: errorMessage(err) });
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Oublier les orthographes apprises
+              </Button>
+            </div>
+          </div>
+        </Card>
+
         <Card title="Données" subtitle="Sauvegarde, restauration et jeu de démonstration">
           <div className="col" style={{ gap: 13 }}>
             {dbStats && (

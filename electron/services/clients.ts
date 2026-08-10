@@ -158,6 +158,37 @@ export function matchClient(clients: Client[], name?: string | null, siret?: str
   return best && best.score >= FUZZY_ACCEPT ? best : null;
 }
 
+/**
+ * Oublie toutes les orthographes mémorisées sur les fiches.
+ *
+ * Réparation d'un dégât précis : pendant des mois, chaque rapprochement par
+ * ressemblance inscrivait le nom lu comme alias de la fiche retenue. Une
+ * lecture erronée devenait donc une certitude, et cet alias servait ensuite de
+ * point de comparaison — attirant à son tour toutes les pièces voisines. Le
+ * mécanisme est retiré, mais les alias déjà écrits gardent leur pouvoir : un
+ * nom pourtant lu correctement repart vers la mauvaise fiche, avec un score de
+ * 0,97 et sans le moindre signe.
+ *
+ * On ne peut pas distinguer après coup ce qui a été appris tout seul de ce que
+ * l'utilisateur a confirmé : les deux se ressemblent en base. D'où ce geste
+ * explicite, à sa main. Ce qu'il perd est modeste — corriger à nouveau un
+ * rattachement réapprend l'orthographe — au regard de ce qu'il récupère.
+ */
+export function forgetLearnedAliases(): { clients: number; aliases: number } {
+  let clients = 0;
+  let aliases = 0;
+  store.mutate((db) => {
+    for (const client of db.clients) {
+      if (!client.aliases.length) continue;
+      clients++;
+      aliases += client.aliases.length;
+      client.aliases = [];
+      client.updatedAt = nowIso();
+    }
+  });
+  return { clients, aliases };
+}
+
 /** Retient l'orthographe rencontrée sur un document comme alias du client. */
 export function rememberClientAlias(clientId: ID, rawName?: string | null): void {
   if (!rawName?.trim()) return;

@@ -48,7 +48,7 @@ export const CHANNELS = {
     'relaunch', 'connection', 'setConnection',
   ],
   settings: ['get', 'update', 'resetFolder'],
-  clients: ['list', 'save', 'remove', 'importFrom', 'pickAndImport', 'exportCsv', 'merge', 'geocodeMissing'],
+  clients: ['list', 'save', 'remove', 'importFrom', 'pickAndImport', 'exportCsv', 'merge', 'geocodeMissing', 'forgetAliases'],
   documents: [
     'list', 'get', 'save', 'remove', 'scan', 'rescanFile', 'setClient', 'setStatus', 'exportCsv',
     'openFile', 'print', 'setPrinted', 'prepareEmail', 'sendEmail', 'addFiles', 'pickAndAdd',
@@ -133,6 +133,7 @@ export const CHANNEL_ACCESS: Record<ChannelName, readonly Role[]> = {
   'clients:exportCsv': BUREAU,
   'clients:merge': BUREAU,
   'clients:geocodeMissing': BUREAU,
+  'clients:forgetAliases': BUREAU,
 
   /* Documents comptables --------------------------------------------- */
   'documents:list': BUREAU,
@@ -573,6 +574,16 @@ export interface Api {
     merge(keepId: ID, mergeId: ID): Promise<Client>;
     /** Recherche les coordonnées GPS des fiches qui n'en ont pas encore. */
     geocodeMissing(): Promise<{ processed: number; located: number; failed: number }>;
+    /**
+     * Efface les orthographes mémorisées sur les fiches clients.
+     *
+     * Elles étaient apprises automatiquement à chaque rapprochement par
+     * ressemblance — une hypothèse inscrite comme certitude, qui attirait
+     * ensuite les pièces suivantes vers la même fiche. Ce mécanisme est retiré,
+     * mais les orthographes déjà enregistrées continuent d'agir : voici de quoi
+     * les oublier.
+     */
+    forgetAliases(): Promise<{ clients: number; aliases: number }>;
   };
   documents: {
     list(): Promise<AccountingDocument[]>;
