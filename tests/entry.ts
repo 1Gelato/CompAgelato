@@ -1,5 +1,6 @@
 /** Point d'entrée des tests : réexporte les services testables sans Electron. */
 export * from '../electron/services/text';
+export { matchClient, rememberClientAlias } from '../electron/services/clients';
 export * from '../electron/services/pdf';
 export * from '../electron/services/parseInvoice';
 export * from '../electron/services/facturx';

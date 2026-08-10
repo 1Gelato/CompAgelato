@@ -50,6 +50,24 @@ imprimé seul en bas de la colonne de gauche, se retrouve fusionné avec la lign
 de code postal du client — il est retiré lui aussi, sans quoi il s'invitait dans
 l'adresse de tous les clients.
 
+**Le bloc client n'est pas toujours là où on le cherche.** Sur certains
+gabarits, « N° client : » est imprimé en haut à droite tandis que le bloc client
+arrive bien plus bas : la lecture traverse d'abord toute la colonne du vendeur.
+Ses mentions légales sont donc écartées — une ligne de pays seule, une mention
+propre au document (« Devis valable jusqu'au… », « Date et signature »,
+« Acompte demandé… ») ne peut pas être un nom de client. Le garde-fou reste
+étroit : « FRANCE BOISSONS » est une entreprise bien réelle et continue d'être
+acceptée.
+
+**Un rapprochement par ressemblance reste une hypothèse.** Quand une pièce est
+rattachée à un client par ressemblance, l'orthographe lue n'est plus mémorisée
+dans la fiche. Elle l'était, et cela transformait une supposition en certitude :
+l'alias servait ensuite lui-même de point de comparaison, si bien qu'une
+première erreur en attirait des dizaines d'autres — toutes vers le même client,
+sans que rien ne le signale. Seule votre confirmation (corriger le client sur
+une pièce) apprend une orthographe. Les alias devenus douteux sont ignorés au
+rapprochement : une fiche déjà salie se répare toute seule à la relecture.
+
 **Un interlocuteur n'est pas une adresse.** Certains logiciels de facturation
 obligent à choisir entre une raison sociale et un nom de personne : facturer une
 association ou une mairie en gardant le nom du contact impose alors de le ranger
@@ -954,7 +972,7 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **169 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **176 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
@@ -976,6 +994,13 @@ npm run test:all
   par « À propos », qui doit **changer** quand le dépôt reçoit un commit de
   plus : c'est toute son utilité, puisque le numéro de version, lui, ne bouge
   jamais.
+- **7 de ces tests portent sur le bloc client d'un devis** — le gabarit où
+  « N° client : » est loin du client, et où la ligne pays du vendeur fusionnée
+  avec la validité du devis passait pour un nom. Sont vérifiés le nom
+  effectivement retenu, l'interlocuteur rangé en contact, le client nommé sans
+  raison sociale, les mentions du document rejetées, « FRANCE BOISSONS »
+  acceptée, et l'emballement des alias : un alias douteux n'attire plus les
+  pièces et n'est plus mémorisé.
 - **5 de ces tests portent sur le type de la pièce** — non pas « sait-on lire
   DEVIS », mais « sait-on qu'on l'a lu » : c'est cette certitude qui décide si
   le classement d'un dossier peut contredire le document. Sont vérifiés le

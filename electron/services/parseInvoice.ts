@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { DocumentKind } from '@shared/types';
 import type { PdfExtract, PdfLine, PdfTextItem } from './pdf';
-import { parseDate, parseNumber, normalize, round2 } from './text';
+import { looksLikeClientName, parseDate, parseNumber, normalize, round2 } from './text';
 
 export interface ParsedLine {
   ref?: string;
@@ -387,7 +387,9 @@ export function extractClient(lines: string[]): {
       // Une étiquette de contact seule (« Tél. : 09 54 93 49 90 ») n'est pas un
       // nom ; celle qui traîne un nom derrière elle a déjà été nettoyée.
       if (PHONE_LABEL.test(c) || EMAIL_RE.test(c)) return false;
-      return true;
+      // Ni un pays seul, ni une mention propre au document : voir
+      // `looksLikeClientName`.
+      return looksLikeClientName(c);
     });
     if (!nameFrom) continue;
     name = stripSellerColumnNoise(nameFrom).replace(/\s{2,}/g, ' ').trim();

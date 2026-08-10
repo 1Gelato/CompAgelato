@@ -10,6 +10,9 @@ import {
   parseEInvoiceXml,
   extractClient,
   isWatermarkItem,
+  looksLikeClientName,
+  matchClient,
+  rememberClientAlias,
 } from './build/services.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -501,4 +504,94 @@ test('avoir et facture restent reconnus, et sûrs', () => {
     kind: 'invoice',
     sure: true,
   });
+});
+
+/* ------------------------------------------------------------------ */
+/* Gabarit DEVIS : le bloc client est loin du repère « N° client »      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Sur ce gabarit, « N° client : » est imprimé en haut à droite tandis que le
+ * bloc client arrive bien plus bas. La fenêtre de recherche traverse donc
+ * d'abord toute la colonne du vendeur — sa ligne pays fusionnée avec la
+ * validité du devis se présentait alors comme un nom de client.
+ */
+function devis(numero, client, ligne1, ville, contactLigne) {
+  return [
+    'DEVIS',
+    `EURL O'GELATO                    N° : ${numero}`,
+    "27 RUE JACQUES DAGUERRE           Date d'émission : 30/07/2026",
+    `44600 - ST NAZAIRE CEDEX 4460     N° client : ${client.ref}`,
+    "FRANCE                            Devis valable jusqu'au 29/08/2026",
+    'Siret : 80184990200011',
+    'Tél. : 09 54 93 49 90',
+    `Port. : 06 98 72 20 40            ${client.nom}`,
+    `Email : contact@ogelato.fr        ${contactLigne}`,
+    ligne1,
+    ville,
+    'FRANCE',
+    'Tel 1 : 0628791735',
+  ];
+}
+
+test('la ligne pays du vendeur n’est jamais prise pour le client', () => {
+  const { name } = extractClient(
+    devis('DEV00000613', { ref: 'CLT00000361', nom: 'Candy Breizh' },
+      '8, RUE DES COQUELICOTS', '29800 LANDERNEAU', 'JULIE LOUSSOUARN'),
+  );
+  assert.equal(name, 'Candy Breizh');
+});
+
+test('sur ce gabarit aussi, l’interlocuteur part en contact', () => {
+  const { contact, address } = extractClient(
+    devis('DEV00000613', { ref: 'CLT00000361', nom: 'Candy Breizh' },
+      '8, RUE DES COQUELICOTS', '29800 LANDERNEAU', 'JULIE LOUSSOUARN'),
+  );
+  assert.equal(contact, 'JULIE LOUSSOUARN');
+  assert.equal(address, '8, RUE DES COQUELICOTS, 29800 LANDERNEAU');
+});
+
+test('un client nommé sans raison sociale reste lui-même', () => {
+  const { name } = extractClient(
+    devis('DEV00000616', { ref: 'CLT00000366', nom: 'Madame KRISTELA LIPOVAC' },
+      '56760 PENESTIN', 'FRANCE', "PLACE DE L'EGLISE"),
+  );
+  assert.equal(name, 'Madame KRISTELA LIPOVAC');
+});
+
+test('une mention du document n’est pas un nom de client', () => {
+  assert.equal(looksLikeClientName("FRANCE Devis valable jusqu'au 29/08/2026"), false);
+  assert.equal(looksLikeClientName('Date et signature'), false);
+  assert.equal(looksLikeClientName('Acompte demandé 50,00 %'), false);
+  assert.equal(looksLikeClientName('FRANCE'), false);
+});
+
+test('un vrai nom qui commence par un pays reste accepté', () => {
+  // « FRANCE BOISSONS » est une entreprise bien réelle : le motif du pays est
+  // ancré aux deux bouts, sinon la prudence coûterait plus cher que le cas
+  // qu'elle écarte.
+  assert.equal(looksLikeClientName('FRANCE BOISSONS'), true);
+  assert.equal(looksLikeClientName('Candy Breizh'), true);
+  assert.equal(looksLikeClientName('SEGWICK'), true);
+});
+
+test('un alias douteux ne sert plus de point de comparaison', () => {
+  // Mécanique de l'emballement : un premier rapprochement malheureux
+  // inscrivait le texte lu comme alias ; l'alias servait ensuite lui-même de
+  // comparaison, si bien que chaque devis suivant — dont la mention ne
+  // changeait que d'une date — retombait sur le même client. Des dizaines de
+  // pièces attribuées à un client qui n'y figure pas.
+  const pollue = {
+    id: 'cli_1', name: 'Rondeau Vincent', aliases: ["FRANCE Devis valable jusqu'au 29/08/2026"],
+    archived: false,
+  };
+  const autre = { id: 'cli_2', name: 'Candy Breizh', aliases: [], archived: false };
+  const match = matchClient([pollue, autre], "FRANCE Devis valable jusqu'au 04/09/2026");
+  assert.equal(match, null, 'le mauvais alias attire encore les pièces');
+});
+
+test('un alias qui ne peut pas être un nom n’est pas mémorisé', () => {
+  // Le garde-fou vaut aussi à l'écriture : rien n'oblige à attendre la
+  // relecture pour cesser de salir une fiche.
+  assert.doesNotThrow(() => rememberClientAlias('cli_inexistant', 'Date et signature'));
 });

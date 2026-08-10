@@ -1,6 +1,6 @@
 import type { Address, Client, ID, ImportClientsReport, Product } from '@shared/types';
 import { newId, nowIso, store } from '../store';
-import { normalize, parseNumber, round2, similarity } from './text';
+import { looksLikeClientName, normalize, parseNumber, round2, similarity } from './text';
 import { CLIENT_FIELDS, PRODUCT_FIELDS, guessMapping, readTable } from './tabular';
 import { adjustStock, registerOpeningStock } from './stock';
 
@@ -124,14 +124,23 @@ export function matchClient(clients: Client[], name?: string | null, siret?: str
   if (exact) return { client: exact, score: 1, method: 'exact' };
 
   for (const c of pool) {
-    if (c.aliases.some((a) => normalize(a) === n)) return { client: c, score: 0.97, method: 'alias' };
+    if (c.aliases.some((a) => looksLikeClientName(a) && normalize(a) === n)) {
+      return { client: c, score: 0.97, method: 'alias' };
+    }
   }
 
   let best: ClientMatch | null = null;
   for (const c of pool) {
     let score = similarity(c.name, name);
     if (c.legalName) score = Math.max(score, similarity(c.legalName, name));
-    for (const a of c.aliases) score = Math.max(score, similarity(a, name));
+    // Un alias qui n'a jamais pu être un nom de client ne sert pas de point de
+    // comparaison. Les fiches en portent parfois d'anciens, hérités d'un
+    // rapprochement automatique malheureux ; les ignorer répare la fiche sans
+    // rien demander à l'utilisateur.
+    for (const a of c.aliases) {
+      if (!looksLikeClientName(a)) continue;
+      score = Math.max(score, similarity(a, name));
+    }
     if (!best || score > best.score) best = { client: c, score: round2(score), method: 'fuzzy' };
   }
   return best && best.score >= FUZZY_ACCEPT ? best : null;
@@ -140,6 +149,8 @@ export function matchClient(clients: Client[], name?: string | null, siret?: str
 /** Retient l'orthographe rencontrée sur un document comme alias du client. */
 export function rememberClientAlias(clientId: ID, rawName?: string | null): void {
   if (!rawName?.trim()) return;
+  // Ce qui n'a jamais pu être un nom de client n'a rien à faire dans les alias.
+  if (!looksLikeClientName(rawName)) return;
   store.mutate((db) => {
     const client = db.clients.find((c) => c.id === clientId);
     if (!client) return;

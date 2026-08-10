@@ -160,3 +160,39 @@ export function toIsoDate(d: Date): string {
 export function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
+
+/**
+ * Pays seul : la dernière ligne d'un bloc d'adresse, jamais un nom de client.
+ * Le motif est ancré aux deux bouts — « FRANCE BOISSONS » est une entreprise
+ * bien réelle, et la rejeter coûterait plus cher que le cas qu'on écarte.
+ */
+const COUNTRY_ONLY =
+  /^(france|belgique|suisse|luxembourg|espagne|italie|allemagne|portugal|pays bas|royaume uni)$/;
+
+/**
+ * Mentions qui appartiennent au document, pas à qui le reçoit.
+ *
+ * Sur les gabarits où le bloc client est imprimé bien plus bas que « N° client :
+ * », la fenêtre de recherche traverse d'abord la colonne du vendeur et ses
+ * mentions légales. « FRANCE  Devis valable jusqu'au 29/08/2026 » — la ligne
+ * pays de l'émetteur fusionnée avec la validité du devis — s'y présentait
+ * comme un nom de client.
+ */
+const DOCUMENT_META =
+  /valable jusqu|date d emission|bon pour accord|date et signature|devis gratuit|conditions? (generale|de vente)|acompte demande|reglement|echeance/;
+
+/**
+ * Cette chaîne peut-elle être le nom d'un client ?
+ *
+ * Garde-fou volontairement étroit : il n'essaie pas de reconnaître un vrai nom
+ * — impossible —, seulement d'écarter ce qui n'en est certainement pas un. Un
+ * faux rejet renverrait le lecteur sur la ligne suivante, un faux accord
+ * rattache la pièce au mauvais client et, pire, le mémorise.
+ */
+export function looksLikeClientName(value: string): boolean {
+  const n = normalize(value);
+  if (n.length < 3) return false;
+  if (COUNTRY_ONLY.test(n)) return false;
+  if (DOCUMENT_META.test(n)) return false;
+  return true;
+}

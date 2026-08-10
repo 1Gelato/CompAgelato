@@ -15,13 +15,8 @@ import { extractPdf } from './pdf';
 import { parsePdfDocument, type ParsedDocument, type ParsedLine } from './parseInvoice';
 import { parseEInvoiceXml, pickEInvoiceAttachment, looksLikeEInvoice } from './facturx';
 import { DOCUMENT_FIELDS, guessMapping, readTable } from './tabular';
-import { normalize, parseDate, parseNumber, round2 } from './text';
-import {
-  createClientFromDocument,
-  fillClientContact,
-  matchClient,
-  rememberClientAlias,
-} from './clients';
+import { looksLikeClientName, normalize, parseDate, parseNumber, round2 } from './text';
+import { createClientFromDocument, fillClientContact, matchClient } from './clients';
 import { recomputeProductQty } from './stock';
 import { applyDocumentToStock, resolveDocumentLines } from './stock';
 import { storePath } from './paths';
@@ -183,7 +178,9 @@ function findClientInText(text: string): Client | null {
   for (const client of store.db.clients) {
     if (client.archived) continue;
     const candidates = [client.name, client.legalName, ...client.aliases].filter(
-      (c): c is string => Boolean(c),
+      // Un alias qui n'a jamais pu être un nom de client ne doit pas servir à
+      // en reconnaître un dans le texte d'une pièce.
+      (c): c is string => typeof c === 'string' && looksLikeClientName(c),
     );
     for (const candidate of candidates) {
       const needle = normalize(candidate);
@@ -272,7 +269,13 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
     if (match) {
       clientId = match.client.id;
       if (match.method === 'fuzzy') {
-        rememberClientAlias(match.client.id, parsed.clientName);
+        // Le nom lu n'est **pas** mémorisé comme alias : un rapprochement par
+        // ressemblance est une hypothèse, et l'inscrire dans la fiche la
+        // transformait en certitude. Pire, l'alias servait ensuite lui-même de
+        // point de comparaison — une première erreur en attirait des dizaines
+        // d'autres, toutes vers le même client, sans que rien ne le dise.
+        // Seule une confirmation de l'utilisateur (`documents.setClient`)
+        // apprend une orthographe.
         warnings.push(`Client rapproché par ressemblance (${Math.round(match.score * 100)} %) — à confirmer.`);
       }
     }
