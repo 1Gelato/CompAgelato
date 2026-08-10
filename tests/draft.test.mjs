@@ -151,3 +151,135 @@ test('un total corrigé à la main n’est pas signalé comme un écart', () => 
   assert.equal(relu.totalHT, 500);
   assert.deepEqual(relu.warnings, []);
 });
+
+/* ------------------------------------------------------------------ */
+/* Ce qu'une relecture doit pouvoir rattraper                           */
+/* ------------------------------------------------------------------ */
+
+function devisParse(number, clientName) {
+  return {
+    ...parsed(number),
+    kind: 'quote',
+    kindSure: true,
+    clientName,
+    clientContact: null,
+  };
+}
+
+test('un client mal rattaché est reconsidéré à la relecture', () => {
+  // Le rattachement était conservé tel quel : une correction du lecteur ne
+  // pouvait donc rien rattraper, et la pièce restait attribuée au mauvais
+  // client pour toujours.
+  dataStore.mutate((db) => {
+    db.clients.push(
+      { id: 'cli_mauvais', code: 'C1', name: 'Rondeau Vincent', address: {}, tags: [], aliases: [], archived: false, createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { id: 'cli_bon', code: 'C2', name: 'Candy Breizh', address: {}, tags: [], aliases: [], archived: false, createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    );
+  });
+
+  const avant = ingestParsedDocument(devisParse('DEV00000613', 'Candy Breizh'), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Devis/DEV00000613.pdf',
+    sourceHash: 'h613',
+  });
+  dataStore.mutate(() => {
+    avant.clientId = 'cli_mauvais'; // rattachement hérité d'une ancienne erreur
+  });
+
+  const apres = ingestParsedDocument(devisParse('DEV00000613', 'Candy Breizh'), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Devis/DEV00000613.pdf',
+    sourceHash: 'h613',
+  });
+  assert.equal(apres.id, avant.id, 'même pièce, pas un doublon');
+  assert.equal(apres.clientId, 'cli_bon', 'le client n’a pas été reconsidéré');
+});
+
+test('un client choisi à la main survit à la relecture', () => {
+  const doc = ingestParsedDocument(devisParse('DEV00000614', 'Candy Breizh'), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Devis/DEV00000614.pdf',
+    sourceHash: 'h614',
+  });
+  dataStore.mutate(() => {
+    doc.clientId = 'cli_mauvais';
+    doc.manualFields = ['clientId'];
+  });
+  const relu = ingestParsedDocument(devisParse('DEV00000614', 'Candy Breizh'), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Devis/DEV00000614.pdf',
+    sourceHash: 'h614',
+  });
+  assert.equal(relu.clientId, 'cli_mauvais', 'la décision de l’utilisateur doit tenir');
+});
+
+test('une lecture qui ne reconnaît personne ne détache pas la pièce', () => {
+  const doc = ingestParsedDocument(devisParse('DEV00000615', 'Candy Breizh'), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Devis/DEV00000615.pdf',
+    sourceHash: 'h615',
+  });
+  assert.equal(doc.clientId, 'cli_bon');
+  const relu = ingestParsedDocument(
+    { ...devisParse('DEV00000615', null), clientName: null },
+    { sourceFormat: 'pdf', filePath: '/srv/Devis/DEV00000615.pdf', sourceHash: 'h615' },
+  );
+  assert.equal(relu.clientId, 'cli_bon', 'le lien précédent devait être conservé');
+});
+
+test('corriger le type d’une pièce ne crée pas de jumelle', () => {
+  // Cas vécu : une pièce entrée en « facture », relue en « devis ». Le numéro
+  // correspondait mais pas le type, si bien que la pièce corrigée venait
+  // s'ajouter à côté de l'ancienne au lieu de la remplacer.
+  const facture = ingestParsedDocument(
+    { ...parsed('DEV00000620'), kind: 'invoice', kindSure: false, clientContact: null },
+    { sourceFormat: 'pdf', filePath: '/srv/Factures/DEV00000620.pdf', sourceHash: 'h620' },
+  );
+  const devis = ingestParsedDocument(devisParse('DEV00000620', 'Candy Breizh'), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Factures/DEV00000620.pdf',
+    sourceHash: 'h620',
+  });
+  assert.equal(devis.id, facture.id, 'la pièce corrigée doit remplacer l’ancienne');
+  assert.equal(devis.kind, 'quote');
+  assert.equal(
+    dataStore.db.documents.filter((d) => d.number === 'DEV00000620').length,
+    1,
+    'une jumelle a été laissée en base',
+  );
+});
+
+test('des jumelles déjà en base sont résorbées à la relecture', () => {
+  // Elles existent dans les bases créées avant la correction : une même pièce
+  // enregistrée deux fois, sous deux types. La relecture est le seul moment où
+  // l'on sait qu'elles désignent la même chose. On les pose donc telles
+  // quelles, comme elles s'y trouvent aujourd'hui.
+  const ancienne = ingestParsedDocument(
+    { ...parsed('DEV00000621'), kind: 'invoice', kindSure: false, clientContact: null },
+    { sourceFormat: 'pdf', filePath: '/srv/Factures/DEV00000621.pdf', sourceHash: 'hA' },
+  );
+  dataStore.mutate((db) => {
+    db.documents.unshift({
+      ...ancienne,
+      id: 'doc_jumelle',
+      kind: 'quote',
+      sourceFile: 'Devis/DEV00000621.pdf',
+      sourceHash: 'hB',
+      importedAt: '2026-08-11T10:00:00.000Z',
+    });
+  });
+  assert.equal(dataStore.db.documents.filter((d) => d.number === 'DEV00000621').length, 2);
+
+  const relu = ingestParsedDocument(devisParse('DEV00000621', 'Candy Breizh'), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Devis/DEV00000621.pdf',
+    sourceHash: 'hB',
+  });
+  assert.equal(
+    dataStore.db.documents.filter((d) => d.number === 'DEV00000621').length,
+    1,
+    'la jumelle n’a pas été résorbée',
+  );
+  assert.equal(relu.id, ancienne.id, 'la plus ancienne, qui porte l’historique, devait être gardée');
+  assert.equal(relu.kind, 'quote');
+});

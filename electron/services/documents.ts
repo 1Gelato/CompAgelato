@@ -254,17 +254,46 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
   const kind = parsed.kindSure ? parsed.kind : (ctx.kindHint ?? parsed.kind);
 
   // Un même numéro de pièce ne doit exister qu'une fois.
-  const existing = store.db.documents.find(
+  //
+  // Le fichier d'origine fait foi en premier : c'est la seule identité qui
+  // survit à une correction du type. Sans lui, un devis jusque-là rangé en
+  // facture ne se reconnaissait plus lui-même à la relecture — le numéro
+  // correspondait mais pas le type — et la pièce corrigée venait s'ajouter à
+  // côté de l'ancienne au lieu de la remplacer.
+  const storedPath = ctx.filePath ? storePath(ctx.filePath) : undefined;
+  const sameNumber = (d: AccountingDocument) =>
+    parsed.number !== 'SANS-NUMERO' && normalize(d.number) === normalize(parsed.number);
+  const matches = store.db.documents.filter(
     (d) =>
+      (storedPath && d.sourceFile === storedPath) ||
       (ctx.sourceHash && d.sourceHash === ctx.sourceHash) ||
-      (normalize(d.number) === normalize(parsed.number) && d.kind === kind && parsed.number !== 'SANS-NUMERO'),
+      // Même numéro : la même pièce, quel que soit le type qu'on lui avait
+      // attribué — mais seulement quand la lecture est certaine du sien. Deux
+      // pièces de types différents peuvent légitimement porter le même numéro
+      // dans une numérotation commune ; c'est rare, et une lecture hésitante ne
+      // suffit pas à trancher, alors on ne rapproche que ce dont on est sûr.
+      (sameNumber(d) && (d.kind === kind || parsed.kindSure)),
   );
+  // La plus ancienne porte l'historique : corrections manuelles, repères
+  // d'impression, mouvements de stock. C'est elle qu'on garde.
+  matches.sort((a, b) => a.importedAt.localeCompare(b.importedAt));
+  const existing = matches[0];
+  // Les jumelles nées d'une correction de type sont résorbées ici : la
+  // relecture est le seul moment où l'on sait qu'elles désignent la même
+  // pièce. `removeDocument` rend au stock ce qu'elles avaient sorti.
+  for (const twin of matches.slice(1)) removeDocument(twin.id);
 
   const warnings = [...parsed.warnings];
 
   /* Client -------------------------------------------------------- */
-  let clientId: ID | undefined = existing?.clientId;
-  if (!clientId) {
+  // Le client est reconsidéré à chaque lecture. Le conserver tel quel — ce que
+  // faisait ce code — rendait tout rattachement définitif : une correction du
+  // lecteur ne pouvait plus rien rattraper, et une pièce attribuée au mauvais
+  // client le restait pour toujours. Un client choisi à la main l'emporte de
+  // toute façon juste après (voir `manualFields`), et si la nouvelle lecture ne
+  // reconnaît personne on garde le lien précédent plutôt que de le perdre.
+  let clientId: ID | undefined;
+  {
     const match = matchClient(store.db.clients, parsed.clientName, parsed.clientSiret);
     if (match) {
       clientId = match.client.id;
@@ -304,6 +333,9 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
     // sans jamais écraser une valeur déjà saisie à la main.
     fillClientContact(clientId, parsed.clientEmail, parsed.clientPhone, parsed.clientContact);
   }
+  // Rien de reconnu cette fois : plutôt que de détacher la pièce, on garde le
+  // lien qu'elle avait. Une lecture muette n'est pas une raison d'effacer.
+  if (!clientId) clientId = existing?.clientId;
 
   const totalHT = parsed.totalHT ?? 0;
   const totalVAT = parsed.totalVAT ?? 0;
