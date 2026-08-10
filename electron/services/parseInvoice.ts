@@ -81,16 +81,29 @@ export function detectKindDetailed(
   fileName = '',
 ): { kind: DocumentKind; sure: boolean } {
   const head = normalize(`${fileName} ${text.slice(0, 1200)}`);
-  if (/\bavoir\b|note de credit|credit note/.test(head)) return { kind: 'credit', sure: true };
-  if (/\bdevis\b|proforma|pro forma|quotation|estimate/.test(head)) {
-    return { kind: 'quote', sure: true };
-  }
-  if (/\bfacture\b|invoice|\bfa\b/.test(head)) return { kind: 'invoice', sure: true };
+  // La PREMIÈRE mention l'emporte, pas un ordre de priorité fixe : le titre
+  // vient avant le corps. Tester « devis » avant « facture » — l'ancien
+  // comportement — basculait en devis toute facture d'acompte qui mentionne
+  // « suivant devis N° … », et en avoir toute rectificative écrite « après
+  // avoir n° … » : des pièces entières sortaient du chiffre d'affaires.
+  const at = (re: RegExp): number => {
+    const m = re.exec(head);
+    return m ? m.index : Number.MAX_SAFE_INTEGER;
+  };
+  const first = [
+    { kind: 'credit' as DocumentKind, i: at(/\bavoirs?\b|note de credit|credit note/) },
+    { kind: 'quote' as DocumentKind, i: at(/\bdevis\b|proforma|pro forma|quotation|estimate/) },
+    { kind: 'invoice' as DocumentKind, i: at(/\bfactures?\b|invoice|\bfac?\b/) },
+  ].sort((a, b) => a.i - b.i)[0];
+  if (first.i !== Number.MAX_SAFE_INTEGER) return { kind: first.kind, sure: true };
   // Repli sur le nom de fichier : « DEV00000622.pdf » dit ce qu'il est.
   // L'espace est obligatoire dans l'alternative : `normalize` sépare lettres et
   // chiffres, si bien que « DEV00000622 » devient « dev 00000622 » — sans lui,
   // ce repli ne se déclenchait jamais sur les noms des logiciels de facturation.
-  if (/devis|\bdev[-_ ]?\d/.test(normalize(fileName))) return { kind: 'quote', sure: true };
+  const nf = normalize(fileName);
+  if (/devis|\bdev[-_ ]?\d/.test(nf)) return { kind: 'quote', sure: true };
+  if (/\bfac[-_ ]?\d|\bbro[-_ ]?\d/.test(nf)) return { kind: 'invoice', sure: true };
+  if (/\bav[-_ ]?\d/.test(nf)) return { kind: 'credit', sure: true };
   return { kind: 'invoice', sure: false };
 }
 
@@ -109,6 +122,9 @@ export function detectKindDetailed(
  */
 export function detectDraft(text: string, fileName = '', number = ''): boolean {
   if (/^bro[-_ ]?\d/i.test(number.trim())) return true;
+  // Le numéro extrait peut être faux (gabarit piégeux) : le nom du fichier
+  // émis par le logiciel de facturation reste alors le repère le plus sûr.
+  if (/\bbro[-_ ]?\d/.test(normalize(fileName))) return true;
   const head = normalize(`${fileName} ${text.slice(0, 1200)}`);
   return /\bbrouillon\b|\bprovisoire\b|non valable pour encaissement|ne (?:vaut|tient) pas (?:lieu de )?facture/.test(
     head,
@@ -127,11 +143,22 @@ const NUMBER_PATTERNS: RegExp[] = [
 ];
 
 export function extractNumber(text: string, fileName = ''): { value: string; sure: boolean } {
+  // « N° client : CLT00000127 », « N° TVA : NC » : des numéros, mais pas CELUI
+  // de la pièce. Sans ce nettoyage, le motif générique « N° » capturait le mot
+  // « client » lui-même — toutes les pièces du gabarit partageaient alors le
+  // numéro « client » et fusionnaient entre elles à l'import.
+  const scrubbed = text.replace(
+    /n\s*[°ºo]?\s*(client|tva|siret|siren|dossier|compte)\b\s*:?\s*[A-Z0-9][A-Z0-9\-_/.]*/gi,
+    ' ',
+  );
   for (const re of NUMBER_PATTERNS) {
-    const m = text.match(re);
-    if (m) {
+    for (const m of scrubbed.matchAll(new RegExp(re.source, re.flags + 'g'))) {
       const v = m[1].replace(/[.,;:]$/, '').trim();
-      if (v && !/^(du|le|de)$/i.test(v)) return { value: v, sure: true };
+      if (!v || /^(du|le|de)$/i.test(v)) continue;
+      // Un numéro de pièce contient toujours au moins un chiffre : « client »,
+      // « PROPOSITION » ou « NC » n'en sont pas.
+      if (!/\d/.test(v)) continue;
+      return { value: v, sure: true };
     }
   }
   // Repli : un identifiant reconnaissable dans le nom de fichier.
@@ -149,21 +176,32 @@ export function extractDates(lines: string[]): { date: string | null; dueDate: s
   let date: string | null = null;
   let dueDate: string | null = null;
 
+  // Sur les gabarits à deux colonnes, « Date : 22/03 » et « Échéance : 21/04 »
+  // fusionnent en une seule ligne : chercher une date « quelque part sur la
+  // ligne » attrapait la première — l'échéance recevait la date d'émission.
+  // L'échéance se lit donc APRÈS son mot-clé.
+  const DUE = /[ée]ch[ée]ance|date\s*limite|payable|due\s*date|[àa]\s*r[ée]gler\s*avant|r[èe]glement\s*au\s*plus\s*tard/i;
+
   for (const line of lines) {
     const n = normalize(line);
-    if (!dueDate && /(echeance|date limite|payable|due date|a regler avant|reglement au plus tard)/.test(n)) {
-      dueDate = parseDate(line);
+    if (!dueDate) {
+      const m = DUE.exec(line);
+      if (m) dueDate = parseDate(line.slice(m.index + m[0].length));
     }
-    if (!date && /^(date|date de facture|date facture|date du devis|date d emission|emis le|le)\b/.test(n)) {
+    // « Date d'échéance : … » commence aussi par « date » : sans cette garde,
+    // la pièce prenait la date de son échéance.
+    if (!date && /^(date|date de facture|date facture|date du devis|date d emission|emis le|le)\b/.test(n) && !/^date d ?echeance/.test(n)) {
       const d = parseDate(line);
       if (d) date = d;
     }
   }
 
   if (!date) {
-    // Première date plausible du document, hors ligne d'échéance.
+    // Première date plausible du document — hors échéance, et hors mentions de
+    // validité : « Devis valable jusqu'au 29/08 » daterait le devis de son
+    // expiration.
     for (const line of lines) {
-      if (/echeance|due date/i.test(line)) continue;
+      if (/echeance|due date|valable|validit[ée]/i.test(normalize(line)) || DUE.test(line)) continue;
       const d = parseDate(line);
       if (d) {
         date = d;
@@ -210,6 +248,11 @@ export function extractTotals(lines: string[]): {
   let totalHT: number | null = null;
   let totalVAT: number | null = null;
   let totalTTC: number | null = null;
+  // « Net à payer » n'est PAS le total TTC : sur une facture d'acompte soldée,
+  // il vaut 0,00 € une fois l'acompte déduit. Le retenir à la place du total
+  // effaçait le TTC réel et faisait recalculer une TVA négative, sans un mot.
+  // On le garde à part, en dernier recours seulement.
+  let netToPay: number | null = null;
   const warnings: string[] = [];
 
   // On parcourt tout le document et on retient la DERNIÈRE occurrence de chaque
@@ -217,11 +260,22 @@ export function extractTotals(lines: string[]): {
   for (const line of lines) {
     if (IDENTITY_LINE.test(line)) continue;
     const n = normalize(line);
+    // « TVA non applicable, art. 293 B du CGI » : le 293 est un article de
+    // loi, pas un montant. Sans ce garde-fou, une facture d'auto-entrepreneur
+    // sortait avec 293 € de TVA fantôme.
+    if (/tva\s*non\s*applicable|art\.?\s*293\s*b/.test(n)) {
+      totalVAT = 0;
+      continue;
+    }
     const value = lastNumber(line);
     if (!plausibleAmount(value)) continue;
 
-    if (/(total\s*t\s*t\s*c|montant\s*ttc|total\s*ttc|net\s*a\s*payer|total\s*a\s*payer|montant\s*du|total\s*general)/.test(n)) {
+    if (/(total\s*t\s*t\s*c|montant\s*ttc|total\s*ttc|total\s*general)/.test(n)) {
       totalTTC = value;
+      continue;
+    }
+    if (/(net\s*a\s*payer|total\s*a\s*payer|montant\s*du|reste\s*a\s*payer)/.test(n)) {
+      netToPay = value;
       continue;
     }
     // « Base HT » est parfois un simple en-tête de colonne dans un tableau
@@ -243,10 +297,25 @@ export function extractTotals(lines: string[]): {
     }
   }
 
-  // La TVA lue doit rester cohérente avec HT et TTC ; sinon on la recalcule.
+  // Sans total TTC explicite, le net à payer sert de repli — c'est mieux que
+  // rien, mais seulement s'il ne contredit pas HT + TVA (un net à 0 après
+  // acompte n'est pas un total).
+  if (totalTTC === null && netToPay !== null) {
+    const plausible =
+      totalHT === null || totalVAT === null || Math.abs(totalHT + totalVAT - netToPay) <= 0.05;
+    if (plausible) totalTTC = netToPay;
+  }
+
+  // La TVA lue doit rester cohérente avec HT et TTC ; sinon on la recalcule —
+  // jamais en négatif : une TVA négative signifie que le « total » retenu n'en
+  // est pas un, et l'écraser masquerait le problème au lieu de le signaler.
   if (totalHT !== null && totalTTC !== null) {
     const expected = round2(totalTTC - totalHT);
-    if (totalVAT === null || Math.abs(totalVAT - expected) > 0.05) totalVAT = expected;
+    if (expected >= 0 && (totalVAT === null || Math.abs(totalVAT - expected) > 0.05)) {
+      totalVAT = expected;
+    } else if (expected < 0) {
+      warnings.push('Total TTC inférieur au total HT — montants à vérifier.');
+    }
   }
 
   // Complétion et contrôle de cohérence.
@@ -429,8 +498,13 @@ export function extractClient(lines: string[]): {
   let siret: string | null = null;
   const joined = lines.join('\n');
   const all = [...joined.matchAll(/siret\s*:?\s*((?:\d[\s.]?){14})/gi)].map((m) => m[1].replace(/\D/g, ''));
-  // Le SIRET du client est en général le second du document (le premier est l'émetteur).
-  if (all.length > 1) siret = all[1];
+  // Le SIRET du client est le second SIRET DISTINCT du document (le premier est
+  // l'émetteur). Compter les occurrences suffisait à se tromper : le pied de
+  // page légal du vendeur se répète à chaque page, et toutes les factures
+  // multipages recevaient le SIRET du vendeur — puis se rattachaient toutes à
+  // la même fiche, score parfait.
+  const distinct = [...new Set(all)];
+  if (distinct.length > 1) siret = distinct[1];
 
   return {
     name: name && name.length >= 2 ? name : null,

@@ -972,7 +972,22 @@ survit aux mises à jour d'Electron sans recompilation.
 npm run test:all
 ```
 
-- **176 tests unitaires** — lecture de nombres et dates français, CSV avec
+**La chaîne d'import a été passée en relecture croisée** (10/08/2026) : trois
+relecteurs indépendants — lecture des pièces, ingestion en base, transport
+poste → serveur — chacun tenu de démontrer ses constats par un scénario
+exécuté, puis un contre-vérificateur chargé de les réfuter. 24 constats
+confirmés, tous corrigés, chacun figé par un test de non-régression
+(tests/audit.test.mjs, 23 tests) : parmi eux, un journal CSV de N pièces
+réduit à une seule, un fichier refusé pour session expirée marqué « envoyé »
+donc perdu, une facture d'acompte citant son devis typée devis, « NET À
+PAYER 0,00 € » écrasant le vrai total TTC, le SIRET du vendeur pris pour
+celui du client sur toute facture multipage, et un scanner réécrivant
+« scan.pdf » qui effaçait la pièce du mois précédent. Limitation connue et
+assumée : un fichier monté au serveur sous une mauvaise étiquette reste
+rangé dans le sous-dossier de l'étiquette (le type en base, lui, est le bon,
+et les copies en double n'oscillent plus).
+
+- **204 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,

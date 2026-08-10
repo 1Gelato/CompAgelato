@@ -31,6 +31,8 @@ import { STATEMENT_EXTENSIONS } from './bank';
 
 /** Regroupe les rafales : un export de comptabilité écrit dix fichiers d'affilée. */
 const DEBOUNCE_MS = 1500;
+/** Limite du serveur (UPLOAD_LIMIT) : au-delà, l'envoi ne peut pas aboutir. */
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 /**
  * Balayage périodique, en plus de la surveillance. Il rattrape ce qui est
  * arrivé pendant que l'application était fermée, et surtout ce qui a échoué
@@ -120,6 +122,19 @@ export async function uploadPending(
       } catch {
         continue;
       }
+      // Le serveur refuse au-delà de 200 Mo en détruisant la connexion, ce que
+      // le poste prenait pour une coupure réseau : la file entière restait
+      // bloquée derrière le gros fichier, à chaque passage. Une limite est un
+      // état permanent — on le dit et on marque, pour que la file avance.
+      if (stat.size > MAX_UPLOAD_BYTES) {
+        result.failed.push({
+          file,
+          error: 'Fichier de plus de 200 Mo — trop volumineux pour l’envoi au serveur.',
+        });
+        markSent(file, stat.size, stat.mtimeMs);
+        log(`[dossiers] trop volumineux, ignoré : ${path.basename(file)}`);
+        continue;
+      }
       try {
         await uploadFile(
           folder.kind === 'statement' ? 'bank' : 'documents',
@@ -132,9 +147,17 @@ export async function uploadPending(
         result.sent++;
         log(`[dossiers] envoyé : ${path.basename(file)}`);
       } catch (err) {
-        if (err instanceof RemoteError && err.network) {
+        // Coupure réseau OU connexion exigée (session expirée, premier compte
+        // créé) : deux états transitoires. Marquer « envoyé » sur un 401 —
+        // l'ancien comportement — condamnait le fichier : il ne repartait
+        // jamais, même une fois la session rétablie.
+        if (err instanceof RemoteError && (err.network || err.authRequired)) {
           result.offline = true;
-          log('[dossiers] serveur injoignable : le reste partira plus tard.');
+          log(
+            err instanceof RemoteError && err.authRequired
+              ? '[dossiers] connexion requise : le reste partira une fois la session rétablie.'
+              : '[dossiers] serveur injoignable : le reste partira plus tard.',
+          );
           break;
         }
         // Refus métier (fichier illisible, droit manquant) : il est signalé et

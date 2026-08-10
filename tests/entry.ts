@@ -36,7 +36,7 @@ export { store as dataStore, isForeignPath, defaultWatchFolder } from '../electr
 // sortir du stock.
 export { ingestParsedDocument, announceImported } from '../electron/services/documents';
 export { buildDashboard } from '../electron/services/dashboard';
-export { applyAllPending } from '../electron/services/stock';
+export { applyAllPending, applyDocumentToStock } from '../electron/services/stock';
 export { awaitsStock, DEFAULT_DESKTOP_NOTIFY } from '../shared/types';
 // Notifications du poste : la décision de montrer ou non vit hors d'Electron,
 // donc elle se vérifie sans ouvrir de fenêtre.

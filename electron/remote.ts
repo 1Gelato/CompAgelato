@@ -31,6 +31,9 @@ export class RemoteError extends Error {
   /**
    * Le serveur exige une connexion : session expirée, révoquée, ou premier
    * compte venant d'être créé — le jeton partagé cesse alors de suffire.
+   * L'appelant doit RÉESSAYER plus tard, jamais classer l'appel comme un refus
+   * définitif : c'est ce classement qui faisait marquer « envoyés » des
+   * fichiers jamais acceptés, perdus sans bruit.
    */
   authRequired = false;
 }
@@ -185,9 +188,12 @@ export async function uploadFile(
     ok?: boolean;
     result?: unknown;
     error?: string;
+    authRequired?: boolean;
   };
   if (!response.ok || !payload.ok) {
-    throw new RemoteError(payload.error ?? `Erreur ${response.status}.`);
+    const error = new RemoteError(payload.error ?? `Erreur ${response.status}.`);
+    error.authRequired = response.status === 401 || payload.authRequired === true;
+    throw error;
   }
   return payload.result;
 }

@@ -492,6 +492,11 @@ test('la surveillance du dossier importe un fichier déposé sans intervention',
   // Les chemins sont enregistrés relativement au dossier de travail.
   const droppedRelative = 'Factures/FA-2026-0199.pdf';
   fs.copyFileSync(path.join(pdfDir, 'FA-2026-0143.pdf'), dropped);
+  // Contenu rendu unique : une copie byte-à-byte d'une pièce déjà en base est
+  // désormais reconnue comme la même pièce (même empreinte) et comptée une
+  // seule fois — c'est voulu. Ce test-ci vérifie autre chose : qu'un fichier
+  // NOUVEAU déposé pendant que le logiciel tourne est repris tout seul.
+  fs.appendFileSync(dropped, '\n% exemplaire distinct pour le test\n');
 
   // La surveillance attend la fin d'écriture puis regroupe les événements.
   const deadline = Date.now() + 30000;

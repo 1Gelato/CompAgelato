@@ -1,0 +1,393 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  dataStore,
+  ingestParsedDocument,
+  detectKindDetailed,
+  detectDraft,
+  extractNumber,
+  extractTotals,
+  extractDates,
+  extractClient,
+  sniffDelimiter,
+  alreadySent,
+  markSent,
+  forgetVanished,
+  applyDocumentToStock,
+  initFolders,
+  saveFolder,
+  removeFolder,
+} from './build/services.mjs';
+
+/**
+ * Régressions de la relecture croisée du 10/08 : trois agents indépendants ont
+ * relu la chaîne d'import (lecture, ingestion, transport), un quatrième a
+ * contre-vérifié chaque constat — 24 confirmés. Chaque test ci-dessous fige un
+ * de ces constats pour qu'il ne revienne pas. Les identifiants (A2, B1, C5…)
+ * renvoient au rapport de vérification.
+ */
+
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'compagelato-audit-'));
+
+test.before(() => {
+  dataStore.init({
+    dataDir: path.join(dir, 'donnees'),
+    documentsDir: path.join(dir, 'Documents'),
+  });
+});
+
+test.after(() => {
+  dataStore.flushSync();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+function piece(number, patch = {}) {
+  return {
+    kind: 'invoice',
+    kindSure: true,
+    draft: false,
+    number,
+    date: '2026-07-01',
+    dueDate: null,
+    clientName: null,
+    clientAddress: null,
+    clientSiret: null,
+    clientEmail: null,
+    clientPhone: null,
+    clientContact: null,
+    currency: 'EUR',
+    totalHT: 100,
+    totalVAT: 20,
+    totalTTC: 120,
+    lines: [],
+    confidence: 1,
+    warnings: [],
+    ...patch,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Lecture (rapport A)                                                  */
+/* ------------------------------------------------------------------ */
+
+test('A1 : une facture d’acompte qui cite son devis reste une facture', () => {
+  const r = detectKindDetailed(
+    'FACTURE\nN° : FAC00000816\nAcompte de 50,00 % suivant devis N° DEV00000594',
+    'FAC00000816.pdf',
+  );
+  assert.deepEqual(r, { kind: 'invoice', sure: true });
+});
+
+test('A7 : une rectificative écrite « après avoir n° … » reste une facture', () => {
+  const r = detectKindDetailed(
+    'FACTURE RECTIFICATIVE\nAnnule et remplace la facture FAC00000816 après avoir n° AV-2026-0007',
+  );
+  assert.equal(r.kind, 'invoice');
+});
+
+test('A1 bis : un avoir et un devis restent reconnus par leur titre', () => {
+  assert.equal(detectKindDetailed('AVOIR\nSur facture FAC-123').kind, 'credit');
+  assert.equal(detectKindDetailed('DEVIS\nFacture pro forma à venir').kind, 'quote');
+});
+
+test('A2 : « NET À PAYER 0,00 € » n’écrase pas le Total TTC', () => {
+  const t = extractTotals([
+    'Total HT 1 022,40 €',
+    'TVA 20,00 % 204,48 €',
+    'Total TTC 1 226,88 €',
+    'Acompte versé 613,44 €',
+    'NET À PAYER 0,00 €',
+  ]);
+  assert.equal(t.totalTTC, 1226.88);
+  assert.equal(t.totalVAT, 204.48);
+});
+
+test('A2 bis : sans Total TTC, un net à payer incohérent ne fabrique pas une TVA négative', () => {
+  const t = extractTotals(['Total HT 1 022,40 €', 'TVA 20,00 % 204,48 €', 'NET À PAYER 0,00 €']);
+  assert.ok(t.totalVAT === null || t.totalVAT >= 0, `TVA négative : ${t.totalVAT}`);
+  assert.notEqual(t.totalTTC, 0);
+});
+
+test('A6 : « TVA non applicable, art. 293 B » vaut zéro, pas 293 €', () => {
+  const t = extractTotals(['Total HT 850,00 €', 'TVA non applicable, art. 293 B du CGI']);
+  assert.equal(t.totalVAT, 0);
+  assert.equal(t.totalTTC, 850);
+});
+
+test('A3 : « N° client : » ne fournit jamais le numéro de la pièce', () => {
+  const n = extractNumber('Siret : 00000000000000  N° client : CLT00000127\nN° : FAC00000816');
+  assert.equal(n.value, 'FAC00000816');
+});
+
+test('A3 bis : un « numéro » sans chiffre n’en est pas un', () => {
+  const n = extractNumber('Réf. : PROPOSITION COMMERCIALE MACHINE GLACE', 'DEV00000613.pdf');
+  assert.ok(/\d/.test(n.value), `numéro sans chiffre : ${n.value}`);
+});
+
+test('A4 : un fichier BRO est un brouillon même si son numéro est mal lu', () => {
+  assert.equal(detectDraft('FACTURE', 'BRO00001044.pdf', '00001044'), true);
+  assert.equal(detectDraft('FACTURE', 'FAC00000816.pdf', 'FAC00000816'), false);
+});
+
+test('A5 : le SIRET du vendeur répété en pied de page n’est pas celui du client', () => {
+  const { siret } = extractClient([
+    'Client : LE COMPTOIR',
+    'Siret : 00000000000000',
+    '— page 2 —',
+    'Siret : 00000000000000',
+  ]);
+  assert.equal(siret, null);
+});
+
+test('A5 bis : un second SIRET distinct reste attribué au client', () => {
+  const { siret } = extractClient([
+    'Client : LE COMPTOIR',
+    'Siret : 00000000000000',
+    'Siret : 81234567800019',
+  ]);
+  assert.equal(siret, '81234567800019');
+});
+
+test('A8 : sur une ligne fusionnée, l’échéance se lit après son mot-clé', () => {
+  const d = extractDates(['Date : 22/03/2026    Échéance : 21/04/2026']);
+  assert.equal(d.date, '2026-03-22');
+  assert.equal(d.dueDate, '2026-04-21');
+});
+
+test('A8 bis : « Date d’échéance » seule ne date pas la pièce', () => {
+  const d = extractDates(["Date d'échéance : 21/04/2026", 'Date : 22/03/2026']);
+  assert.equal(d.date, '2026-03-22');
+  assert.equal(d.dueDate, '2026-04-21');
+});
+
+test('A9 : la date de validité d’un devis n’est pas sa date d’émission', () => {
+  const d = extractDates([
+    'DEVIS N° DEV00000622',
+    "Devis valable jusqu'au 29/08/2026",
+    'Émis à Guérande, le 10/07/2026',
+  ]);
+  assert.equal(d.date, '2026-07-10');
+});
+
+test('A10 : une ligne de titre sans séparateur ne fait pas choisir la virgule', () => {
+  const csv =
+    'Relevé des factures clients\nDate;Numéro;Client;Total TTC\n14/03/2026;FA-2026-0142;LE COMPTOIR;382,80\n22/03/2026;FA-2026-0143;LA DUNE;172,44';
+  assert.equal(sniffDelimiter(csv), ';');
+});
+
+/* ------------------------------------------------------------------ */
+/* Ingestion (rapport B)                                                */
+/* ------------------------------------------------------------------ */
+
+test('B1 : un journal de trois pièces donne trois pièces, pas une', () => {
+  for (const n of ['FAC-100', 'FAC-101', 'FAC-102']) {
+    ingestParsedDocument(piece(n), {
+      sourceFormat: 'csv',
+      filePath: '/srv/Factures/journal.csv',
+      sourceHash: 'hJournal',
+      multiPiece: true,
+    });
+  }
+  const found = dataStore.db.documents.filter((d) => /^FAC-10[012]$/.test(d.number));
+  assert.equal(found.length, 3, `pièces écrasées : ${found.map((d) => d.number).join(', ')}`);
+});
+
+test('B2 : un nom de fichier réutilisé ne détourne pas la pièce précédente', () => {
+  const juillet = ingestParsedDocument(piece('FAC-2026-071', { totalHT: 450 }), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Factures/scan.pdf',
+    sourceHash: 'hJuillet',
+  });
+  const aout = ingestParsedDocument(piece('FAC-2026-082', { totalHT: 980 }), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Factures/scan.pdf',
+    sourceHash: 'hAout',
+  });
+  assert.notEqual(juillet.id, aout.id, 'la facture de juillet a été écrasée');
+  assert.ok(dataStore.db.documents.some((d) => d.number === 'FAC-2026-071'));
+  assert.ok(dataStore.db.documents.some((d) => d.number === 'FAC-2026-082'));
+});
+
+test('B3 : un devis et une facture partageant un numéro restent deux pièces', () => {
+  const devis = ingestParsedDocument(piece('2026-100', { kind: 'quote' }), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Devis/devis-2026-100.pdf',
+    sourceHash: 'hDevis100',
+  });
+  const facture = ingestParsedDocument(piece('2026-100', { kind: 'invoice' }), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Factures/facture-2026-100.pdf',
+    sourceHash: 'hFacture100',
+  });
+  assert.notEqual(devis.id, facture.id, 'le devis a été absorbé par sa facture');
+  assert.equal(dataStore.db.documents.filter((d) => d.number === '2026-100').length, 2);
+});
+
+test('B4 : la résorption garde la jumelle qui porte le travail de l’utilisateur', () => {
+  const ancienne = ingestParsedDocument(piece('DEV-777', { kind: 'invoice' }), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Factures/DEV-777.pdf',
+    sourceHash: 'h777',
+  });
+  // La jumelle récente est celle que l'utilisateur a annotée : statut payé
+  // choisi à la main, note. C'est ELLE qui doit survivre.
+  dataStore.mutate((db) => {
+    db.documents.unshift({
+      ...ancienne,
+      id: 'doc_travaillée',
+      kind: 'quote',
+      status: 'paid',
+      notes: 'acompte reçu en espèces',
+      manualFields: ['status'],
+      sourceFile: 'Devis/DEV-777.pdf',
+      importedAt: '2026-08-11T10:00:00.000Z',
+    });
+  });
+  const relu = ingestParsedDocument(piece('DEV-777', { kind: 'quote', kindSure: true }), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Devis/DEV-777.pdf',
+    sourceHash: 'h777',
+  });
+  assert.equal(relu.id, 'doc_travaillée', 'la jumelle annotée a été détruite');
+  assert.equal(relu.status, 'paid');
+  assert.equal(relu.notes, 'acompte reçu en espèces');
+  assert.ok(
+    relu.warnings.some((w) => /résorbé/.test(w)),
+    'la fusion doit laisser une trace',
+  );
+});
+
+test('B5 : corriger le type après la déduction rend d’abord le stock', () => {
+  dataStore.mutate((db) => {
+    db.products.push({
+      id: 'prd_bac',
+      type: 'consumable',
+      ref: 'BAC-5L',
+      name: 'Bac inox 5 L',
+      unit: 'pièce',
+      qtyOnHand: 20,
+      minQty: 0,
+      archived: false,
+      aliases: [],
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    });
+  });
+  const facture = ingestParsedDocument(
+    piece('AV-2026-09', {
+      kind: 'invoice',
+      lines: [{ label: 'Bac inox 5 L', qty: 4, ref: 'BAC-5L' }],
+    }),
+    { sourceFormat: 'pdf', filePath: '/srv/Factures/AV-2026-09.pdf', sourceHash: 'hAvoir' },
+  );
+  // Le stock sort selon le type « facture ». Le magasin recalcule la quantité
+  // comme somme des mouvements : on raisonne donc en écarts, pas en absolu.
+  applyDocumentToStock(facture.id);
+  const sorti = dataStore.db.products.find((p) => p.id === 'prd_bac').qtyOnHand;
+  // ... puis la pièce se révèle être un avoir : la sortie doit être rendue.
+  const relu = ingestParsedDocument(
+    piece('AV-2026-09', {
+      kind: 'credit',
+      lines: [{ label: 'Bac inox 5 L', qty: 4, ref: 'BAC-5L' }],
+    }),
+    { sourceFormat: 'pdf', filePath: '/srv/Factures/AV-2026-09.pdf', sourceHash: 'hAvoir' },
+  );
+  assert.equal(relu.kind, 'credit');
+  assert.equal(relu.stockApplied, false, 'la déduction de l’ancien type devait être annulée');
+  const rendu = dataStore.db.products.find((p) => p.id === 'prd_bac').qtyOnHand;
+  assert.equal(rendu, sorti + 4, 'le mouvement de l’ancien type pèse encore sur le stock');
+  assert.ok(
+    !dataStore.db.stockMoves.some((m) => m.documentId === relu.id),
+    'un mouvement de l’ancien type est resté attaché à la pièce',
+  );
+  assert.ok(relu.warnings.some((w) => /Type corrigé/.test(w)));
+});
+
+test('B6 : renommer une fiche puis relire ne crée pas de doublon client', () => {
+  dataStore.mutate((db) => {
+    db.clients.push({
+      id: 'cli_ajoncs',
+      code: 'C10',
+      name: 'Camping Les Ajoncs',
+      address: {},
+      tags: [],
+      aliases: [],
+      archived: false,
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    });
+  });
+  const doc = ingestParsedDocument(piece('FAC-AJONCS', { clientName: 'Camping Les Ajoncs' }), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Factures/FAC-AJONCS.pdf',
+    sourceHash: 'hAjoncs',
+  });
+  assert.equal(doc.clientId, 'cli_ajoncs');
+  // L'utilisateur renomme la fiche...
+  dataStore.mutate((db) => {
+    db.clients.find((c) => c.id === 'cli_ajoncs').name = 'SARL Vacances Océanes';
+  });
+  const avant = dataStore.db.clients.length;
+  const relu = ingestParsedDocument(piece('FAC-AJONCS', { clientName: 'Camping Les Ajoncs' }), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Factures/FAC-AJONCS.pdf',
+    sourceHash: 'hAjoncs',
+  });
+  assert.equal(relu.clientId, 'cli_ajoncs', 'la pièce a été détachée de sa fiche renommée');
+  assert.equal(dataStore.db.clients.length, avant, 'une fiche doublon a été créée');
+});
+
+/* ------------------------------------------------------------------ */
+/* Transport (rapport C)                                                */
+/* ------------------------------------------------------------------ */
+
+test('C5 : retirer un dossier surveillé oublie ses marques d’envoi', () => {
+  const posteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'compagelato-poste-'));
+  const watched = path.join(posteDir, 'MesDevis');
+  fs.mkdirSync(watched);
+  const file = path.join(watched, 'DE-1.pdf');
+  fs.writeFileSync(file, 'contenu');
+  try {
+    initFolders(posteDir);
+    const folder = saveFolder({ path: watched, kind: 'invoice' });
+    const stat = fs.statSync(file);
+    markSent(file, stat.size, stat.mtimeMs);
+    assert.equal(alreadySent(file, stat.size, stat.mtimeMs), true);
+    removeFolder(folder.id);
+    // Ré-ajout avec la bonne étiquette : tout doit repartir.
+    saveFolder({ path: watched, kind: 'quote' });
+    assert.equal(
+      alreadySent(file, stat.size, stat.mtimeMs),
+      false,
+      'les marques du dossier retiré bloquent encore le renvoi',
+    );
+  } finally {
+    fs.rmSync(posteDir, { recursive: true, force: true });
+  }
+});
+
+test('C6 : un chemin avec majuscules survit au ménage sur un disque sensible à la casse', () => {
+  const posteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'compagelato-casse-'));
+  const watched = path.join(posteDir, 'Factures');
+  fs.mkdirSync(watched);
+  const file = path.join(watched, 'FA-2026-0142.PDF');
+  fs.writeFileSync(file, 'contenu');
+  try {
+    initFolders(posteDir);
+    saveFolder({ path: watched, kind: 'invoice' });
+    const stat = fs.statSync(file);
+    markSent(file, stat.size, stat.mtimeMs);
+    forgetVanished();
+    assert.equal(
+      alreadySent(file, stat.size, stat.mtimeMs),
+      true,
+      'la marque d’un fichier existant a été purgée — il repartirait en boucle',
+    );
+  } finally {
+    fs.rmSync(posteDir, { recursive: true, force: true });
+  }
+});
+

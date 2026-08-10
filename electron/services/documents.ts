@@ -18,8 +18,8 @@ import { DOCUMENT_FIELDS, guessMapping, readTable } from './tabular';
 import { looksLikeClientName, normalize, parseDate, parseNumber, round2 } from './text';
 import { createClientFromDocument, fillClientContact, matchClient } from './clients';
 import { recomputeProductQty } from './stock';
-import { applyDocumentToStock, resolveDocumentLines } from './stock';
-import { storePath } from './paths';
+import { applyDocumentToStock, resolveDocumentLines, revertDocumentFromStock } from './stock';
+import { resolvePath, storePath } from './paths';
 import { announce } from './activity';
 
 /* ------------------------------------------------------------------ */
@@ -198,6 +198,13 @@ interface IngestContext {
   sourceHash?: string;
   sourceMtime?: number;
   kindHint?: DocumentKind | null;
+  /**
+   * Le fichier contient plusieurs pièces (journal de ventes CSV/Excel).
+   * L'empreinte du fichier ne peut alors PAS servir d'identité : toutes les
+   * pièces du journal la partagent, et s'en servir les ferait s'écraser l'une
+   * l'autre jusqu'à n'en laisser qu'une. Seul le numéro identifie.
+   */
+  multiPiece?: boolean;
 }
 
 /**
@@ -253,37 +260,66 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
   // factures. L'indice du dossier ne sert que lorsque rien n'a pu être lu.
   const kind = parsed.kindSure ? parsed.kind : (ctx.kindHint ?? parsed.kind);
 
-  // Un même numéro de pièce ne doit exister qu'une fois.
+  // Un même numéro de pièce ne doit exister qu'une fois. Deux identités :
   //
-  // Le fichier d'origine fait foi en premier : c'est la seule identité qui
-  // survit à une correction du type. Sans lui, un devis jusque-là rangé en
-  // facture ne se reconnaissait plus lui-même à la relecture — le numéro
-  // correspondait mais pas le type — et la pièce corrigée venait s'ajouter à
-  // côté de l'ancienne au lieu de la remplacer.
-  const storedPath = ctx.filePath ? storePath(ctx.filePath) : undefined;
+  // — le NUMÉRO, à type égal : c'est l'identité comptable ; un devis et une
+  //   facture peuvent légitimement partager un numéro dans une numérotation
+  //   commune, donc le numéro seul ne franchit jamais la frontière des types ;
+  // — le CONTENU (empreinte du fichier), pour les fichiers mono-pièce
+  //   seulement : c'est ce qui permet à une pièce dont le type vient d'être
+  //   corrigé de se reconnaître elle-même, et à deux copies du même PDF rangées
+  //   dans deux sous-dossiers de ne compter qu'une fois. Dans un journal
+  //   multi-pièces l'empreinte est commune à tout le fichier : s'en servir
+  //   ferait s'écraser les pièces l'une l'autre jusqu'à n'en laisser qu'une.
+  //
+  // Le chemin du fichier, lui, n'identifie RIEN : un scanner réécrit
+  // volontiers « scan.pdf » avec une pièce entièrement nouvelle, et s'y fier
+  // faisait disparaître la pièce précédente sous la nouvelle.
   const sameNumber = (d: AccountingDocument) =>
     parsed.number !== 'SANS-NUMERO' && normalize(d.number) === normalize(parsed.number);
   const matches = store.db.documents.filter(
     (d) =>
-      (storedPath && d.sourceFile === storedPath) ||
-      (ctx.sourceHash && d.sourceHash === ctx.sourceHash) ||
-      // Même numéro : la même pièce, quel que soit le type qu'on lui avait
-      // attribué — mais seulement quand la lecture est certaine du sien. Deux
-      // pièces de types différents peuvent légitimement porter le même numéro
-      // dans une numérotation commune ; c'est rare, et une lecture hésitante ne
-      // suffit pas à trancher, alors on ne rapproche que ce dont on est sûr.
-      (sameNumber(d) && (d.kind === kind || parsed.kindSure)),
+      (sameNumber(d) && d.kind === kind) ||
+      (!ctx.multiPiece && ctx.sourceHash && d.sourceHash === ctx.sourceHash),
   );
-  // La plus ancienne porte l'historique : corrections manuelles, repères
-  // d'impression, mouvements de stock. C'est elle qu'on garde.
-  matches.sort((a, b) => a.importedAt.localeCompare(b.importedAt));
+  // Laquelle garder quand plusieurs enregistrements désignent la même pièce ?
+  // Celle qui porte le travail de l'utilisateur : stock déjà déduit, champs
+  // corrigés à la main, repères d'impression ou notes. « La plus ancienne »
+  // était un mauvais critère : dans le cas des jumelles nées d'une correction
+  // de type, c'est souvent la plus récente que l'utilisateur avait annotée, et
+  // la résorption détruisait ses corrections sans un mot.
+  const weight = (d: AccountingDocument) =>
+    (d.stockApplied ? 4 : 0) +
+    (d.manualFields?.length ? 2 : 0) +
+    (d.printedAt || d.emailedAt || d.notes ? 1 : 0);
+  matches.sort((a, b) => weight(b) - weight(a) || a.importedAt.localeCompare(b.importedAt));
   const existing = matches[0];
-  // Les jumelles nées d'une correction de type sont résorbées ici : la
-  // relecture est le seul moment où l'on sait qu'elles désignent la même
-  // pièce. `removeDocument` rend au stock ce qu'elles avaient sorti.
-  for (const twin of matches.slice(1)) removeDocument(twin.id);
+  // Les jumelles surnuméraires sont résorbées, en le disant : `removeDocument`
+  // rend au stock ce qu'elles avaient sorti, et l'avertissement laisse une
+  // trace de la fusion sur la pièce conservée.
+  const resorbed = matches.slice(1);
+  for (const twin of resorbed) removeDocument(twin.id);
 
   const warnings = [...parsed.warnings];
+  if (resorbed.length) {
+    warnings.push(
+      `${resorbed.length} enregistrement(s) en double résorbé(s) — leur éventuelle ` +
+        'déduction de stock a été rendue.',
+    );
+  }
+
+  // Le type vient de changer alors que le stock était déjà sorti : les
+  // mouvements enregistrés racontent l'ancien type. On rend la marchandise
+  // avant de basculer — un devis ne sort rien, un avoir réintègre — plutôt que
+  // de laisser un devis porteur d'une sortie de stock invisible, ou un avoir
+  // comptant en sortie ce qu'il devrait rendre.
+  if (existing?.stockApplied && existing.kind !== kind && !existing.manualFields?.includes('kind')) {
+    revertDocumentFromStock(existing.id);
+    warnings.push(
+      'Type corrigé après la déduction du stock : la déduction a été annulée. ' +
+        'Elle sera refaite selon le nouveau type si la déduction automatique est active.',
+    );
+  }
 
   /* Client -------------------------------------------------------- */
   // Le client est reconsidéré à chaque lecture. Le conserver tel quel — ce que
@@ -318,6 +354,12 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
       warnings.push('Client reconnu à partir de son nom présent sur le document.');
     }
   }
+  // Rien de reconnu : la pièce garde le lien qu'elle avait. Ce repli vient
+  // AVANT l'auto-création — une pièce déjà rattachée n'est pas un client
+  // inconnu, et créer une fiche au nom lu fabriquait un doublon (et y migrait
+  // les pièces) dès qu'une fiche était renommée ou qu'un doublon rejeté avait
+  // été supprimé à la main.
+  if (!clientId) clientId = existing?.clientId;
   if (!clientId && parsed.clientName && settings.autoCreateClients) {
     clientId = createClientFromDocument(
       parsed.clientName,
@@ -333,9 +375,6 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
     // sans jamais écraser une valeur déjà saisie à la main.
     fillClientContact(clientId, parsed.clientEmail, parsed.clientPhone, parsed.clientContact);
   }
-  // Rien de reconnu cette fois : plutôt que de détacher la pièce, on garde le
-  // lien qu'elle avait. Une lecture muette n'est pas une raison d'effacer.
-  if (!clientId) clientId = existing?.clientId;
 
   const totalHT = parsed.totalHT ?? 0;
   const totalVAT = parsed.totalVAT ?? 0;
@@ -617,40 +656,66 @@ export async function scanFolder(options: ScanOptions = {}): Promise<ScanReport>
     options.onProgress?.({ current: index + 1, total: files.length, file: path.basename(file.filePath) });
 
     const stored = storePath(file.filePath);
-    const known = store.db.documents.find((d) => d.sourceFile === stored);
-    if (!options.force && known && known.sourceMtime === file.mtimeMs) {
+    // « Connu » exige chemin ET horodatage : un scanner qui réécrit le même
+    // nom de fichier avec une pièce neuve ne doit pas passer pour l'ancienne.
+    const known = store.db.documents.find(
+      (d) => d.sourceFile === stored && d.sourceMtime === file.mtimeMs,
+    );
+    if (!options.force && known) {
       report.skipped++;
       continue;
     }
 
     try {
       const hash = await hashFile(file.filePath);
-      if (!options.force && known && known.sourceHash === hash) {
-        // Contenu identique : on rafraîchit seulement l'horodatage.
+      const byHash = store.db.documents.find((d) => d.sourceHash === hash);
+      if (!options.force && byHash) {
+        if (byHash.sourceFile !== stored) {
+          const previous = resolvePath(byHash.sourceFile ?? '');
+          if (previous && fs.existsSync(previous)) {
+            // Deux copies du même contenu (une pièce renvoyée sous une autre
+            // étiquette, rangée dans un autre sous-dossier). Relire la seconde
+            // ferait basculer `sourceFile` à chaque passage — base réécrite et
+            // événements en boucle. La copie déjà enregistrée fait foi.
+            report.skipped++;
+            continue;
+          }
+          // Le fichier a été déplacé : on suit son nouvel emplacement.
+          store.mutate(() => {
+            byHash.sourceFile = stored;
+            byHash.sourceMtime = file.mtimeMs;
+          });
+          report.skipped++;
+          continue;
+        }
+        // Contenu identique au même endroit : on rafraîchit l'horodatage.
         store.mutate(() => {
-          known.sourceMtime = file.mtimeMs;
+          byHash.sourceMtime = file.mtimeMs;
         });
         report.skipped++;
         continue;
       }
 
       const results = await parseFile(file.filePath, file.folderHint);
+      // « Nouveauté » se juge sur l'identifiant : une pièce dont l'id existait
+      // avant l'ingestion a été mise à jour, pas ajoutée — quel que soit le
+      // chemin par lequel elle a été reconnue.
+      const beforeIds = new Set(store.db.documents.map((d) => d.id));
       for (const { parsed, format } of results) {
-        const existed = store.db.documents.some(
-          (d) => d.sourceHash === hash || (normalize(d.number) === normalize(parsed.number) && d.kind === parsed.kind),
-        );
         const doc = ingestParsedDocument(parsed, {
           filePath: file.filePath,
           sourceFormat: format,
           sourceHash: hash,
           sourceMtime: file.mtimeMs,
           kindHint: file.folderHint,
+          multiPiece: results.length > 1,
         });
         report.documents.push(doc);
-        if (existed) report.updated++;
+        if (beforeIds.has(doc.id)) report.updated++;
         else {
           report.imported++;
           fresh.push(doc);
+          beforeIds.add(doc.id);
         }
       }
     } catch (err) {
@@ -710,6 +775,7 @@ export async function rescanFile(filePath: string): Promise<AccountingDocument |
   let last: AccountingDocument | null = null;
   for (const { parsed, format } of results) {
     last = ingestParsedDocument(parsed, {
+      multiPiece: results.length > 1,
       filePath,
       sourceFormat: format,
       sourceHash: hash,

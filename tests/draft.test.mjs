@@ -254,9 +254,13 @@ test('des jumelles déjà en base sont résorbées à la relecture', () => {
   // enregistrée deux fois, sous deux types. La relecture est le seul moment où
   // l'on sait qu'elles désignent la même chose. On les pose donc telles
   // quelles, comme elles s'y trouvent aujourd'hui.
+  // Les jumelles réelles sont deux copies du MÊME fichier, rangées dans deux
+  // sous-dossiers sous deux types : même contenu, donc même empreinte. C'est
+  // l'empreinte qui les réunit — deux pièces de contenus différents partageant
+  // un numéro resteraient, elles, deux pièces distinctes.
   const ancienne = ingestParsedDocument(
     { ...parsed('DEV00000621'), kind: 'invoice', kindSure: false, clientContact: null },
-    { sourceFormat: 'pdf', filePath: '/srv/Factures/DEV00000621.pdf', sourceHash: 'hA' },
+    { sourceFormat: 'pdf', filePath: '/srv/Factures/DEV00000621.pdf', sourceHash: 'hMEME' },
   );
   dataStore.mutate((db) => {
     db.documents.unshift({
@@ -264,7 +268,7 @@ test('des jumelles déjà en base sont résorbées à la relecture', () => {
       id: 'doc_jumelle',
       kind: 'quote',
       sourceFile: 'Devis/DEV00000621.pdf',
-      sourceHash: 'hB',
+      sourceHash: 'hMEME',
       importedAt: '2026-08-11T10:00:00.000Z',
     });
   });
@@ -273,7 +277,7 @@ test('des jumelles déjà en base sont résorbées à la relecture', () => {
   const relu = ingestParsedDocument(devisParse('DEV00000621', 'Candy Breizh'), {
     sourceFormat: 'pdf',
     filePath: '/srv/Devis/DEV00000621.pdf',
-    sourceHash: 'hB',
+    sourceHash: 'hMEME',
   });
   assert.equal(
     dataStore.db.documents.filter((d) => d.number === 'DEV00000621').length,

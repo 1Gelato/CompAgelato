@@ -47,10 +47,19 @@ export function sniffDelimiter(text: string): string {
   let bestScore = -1;
   for (const d of candidates) {
     const counts = sample.map((l) => splitCsvLine(l, d).length);
-    const first = counts[0];
-    if (first < 2) continue;
-    const consistent = counts.filter((c) => c === first).length / counts.length;
-    const score = consistent * 10 + Math.min(first, 20) * 0.1;
+    // La régularité se mesure sur la valeur DOMINANTE, pas sur la première
+    // ligne : beaucoup d'exports commencent par une ligne de titre sans aucun
+    // séparateur (« Relevé des factures clients »), qui éliminait le bon
+    // candidat et laissait gagner la virgule par défaut — les montants
+    // « 382,80 » étaient alors coupés en deux cellules.
+    const tally = new Map<number, number>();
+    for (const c of counts) if (c >= 2) tally.set(c, (tally.get(c) ?? 0) + 1);
+    if (!tally.size) continue;
+    const [dominant, occurrences] = [...tally.entries()].sort(
+      (a, b) => b[1] - a[1] || b[0] - a[0],
+    )[0];
+    const consistent = occurrences / counts.length;
+    const score = consistent * 10 + Math.min(dominant, 20) * 0.1;
     if (score > bestScore) {
       bestScore = score;
       best = d;

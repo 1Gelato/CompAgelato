@@ -37,6 +37,15 @@ export interface UploadFolder {
 interface SentMark {
   size: number;
   mtimeMs: number;
+  /**
+   * Chemin tel qu'il existe sur le disque. La clé du registre est minusculée
+   * (deux écritures Windows du même fichier ne doivent compter qu'une fois),
+   * mais sur un système de fichiers sensible à la casse, vérifier l'existence
+   * avec la clé minusculée échouait toujours — et le ménage purgait le
+   * registre entier à chaque passage, renvoyant tout en boucle. Absent des
+   * anciennes marques : on retombe alors sur la clé.
+   */
+  path?: string;
 }
 
 interface FoldersFile {
@@ -115,7 +124,12 @@ export function saveFolder(input: { id?: string; path: string; kind: FolderKind 
 }
 
 export function removeFolder(id: string): UploadFolder[] {
+  const removed = state.folders.find((f) => f.id === id);
   state.folders = state.folders.filter((f) => f.id !== id);
+  // Retirer un dossier, c'est souvent corriger son étiquette avant de le
+  // remettre : les marques d'envoi doivent partir avec lui, sans quoi le
+  // ré-ajout ne renverrait rien et la correction resterait sans effet.
+  if (removed) forgetFolder(removed.path);
   persist();
   return listFolders();
 }
@@ -138,7 +152,7 @@ export function alreadySent(filePath: string, size: number, mtimeMs: number): bo
 }
 
 export function markSent(filePath: string, size: number, mtimeMs: number): void {
-  state.sent[markKey(filePath)] = { size, mtimeMs };
+  state.sent[markKey(filePath)] = { size, mtimeMs, path: path.resolve(filePath) };
   persist();
 }
 
@@ -149,9 +163,10 @@ export function markSent(filePath: string, size: number, mtimeMs: number): void 
  */
 export function forgetVanished(): number {
   let removed = 0;
-  for (const key of Object.keys(state.sent)) {
+  for (const [key, mark] of Object.entries(state.sent)) {
     const watched = state.folders.some((f) => key.startsWith(path.resolve(f.path).toLowerCase()));
-    if (!watched || !fs.existsSync(key)) {
+    // L'existence se vérifie sur le chemin réel, jamais sur la clé minusculée.
+    if (!watched || !fs.existsSync(mark.path ?? key)) {
       delete state.sent[key];
       removed++;
     }
