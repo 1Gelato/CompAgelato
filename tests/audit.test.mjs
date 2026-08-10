@@ -20,6 +20,7 @@ import {
   initFolders,
   saveFolder,
   removeFolder,
+  matchClient,
 } from './build/services.mjs';
 
 /**
@@ -391,3 +392,93 @@ test('C6 : un chemin avec majuscules survit au ménage sur un disque sensible à
   }
 });
 
+
+/* ------------------------------------------------------------------ */
+/* Rattachements figés (cas réel du 10/08)                              */
+/* ------------------------------------------------------------------ */
+
+test('un mauvais client ne survit pas à une lecture qui dit autre chose', () => {
+  // Cas vécu : des devis rattachés à « Rondeau Vincent » par un lecteur
+  // défaillant. Le lecteur corrigé lit « Madame NATHALIE GARDY », qui ne
+  // correspond à aucune fiche — le repli « garder le lien précédent » figeait
+  // alors l'erreur, relecture forcée comprise.
+  dataStore.mutate((db) => {
+    db.clients.push({
+      id: 'cli_rondeau',
+      code: 'C99',
+      name: 'Rondeau Vincent',
+      address: {},
+      tags: [],
+      aliases: [],
+      archived: false,
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    });
+  });
+  const doc = ingestParsedDocument(
+    piece('DEV-GARDY', { kind: 'quote', clientName: "FRANCE Devis valable jusqu'au 09/09/2026" }),
+    { sourceFormat: 'pdf', filePath: '/srv/Devis/DEV-GARDY.pdf', sourceHash: 'hGardy' },
+  );
+  dataStore.mutate(() => {
+    doc.clientId = 'cli_rondeau';
+  });
+
+  const relu = ingestParsedDocument(
+    piece('DEV-GARDY', { kind: 'quote', clientName: 'Madame NATHALIE GARDY' }),
+    { sourceFormat: 'pdf', filePath: '/srv/Devis/DEV-GARDY.pdf', sourceHash: 'hGardy' },
+  );
+  assert.notEqual(relu.clientId, 'cli_rondeau', 'le mauvais rattachement a survécu');
+  const client = dataStore.db.clients.find((c) => c.id === relu.clientId);
+  assert.match(client.name, /GARDY/i);
+});
+
+test('une fiche renommée garde ses pièces : le nom lu, lui, n’a pas changé', () => {
+  // Le pendant du test précédent : ici la lecture est IDENTIQUE, seule la
+  // fiche a été renommée. Le lien doit tenir, sans fabriquer de doublon.
+  dataStore.mutate((db) => {
+    db.clients.push({
+      id: 'cli_dune',
+      code: 'C98',
+      name: 'Restaurant La Dune',
+      address: {},
+      tags: [],
+      aliases: [],
+      archived: false,
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    });
+  });
+  const doc = ingestParsedDocument(piece('FAC-DUNE', { clientName: 'Restaurant La Dune' }), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Factures/FAC-DUNE.pdf',
+    sourceHash: 'hDune',
+  });
+  assert.equal(doc.clientId, 'cli_dune');
+  dataStore.mutate((db) => {
+    db.clients.find((c) => c.id === 'cli_dune').name = 'SAS Océane Restauration';
+  });
+  const avant = dataStore.db.clients.length;
+  const relu = ingestParsedDocument(piece('FAC-DUNE', { clientName: 'Restaurant La Dune' }), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Factures/FAC-DUNE.pdf',
+    sourceHash: 'hDune',
+  });
+  assert.equal(relu.clientId, 'cli_dune');
+  assert.equal(dataStore.db.clients.length, avant, 'une fiche doublon a été créée');
+});
+
+test('un alias portant le nom d’une autre fiche n’attire plus les pièces', () => {
+  // La fiche « Rondeau Vincent » a hérité, mois après mois, des noms de tous
+  // les clients qu'un rapprochement automatique lui avait attribués par
+  // erreur. Ces alias ressemblent à de vrais noms — ils le sont : ce sont ceux
+  // des AUTRES fiches.
+  const pollue = {
+    id: 'cli_p',
+    name: 'Rondeau Vincent',
+    aliases: ['Madame HYACINTHE GNAWA'],
+    archived: false,
+  };
+  const vraie = { id: 'cli_v', name: 'Madame HYACINTHE GNAWA', aliases: [], archived: false };
+  const match = matchClient([pollue, vraie], 'Madame HYACINTHE GNAWA');
+  assert.equal(match?.client.id, 'cli_v', 'l’alias parasite gagne encore');
+});

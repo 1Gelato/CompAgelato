@@ -354,12 +354,21 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
       warnings.push('Client reconnu à partir de son nom présent sur le document.');
     }
   }
-  // Rien de reconnu : la pièce garde le lien qu'elle avait. Ce repli vient
-  // AVANT l'auto-création — une pièce déjà rattachée n'est pas un client
-  // inconnu, et créer une fiche au nom lu fabriquait un doublon (et y migrait
-  // les pièces) dès qu'une fiche était renommée ou qu'un doublon rejeté avait
-  // été supprimé à la main.
-  if (!clientId) clientId = existing?.clientId;
+  // Rien de reconnu. Garder le lien précédent n'a de sens que s'il repose sur
+  // la MÊME lecture : c'est le cas d'une fiche renommée — le nom lu n'a pas
+  // bougé, seule la fiche a changé d'intitulé, et recréer une fiche au nom lu
+  // fabriquerait un doublon.
+  //
+  // Mais quand le nom lu a changé, l'ancien lien reposait sur autre chose —
+  // typiquement une lecture erronée, désormais corrigée. Le conserver figerait
+  // l'erreur pour toujours : c'est ce qui faisait survivre un mauvais client à
+  // toutes les relectures, y compris forcées.
+  if (!clientId && existing?.clientId) {
+    const sameReading =
+      !parsed.clientName ||
+      normalize(existing.clientNameRaw ?? '') === normalize(parsed.clientName);
+    if (sameReading) clientId = existing.clientId;
+  }
   if (!clientId && parsed.clientName && settings.autoCreateClients) {
     clientId = createClientFromDocument(
       parsed.clientName,

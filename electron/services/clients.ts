@@ -123,8 +123,20 @@ export function matchClient(clients: Client[], name?: string | null, siret?: str
   const exact = pool.find((c) => normalize(c.name) === n);
   if (exact) return { client: exact, score: 1, method: 'exact' };
 
+  // Un alias qui porte le nom d'une AUTRE fiche n'est pas une orthographe : il
+  // vient d'un rapprochement automatique malheureux, qui a inscrit le nom d'un
+  // client dans la fiche d'un autre. S'en servir attirait toutes les pièces de
+  // l'un vers l'autre, avec un score presque parfait et sans le moindre
+  // avertissement.
+  const named = new Set(pool.map((c) => normalize(c.name)));
+  const usableAlias = (client: Client, alias: string): boolean => {
+    if (!looksLikeClientName(alias)) return false;
+    const a = normalize(alias);
+    return !(named.has(a) && a !== normalize(client.name));
+  };
+
   for (const c of pool) {
-    if (c.aliases.some((a) => looksLikeClientName(a) && normalize(a) === n)) {
+    if (c.aliases.some((a) => usableAlias(c, a) && normalize(a) === n)) {
       return { client: c, score: 0.97, method: 'alias' };
     }
   }
@@ -138,7 +150,7 @@ export function matchClient(clients: Client[], name?: string | null, siret?: str
     // rapprochement automatique malheureux ; les ignorer répare la fiche sans
     // rien demander à l'utilisateur.
     for (const a of c.aliases) {
-      if (!looksLikeClientName(a)) continue;
+      if (!usableAlias(c, a)) continue;
       score = Math.max(score, similarity(a, name));
     }
     if (!best || score > best.score) best = { client: c, score: round2(score), method: 'fuzzy' };

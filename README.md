@@ -59,6 +59,13 @@ propre au document (« Devis valable jusqu'au… », « Date et signature »,
 étroit : « FRANCE BOISSONS » est une entreprise bien réelle et continue d'être
 acceptée.
 
+**Un mauvais rattachement ne survit pas à une lecture qui dit autre chose.**
+Quand la relecture lit un nom de client différent de celui qui avait servi à
+rattacher la pièce, l'ancien lien n'est pas conservé : il reposait sur une
+lecture désormais corrigée, et le garder figerait l'erreur pour toujours. Le
+lien ne tient que si la lecture est identique — c'est le cas d'une fiche
+simplement renommée, où recréer une fiche au nom lu fabriquerait un doublon.
+
 **Un rapprochement par ressemblance reste une hypothèse.** Quand une pièce est
 rattachée à un client par ressemblance, l'orthographe lue n'est plus mémorisée
 dans la fiche. Elle l'était, et cela transformait une supposition en certitude :
@@ -66,7 +73,9 @@ l'alias servait ensuite lui-même de point de comparaison, si bien qu'une
 première erreur en attirait des dizaines d'autres — toutes vers le même client,
 sans que rien ne le signale. Seule votre confirmation (corriger le client sur
 une pièce) apprend une orthographe. Les alias devenus douteux sont ignorés au
-rapprochement : une fiche déjà salie se répare toute seule à la relecture.
+rapprochement — y compris ceux qui portent le nom d'une **autre** fiche, signe
+qu'un rapprochement automatique a inscrit un client dans le carnet d'un autre :
+une fiche déjà salie se répare toute seule à la relecture.
 
 **Un interlocuteur n'est pas une adresse.** Certains logiciels de facturation
 obligent à choisir entre une raison sociale et un nom de personne : facturer une
@@ -987,7 +996,7 @@ assumée : un fichier monté au serveur sous une mauvaise étiquette reste
 rangé dans le sous-dossier de l'étiquette (le type en base, lui, est le bon,
 et les copies en double n'oscillent plus).
 
-- **204 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **207 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
