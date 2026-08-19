@@ -41,6 +41,7 @@ export const SYNCED_COLLECTIONS = [
   'bankTransactions',
   'registerEntries',
   'eventMachines',
+  'tasks',
 ] as const;
 
 export type SyncedCollection = (typeof SYNCED_COLLECTIONS)[number];
@@ -400,6 +401,64 @@ export interface RegisterEntry extends Syncable {
   updatedAt: string;
 }
 
+/* ------------------------------------------------------------------ */
+/* Tâches (suivi des clients et du quotidien)                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Quatre niveaux suffisent : au-delà, plus personne ne sait ce qui distingue
+ * un « P2 » d'un « P3 » et tout finit urgent. Le tri de l'écran suit cet ordre.
+ */
+export type TaskPriority = 'urgent' | 'high' | 'normal' | 'low';
+
+export type TaskStatus = 'open' | 'doing' | 'done';
+
+/**
+ * Une ligne du journal d'une tâche : qui a fait quoi, quand, en clair.
+ *
+ * C'est la moitié du « retour en arrière » : avant d'annuler une erreur, il
+ * faut pouvoir la voir. L'autre moitié est la corbeille (`deletedAt`).
+ */
+export interface TaskEvent {
+  at: string;
+  /** Compte à l'origine du geste, `null` quand personne n'est identifiable. */
+  by: ID | null;
+  /** Nom affiché au moment du geste — le compte peut disparaître ensuite. */
+  byName?: string;
+  text: string;
+}
+
+export interface Task extends Syncable {
+  id: ID;
+  title: string;
+  details?: string;
+  priority: TaskPriority;
+  status: TaskStatus;
+  /** Fiche client concernée — c'est le cœur du suivi des clients. */
+  clientId?: ID;
+  /** Nom noté à la volée quand le client n'a pas (encore) de fiche. */
+  clientName?: string;
+  /** Échéance (ISO yyyy-mm-dd). Passée sans être faite, la tâche est en retard. */
+  dueDate?: string;
+  /** Compte à qui la tâche est confiée. */
+  assignedTo?: ID;
+  /** Nom affiché du compte, pour rester lisible si le compte est supprimé. */
+  assignedToName?: string;
+  doneAt?: string;
+  /**
+   * Corbeille : une tâche « supprimée » reste restaurable au lieu d'être
+   * perdue — c'est la protection contre le clic malheureux. Elle n'est
+   * réellement effacée qu'à la purge (manuelle, ou automatique après 30 jours).
+   */
+  deletedAt?: string;
+  /** Journal des gestes, du plus récent au plus ancien (borné). */
+  history: TaskEvent[];
+  createdBy?: ID;
+  createdByName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** Machine du parc événementiel (machine à glace italienne, vitrine…). */
 export interface EventMachine extends Syncable {
   id: ID;
@@ -640,6 +699,8 @@ export interface DesktopNotifySettings {
   documents: boolean;
   /** Nouveau relevé bancaire importé. */
   statements: boolean;
+  /** Nouvelle tâche ajoutée au suivi. */
+  tasks: boolean;
   /**
    * Notifier aussi quand la fenêtre CompaGelato est au premier plan. Faux par
    * défaut : sous les yeux de l'utilisateur, l'écriture apparaît d'elle-même et
@@ -652,6 +713,7 @@ export const DEFAULT_DESKTOP_NOTIFY: DesktopNotifySettings = {
   registers: true,
   documents: true,
   statements: true,
+  tasks: true,
   whenFocused: false,
 };
 
@@ -665,7 +727,7 @@ export const DEFAULT_DESKTOP_NOTIFY: DesktopNotifySettings = {
  * exemple, qui est justement ce qu'on veut savoir.
  */
 export interface ActivityEvent {
-  source: 'register' | 'document' | 'statement';
+  source: 'register' | 'document' | 'statement' | 'task';
   title: string;
   text: string;
   /** Identifiant du compte à l'origine, `null` si l'arrivée n'a pas d'auteur. */
@@ -750,6 +812,7 @@ export interface Database {
   bankTransactions: BankTransaction[];
   registerEntries: RegisterEntry[];
   eventMachines: EventMachine[];
+  tasks: Task[];
   settings: Settings;
   /** État de synchronisation multi-appareils, créé à la migration. */
   sync?: SyncMeta;

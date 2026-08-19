@@ -35,6 +35,7 @@ export function shouldNotify(
   if (event.source === 'register' && !settings.registers) return false;
   if (event.source === 'document' && !settings.documents) return false;
   if (event.source === 'statement' && !settings.statements) return false;
+  if (event.source === 'task' && !settings.tasks) return false;
   if (context.windowFocused && !settings.whenFocused) return false;
   return true;
 }
@@ -44,6 +45,7 @@ export const SOURCE_PAGE: Record<ActivityEvent['source'], string> = {
   register: 'cahiers',
   document: 'documents',
   statement: 'banque',
+  task: 'taches',
 };
 
 /**

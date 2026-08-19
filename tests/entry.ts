@@ -35,6 +35,19 @@ export { store as dataStore, isForeignPath, defaultWatchFolder } from '../electr
 // factures brouillon, qui ne doivent ni compter dans le chiffre d'affaires ni
 // sortir du stock.
 export { ingestParsedDocument, announceImported } from '../electron/services/documents';
+// Le suivi des tâches : journal, corbeille restaurable, purge, tri par
+// priorité — tout le métier vit hors d'Electron, donc tout se vérifie ici.
+export {
+  upsertTask,
+  trashTask,
+  restoreTask,
+  purgeTask,
+  setTaskStatus,
+  listTasks,
+  listTaskPeople,
+} from '../electron/services/tasks';
+// Le contexte d'appel, pour signer les gestes d'un utilisateur dans les tests.
+export { withContext } from '../electron/context';
 export { buildDashboard } from '../electron/services/dashboard';
 export { applyAllPending, applyDocumentToStock } from '../electron/services/stock';
 export { awaitsStock, DEFAULT_DESKTOP_NOTIFY } from '../shared/types';

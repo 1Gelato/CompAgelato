@@ -18,8 +18,10 @@ import type {
   StockMove,
   SyncedCollection,
   Syncable,
+  Task,
 } from '@shared/types';
 import { SYNCED_COLLECTIONS } from '@shared/types';
+import { TASK_PRIORITY_RANK } from '@shared/format';
 import type { Registry } from './handlers';
 import { newId, nowIso } from './store';
 import { machineAvailability } from './services/registerRules';
@@ -358,6 +360,15 @@ const MIRROR_READS: Record<string, (...args: unknown[]) => unknown> = {
       (entry) => entry.clientName ?? (entry.clientId ? clients.get(entry.clientId) : undefined) ?? entry.title,
     ).sort((a, b) => a.machine.name.localeCompare(b.machine.name, 'fr'));
   },
+  // Même tri que le serveur : l'urgent d'abord, puis l'échéance la plus
+  // proche. La purge automatique de la corbeille, elle, attend le serveur.
+  'tasks:list': () =>
+    [...rows<Task>('tasks')].sort(
+      (a, b) =>
+        (TASK_PRIORITY_RANK[a.priority] ?? 2) - (TASK_PRIORITY_RANK[b.priority] ?? 2) ||
+        (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999') ||
+        b.createdAt.localeCompare(a.createdAt),
+    ),
   'bank:list': () => rows('bankTransactions'),
   // L'existence des fichiers ne se vérifie que sur le serveur : hors ligne, on
   // suppose la bibliothèque intacte plutôt que d'afficher de fausses alertes.
@@ -389,6 +400,7 @@ const NAMESPACE_COLLECTION: Record<string, { collection: SyncedCollection; prefi
   machines: { collection: 'eventMachines', prefix: 'mch' },
   registers: { collection: 'registerEntries', prefix: 'reg' },
   documents: { collection: 'documents', prefix: 'doc' },
+  tasks: { collection: 'tasks', prefix: 'tsk' },
 };
 
 function upsertOptimistic(namespace: string, input: Record<string, unknown>): unknown {
@@ -456,6 +468,16 @@ const OPTIMISTIC: Record<string, (args: unknown[]) => unknown> = {
   'machines:save': (a) => upsertOptimistic('machines', { ...(a[0] as object) }),
   'registers:save': (a) => upsertOptimistic('registers', { ...(a[0] as object) }),
   'documents:save': (a) => upsertOptimistic('documents', { ...(a[0] as object) }),
+  'tasks:save': (a) => upsertOptimistic('tasks', { ...(a[0] as object) }),
+  // « Supprimer » une tâche n'en retire jamais l'enregistrement : c'est une
+  // mise à la corbeille, réversible — le miroir reflète le même geste.
+  'tasks:remove': (a) => patchOptimistic('tasks', a[0], { deletedAt: nowIso() }),
+  'tasks:restore': (a) => patchOptimistic('tasks', a[0], { deletedAt: undefined }),
+  'tasks:setStatus': (a) =>
+    patchOptimistic('tasks', a[0], {
+      status: a[1],
+      doneAt: a[1] === 'done' ? nowIso() : undefined,
+    }),
   'clients:remove': (a) => removeOptimistic('clients', a[0]),
   'products:remove': (a) => removeOptimistic('products', a[0]),
   'routes:remove': (a) => removeOptimistic('routes', a[0]),

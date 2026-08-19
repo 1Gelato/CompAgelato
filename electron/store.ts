@@ -170,6 +170,7 @@ function emptyDatabase(): Database {
     bankTransactions: [],
     registerEntries: [],
     eventMachines: [],
+    tasks: [],
     settings: { ...defaultSettings(), defaultVehicleId: vehicle.id },
     users: [],
     sessions: [],
@@ -326,6 +327,7 @@ export class Store {
       bankTransactions: parsed.bankTransactions ?? [],
       registerEntries: parsed.registerEntries ?? [],
       eventMachines: parsed.eventMachines ?? [],
+      tasks: parsed.tasks ?? [],
       settings: { ...base.settings, ...(parsed.settings ?? {}) },
       // Base antérieure aux comptes : elle en repart sans, donc en jeton
       // partagé. Aucune bascule automatique vers une connexion obligatoire.

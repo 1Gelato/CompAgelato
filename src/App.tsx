@@ -13,6 +13,7 @@ import {
   useProducts,
   useRegisterEntries,
   useSettings,
+  useTasks,
 } from './lib/data';
 import { Dashboard } from './pages/Dashboard';
 import { Documents } from './pages/Documents';
@@ -21,10 +22,11 @@ import { Stock } from './pages/Stock';
 import { Routes } from './pages/Routes';
 import { Banque } from './pages/Banque';
 import { Cahiers } from './pages/Cahiers';
+import { Taches } from './pages/Taches';
 import { Settings } from './pages/Settings';
 import { errorMessage } from './lib/data';
 
-type Page = 'dashboard' | 'documents' | 'clients' | 'stock' | 'routes' | 'cahiers' | 'banque' | 'settings';
+type Page = 'dashboard' | 'documents' | 'clients' | 'stock' | 'routes' | 'cahiers' | 'taches' | 'banque' | 'settings';
 
 const PAGES: {
   id: Page;
@@ -76,6 +78,13 @@ const PAGES: {
     subtitle: 'SAV, consommables et événementiel — vos trois cahiers, au même endroit',
   },
   {
+    id: 'taches',
+    label: 'Tâches',
+    icon: Icons.tasks,
+    title: 'Tâches',
+    subtitle: 'Le suivi des clients et du quotidien — priorités, échéances, corbeille',
+  },
+  {
     id: 'banque',
     label: 'Banque',
     icon: Icons.bank,
@@ -118,6 +127,7 @@ const PAGE_CHANNEL: Record<Page, ChannelName | null> = {
   stock: 'products:list',
   routes: 'routes:list',
   cahiers: 'registers:list',
+  taches: 'tasks:list',
   banque: 'bank:list',
   settings: null,
 };
@@ -137,6 +147,7 @@ function Shell({
   const { data: documents } = useDocuments();
   const { data: products } = useProducts();
   const { data: registerEntries } = useRegisterEntries();
+  const { data: tasks } = useTasks();
   const toast = useToast();
 
   /* Thème -------------------------------------------------------- */
@@ -256,8 +267,10 @@ function Shell({
     const low = products.filter((p) => !p.archived && p.minQty > 0 && p.qtyOnHand < p.minQty).length;
     // « À traiter » au sens des cahiers : demandes et interventions ouvertes.
     const open = registerEntries.filter((e) => e.status === 'open').length;
-    return { documents: pending, stock: low, cahiers: open };
-  }, [documents, products, registerEntries]);
+    // Tâches encore à faire — la corbeille et le fait ne comptent pas.
+    const todo = tasks.filter((t) => !t.deletedAt && t.status !== 'done').length;
+    return { documents: pending, stock: low, cahiers: open, taches: todo };
+  }, [documents, products, registerEntries, tasks]);
 
   // Sans identité (application de bureau sur ses propres données), tout est
   // visible : il n'y a ni compte ni rôle, l'utilisateur est chez lui.
@@ -298,7 +311,9 @@ function Shell({
                   ? badges.stock
                   : item.id === 'cahiers'
                     ? badges.cahiers
-                    : 0;
+                    : item.id === 'taches'
+                      ? badges.taches
+                      : 0;
             return (
               <button
                 key={item.id}
@@ -389,6 +404,7 @@ function Shell({
           {page === 'stock' && <Stock />}
           {page === 'routes' && <Routes />}
           {page === 'cahiers' && <Cahiers />}
+          {page === 'taches' && <Taches />}
           {page === 'banque' && <Banque />}
           {page === 'settings' && (
             <Settings

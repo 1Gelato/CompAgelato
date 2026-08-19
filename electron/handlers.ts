@@ -32,6 +32,8 @@ import type {
   RegisterStatus,
   Role,
   Settings,
+  Task,
+  TaskStatus,
   UserSummary,
   Vehicle,
 } from '@shared/types';
@@ -116,6 +118,15 @@ import {
   upsertMachine,
   upsertRegisterEntry,
 } from './services/registers';
+import {
+  listTaskPeople,
+  listTasks,
+  purgeTask,
+  restoreTask,
+  setTaskStatus,
+  trashTask,
+  upsertTask,
+} from './services/tasks';
 import { sendNotification, notifyEnabled } from './services/notify';
 import { seedDemoData, wipeDemoData } from './services/demo';
 import { round2 } from './services/text';
@@ -1062,6 +1073,43 @@ export const coreHandlers: Registry = {
     },
   },
 
+  tasks: {
+    async list() {
+      const tasks = listTasks();
+      store.flushSync();
+      return tasks;
+    },
+    async save(input: Partial<Task> & { id?: ID }) {
+      const task = upsertTask(input);
+      store.flushSync();
+      return task;
+    },
+    // Mise à la corbeille, jamais une destruction : `restore` défait le geste.
+    async remove(id: ID) {
+      const task = trashTask(id);
+      store.flushSync();
+      return task;
+    },
+    async restore(id: ID) {
+      const task = restoreTask(id);
+      store.flushSync();
+      return task;
+    },
+    async purge(id?: ID) {
+      const result = purgeTask(id);
+      store.flushSync();
+      return result;
+    },
+    async setStatus(id: ID, status: TaskStatus) {
+      const task = setTaskStatus(id, status);
+      store.flushSync();
+      return task;
+    },
+    async people() {
+      return listTaskPeople();
+    },
+  },
+
   notify: {
     async test() {
       const { notifyTopic, notifyUrl } = store.settings;
@@ -1210,6 +1258,7 @@ export const coreHandlers: Registry = {
           bankTransactions: store.db.bankTransactions.length,
           registerEntries: store.db.registerEntries.length,
           eventMachines: store.db.eventMachines.length,
+          tasks: store.db.tasks.length,
         },
       };
     },

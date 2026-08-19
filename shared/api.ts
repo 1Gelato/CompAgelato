@@ -34,6 +34,8 @@ import type {
   Settings,
   StockApplyReport,
   StockMove,
+  Task,
+  TaskStatus,
   Vehicle,
 } from './types';
 
@@ -60,6 +62,7 @@ export const CHANNELS = {
   vehicles: ['list', 'save', 'remove'],
   registers: ['list', 'save', 'remove', 'setStatus', 'addToRoute'],
   machines: ['list', 'save', 'remove'],
+  tasks: ['list', 'save', 'remove', 'restore', 'purge', 'setStatus', 'people'],
   notify: ['test'],
   bank: [
     'list', 'scan', 'pickAndImport', 'importFrom', 'update', 'remove', 'suggestions',
@@ -201,6 +204,20 @@ export const CHANNEL_ACCESS: Record<ChannelName, readonly Role[]> = {
   'machines:save': BUREAU,
   'machines:remove': BUREAU,
 
+  /* Tâches — suivi des clients et du quotidien -------------------------- */
+  // `remove` n'est qu'une mise à la corbeille : la vraie destruction, c'est
+  // `purge`. Les deux restent au bureau — les tâches peuvent porter des
+  // montants et des relances, pas de quoi les répliquer chez le livreur.
+  'tasks:list': BUREAU,
+  'tasks:save': BUREAU,
+  'tasks:remove': BUREAU,
+  'tasks:restore': BUREAU,
+  'tasks:purge': BUREAU,
+  'tasks:setStatus': BUREAU,
+  // Noms affichés des comptes actifs, rien d'autre : de quoi confier une
+  // tâche sans ouvrir la gestion des comptes, réservée au gérant.
+  'tasks:people': BUREAU,
+
   /* Divers ------------------------------------------------------------ */
   'notify:test': BUREAU,
   'geo:autocomplete': ALL,
@@ -293,6 +310,7 @@ export const COLLECTION_CHANNEL: Record<SyncedCollection, ChannelName> = {
   bankTransactions: 'bank:list',
   registerEntries: 'registers:list',
   eventMachines: 'machines:list',
+  tasks: 'tasks:list',
 };
 
 /** Type d'un dossier surveillé : trois types de pièces, plus les relevés. */
@@ -671,6 +689,19 @@ export interface Api {
     list(): Promise<MachineAvailability[]>;
     save(machine: Partial<EventMachine> & { id?: ID }): Promise<EventMachine>;
     remove(id: ID): Promise<void>;
+  };
+  tasks: {
+    /** Toutes les tâches, corbeille comprise (repérable à `deletedAt`). */
+    list(): Promise<Task[]>;
+    save(task: Partial<Task> & { id?: ID }): Promise<Task>;
+    /** Met à la corbeille — rien n'est perdu, `restore` défait le geste. */
+    remove(id: ID): Promise<Task>;
+    restore(id: ID): Promise<Task>;
+    /** Efface pour de bon une tâche de la corbeille (ou toute la corbeille sans id). */
+    purge(id?: ID): Promise<{ purged: number }>;
+    setStatus(id: ID, status: TaskStatus): Promise<Task>;
+    /** Comptes actifs (id + nom affiché), pour confier une tâche. */
+    people(): Promise<{ id: ID; displayName: string }[]>;
   };
   notify: {
     /** Envoie une notification d'essai sur le sujet configuré. */

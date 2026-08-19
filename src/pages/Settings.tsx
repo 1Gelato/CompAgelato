@@ -558,6 +558,11 @@ export function Settings({
                 label="Nouveau relevé bancaire importé"
               />
               <Switch
+                checked={notify.tasks}
+                onChange={(v) => patchNotify({ tasks: v })}
+                label="Nouvelle tâche ajoutée au suivi"
+              />
+              <Switch
                 checked={notify.whenFocused}
                 onChange={(v) => patchNotify({ whenFocused: v })}
                 label="Notifier même quand la fenêtre CompaGelato est au premier plan"
@@ -568,7 +573,7 @@ export function Settings({
 
         <Card
           title="Notifications sur téléphone"
-          subtitle="Chaque ajout dans les cahiers (SAV, consommables, événementiel) prévient toute l'équipe"
+          subtitle="Chaque ajout dans les cahiers ou dans les tâches prévient toute l'équipe"
         >
           <div className="col" style={{ gap: 13 }}>
             <div className="infobox">
@@ -1257,6 +1262,7 @@ function intentLabel(intent: QueuedIntent): string {
     setStatus: 'Changer le statut',
     setPrinted: 'Marquer imprimé',
     setClient: 'Rattacher au client',
+    restore: 'Restaurer',
     apply: 'Déduire du stock',
     revert: 'Annuler la déduction',
     linkLine: 'Associer une ligne',
@@ -1271,6 +1277,7 @@ function intentLabel(intent: QueuedIntent): string {
     vehicles: 'véhicule',
     registers: 'cahier',
     machines: 'machine',
+    tasks: 'tâche',
     stock: 'stock',
     settings: 'réglages',
   };

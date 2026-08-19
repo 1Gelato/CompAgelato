@@ -14,6 +14,7 @@ import type {
   Role,
   Settings,
   StockMove,
+  Task,
   Vehicle,
 } from '@shared/types';
 import type { AppInfo, ChannelName } from '@shared/api';
@@ -126,6 +127,8 @@ export const useRegisterEntries = () =>
   useResource<RegisterEntry[]>(() => window.api.registers.list(), [], [], 'registers:list');
 export const useMachines = () =>
   useResource<MachineAvailability[]>(() => window.api.machines.list(), [], [], 'machines:list');
+export const useTasks = () =>
+  useResource<Task[]>(() => window.api.tasks.list(), [], [], 'tasks:list');
 export const useBankTransactions = () =>
   useResource<BankTransaction[]>(() => window.api.bank.list(), [], [], 'bank:list');
 export const useBankSummary = () =>

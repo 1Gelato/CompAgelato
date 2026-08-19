@@ -159,6 +159,40 @@ export const REGISTER_STATUS_TONE: Record<string, string> = {
   cancelled: 'badge--red',
 };
 
+export const TASK_PRIORITY_LABEL: Record<string, string> = {
+  urgent: 'Urgent',
+  high: 'Haute',
+  normal: 'Normale',
+  low: 'Basse',
+};
+
+export const TASK_PRIORITY_TONE: Record<string, string> = {
+  urgent: 'badge--red',
+  high: 'badge--orange',
+  normal: 'badge--blue',
+  low: '',
+};
+
+/** Ordre d'affichage : l'urgent d'abord, toujours. */
+export const TASK_PRIORITY_RANK: Record<string, number> = {
+  urgent: 0,
+  high: 1,
+  normal: 2,
+  low: 3,
+};
+
+export const TASK_STATUS_LABEL: Record<string, string> = {
+  open: 'À faire',
+  doing: 'En cours',
+  done: 'Fait',
+};
+
+export const TASK_STATUS_TONE: Record<string, string> = {
+  open: 'badge--orange',
+  doing: 'badge--blue',
+  done: 'badge--green',
+};
+
 export const FUEL_LABEL: Record<string, string> = {
   gazole: 'Gazole',
   sp95: 'SP95 / E10',

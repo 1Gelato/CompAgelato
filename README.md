@@ -208,7 +208,7 @@ envoyé sans votre relecture.
 
 **Notifications sur le poste**
 Quand quelqu'un d'autre ajoute quelque chose — une écriture dans un cahier, une
-facture, un relevé —, une notification du système apparaît sur votre
+facture, un relevé, une tâche —, une notification du système apparaît sur votre
 ordinateur : bulle Windows, centre de notifications macOS. Un clic ouvre la page
 concernée.
 
@@ -318,6 +318,32 @@ pas être retirée du parc.
 Chaque ajout peut prévenir toute l'équipe sur téléphone : installez
 l'application gratuite ntfy et abonnez chaque téléphone au sujet configuré dans
 les réglages (désactivé par défaut).
+
+**Tâches : le suivi des clients et du quotidien**
+Un onglet pour noter ce qui doit être fait — relancer un client, rappeler un
+SAV, envoyer un papier — sans que rien ne se perde jamais. Trois promesses,
+chacune vérifiée par un test :
+
+- **L'urgent d'abord.** Quatre priorités (urgent, haute, normale, basse), pas
+  davantage : au-delà, plus personne ne sait ce qui distingue un « P2 » d'un
+  « P3 » et tout finit urgent. La liste se trie toute seule : priorité, puis
+  échéance la plus proche. Une échéance passée s'affiche **en retard**, en
+  rouge.
+- **Rien ne se perd.** « Supprimer » met à la **corbeille**, d'où l'on
+  restaure d'un clic pendant trente jours — le clic malheureux n'est plus une
+  perte. Chaque tâche porte son **journal** : qui a changé quoi, quand, en
+  clair (« priorité Normale → Urgent », « statut Fait → À faire »). Marquer
+  fait par erreur se défait d'un geste, la date de réalisation suit.
+- **L'équipe est prévenue.** L'ajout d'une tâche déclenche une bulle Windows
+  sur les autres postes branchés (jamais chez son auteur — être prévenu de sa
+  propre saisie n'apprend rien) et, si le sujet ntfy est configuré, une
+  notification sur les téléphones. Cliquer sur la bulle ouvre l'onglet Tâches.
+
+Une tâche se **rattache à un client** (fiche existante, créée en un clic, ou
+simple nom noté au vol — même sélecteur que les cahiers) et peut être
+**confiée** à un membre de l'équipe. Hors ligne, tout continue : créer,
+modifier, jeter, restaurer partent en file d'attente et se rejouent au retour
+du serveur, comme le reste.
 
 **Calculateur de tournées de livraison**
 
@@ -1031,7 +1057,7 @@ assumée : un fichier monté au serveur sous une mauvaise étiquette reste
 rangé dans le sous-dossier de l'étiquette (le type en base, lui, est le bon,
 et les copies en double n'oscillent plus).
 
-- **218 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **230 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,
