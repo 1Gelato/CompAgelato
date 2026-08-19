@@ -931,16 +931,43 @@ cahiers en prise de note rapide, banque en consultation, tableau de bord.
 **Réseau** : l'app passe par Tailscale (`100.100.53.66:4680`, proposé
 d'office). Vérifiez que Tailscale est activé sur le téléphone.
 
-### Développer (iPhone, Expo Go)
+### Développer (iPhone ou Android, Expo Go)
 
 ```bash
 cd mobile
 npm install
-npx expo start
+npm start
 ```
 
 Scannez le QR code avec Expo Go. Le serveur de dev et le téléphone doivent
-être sur le même réseau (ou le tailnet).
+être sur le même réseau (ou le tailnet) ; sinon `npm run tunnel`, plus lent
+mais indifférent au réseau.
+
+**Le port de développement est 7879**, et non le 8081 par défaut de Metro :
+celui-ci est très demandé, et le trouver occupé par un autre projet arrête le
+démarrage sans que la cause saute aux yeux. Il est inscrit dans les scripts de
+`mobile/package.json` — d'où `npm start` plutôt que `npx expo start`, qui
+reprendrait le 8081.
+
+### Tester dans l'émulateur Android (PC Windows)
+
+Utile quand on n'a pas de téléphone Android sous la main. Une fois Android
+Studio installé, créez un appareil virtuel (*Device Manager* → *Create
+Device*), démarrez-le, puis rendez `adb` visible pour Expo — dans PowerShell :
+
+```powershell
+[Environment]::SetEnvironmentVariable("ANDROID_HOME", "$env:LOCALAPPDATA\Android\Sdk", "User")
+$p = [Environment]::GetEnvironmentVariable("PATH", "User")
+[Environment]::SetEnvironmentVariable("PATH", "$p;$env:LOCALAPPDATA\Android\Sdk\platform-tools", "User")
+```
+
+Rouvrez PowerShell, vérifiez avec `adb devices` que l'émulateur répond
+`device` (et non `offline`, qui signifie « démarrage en cours »), puis
+`npm start` et la touche `a`.
+
+Deux pièges de l'émulateur : il sort par le réseau du PC, donc l'adresse
+Tailscale du serveur ne marche que si **Tailscale tourne sur le PC** ; et
+`localhost` y désigne l'émulateur lui-même, jamais la machine hôte.
 
 ### Installer sur un téléphone Android (APK)
 

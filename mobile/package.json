@@ -24,10 +24,11 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "start": "expo start --port 7879",
+    "android": "expo start --port 7879 --android",
+    "ios": "expo start --port 7879 --ios",
+    "web": "expo start --port 7879 --web",
+    "tunnel": "expo start --port 7879 --tunnel"
   },
   "private": true
 }
