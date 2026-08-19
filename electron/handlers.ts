@@ -1283,6 +1283,48 @@ export const coreHandlers: Registry = {
         { discardLocalChanges: options?.discardLocalChanges },
       );
     },
+
+    /**
+     * Les deux mêmes gestes, mais demandés **depuis un autre poste**.
+     *
+     * Ici, sur le serveur, `check` et `serverCheck` font la même chose : c'est
+     * du côté du bureau que la distinction compte, ses `check`/`apply` à lui
+     * portant sur sa propre copie. Le poste appelle donc ces canaux-ci pour
+     * atteindre le serveur, et ceux-là pour se mettre à jour lui-même.
+     */
+    async serverCheck() {
+      return checkForUpdates(projectRoot);
+    },
+
+    async serverApply(options?: { discardLocalChanges?: boolean }) {
+      // Même refus que « Redémarrer » : sans superviseur, la sortie est
+      // définitive et il faut aller sur place. On le dit avant d'agir, plutôt
+      // que de laisser le code neuf sur le disque et l'ancien en mémoire.
+      const policy = restartPolicy();
+      if (policy === 'no') {
+        throw new Error(
+          'Mise à jour refusée : rien ne relancerait ce serveur, il resterait éteint. ' +
+            'Ajoutez « Restart=always » à la section [Service] de son unité systemd, ' +
+            'puis « sudo systemctl daemon-reload ».',
+        );
+      }
+
+      const result = await applyUpdate(
+        projectRoot,
+        (step) => send('toast', { tone: 'info', title: step }),
+        { discardLocalChanges: options?.discardLocalChanges },
+      );
+      if (!result.success) return result;
+
+      store.flushSync();
+      // La réponse doit partir avant la sortie : sans ce délai, le poste ne
+      // saurait pas si la mise à jour a réussi ou si le serveur est tombé.
+      setTimeout(() => process.exit(policy === 'always' ? 0 : 1), 400);
+      return {
+        ...result,
+        message: 'Mise à jour installée. Le serveur redémarre — reconnexion dans quelques secondes.',
+      };
+    },
   },
 
   /* ------------------------------------------------------------------ */

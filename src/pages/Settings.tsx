@@ -1135,6 +1135,15 @@ export function Settings({
             )}
           </div>
         </Card>
+
+        {/*
+          Le serveur se met à jour tout seul chaque nuit. Cette carte sert aux
+          fois où l'on ne veut pas attendre la nuit — typiquement le jour où ce
+          poste vient de prendre une nouveauté que le serveur ne connaît pas
+          encore. Sans elle, il fallait ouvrir un navigateur sur le serveur
+          lui-même.
+        */}
+        {info?.mode === 'remote' && <ServerUpdateCard />}
           </>
         )}
 
@@ -1201,9 +1210,9 @@ export function Settings({
             {info.serverBuild && info.build && info.serverBuild !== info.build && (
               <p className="tiny" style={{ marginTop: 10, lineHeight: 1.6, color: 'var(--orange)' }}>
                 Ce poste et le serveur ne tournent pas sur la même version. Chaque machine se met
-                à jour de son côté : <strong>Mises à jour → Rechercher</strong> ci-dessus ne
-                concerne que ce poste. Pour le serveur, ouvrez son adresse dans un navigateur et
-                utilisez le même bouton là-bas.
+                à jour de son côté : <strong>Mises à jour</strong> ci-dessus ne concerne que ce
+                poste. Pour le serveur, utilisez <strong>Mise à jour du serveur</strong> — il se
+                met de toute façon à jour tout seul la nuit prochaine.
               </p>
             )}
             <p className="tiny muted" style={{ marginTop: 10, lineHeight: 1.6 }}>
@@ -1897,5 +1906,128 @@ function VehicleEditor({ vehicle, onClose }: { vehicle: Vehicle | null; onClose:
         />
       </div>
     </Modal>
+  );
+}
+
+/* ================================================================== */
+/* Mise à jour du serveur, demandée depuis ce poste                    */
+/* ================================================================== */
+
+/**
+ * Le serveur se met à jour tout seul chaque nuit ; cette carte sert à ne pas
+ * attendre la nuit.
+ *
+ * Elle existe parce que le cas se produit vraiment : ce poste prend une
+ * nouveauté, la demande au serveur, et le serveur ne la connaît pas encore.
+ * Jusqu'ici la seule issue était d'aller ouvrir un navigateur *sur le serveur*.
+ *
+ * Le redémarrage coupe la liaison quelques secondes. Ce n'est pas une panne, et
+ * l'écran le dit avant que l'utilisateur ait le temps de s'inquiéter — le poste
+ * se rebranche de lui-même.
+ */
+function ServerUpdateCard() {
+  const toast = useToast();
+  const [check, setCheck] = useState<UpdateCheckResult | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+
+  const lookUp = async () => {
+    setChecking(true);
+    try {
+      setCheck(await window.api.updates.serverCheck());
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Vérification impossible', text: errorMessage(err) });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const install = async () => {
+    setApplying(true);
+    try {
+      const result = await window.api.updates.serverApply();
+      if (result.success) {
+        setRestarting(true);
+        setCheck(null);
+        toast.push({
+          tone: 'success',
+          title: 'Serveur mis à jour',
+          text: 'Il redémarre — la liaison se rétablit toute seule dans quelques secondes.',
+        });
+      } else {
+        toast.push({ tone: 'error', title: 'Échec de la mise à jour', text: result.message });
+      }
+    } catch (err) {
+      // Le refus le plus fréquent : rien ne relancerait le serveur. Le message
+      // du serveur dit quoi faire, on le montre tel quel.
+      toast.push({ tone: 'error', title: 'Mise à jour refusée', text: errorMessage(err) });
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  return (
+    <Card
+      title="Mise à jour du serveur"
+      subtitle="Le serveur se met à jour tout seul chaque nuit — ce bouton sert à ne pas attendre"
+    >
+      <div className="col" style={{ gap: 12 }}>
+        {restarting ? (
+          <div className="infobox">
+            Le serveur redémarre. La liaison se coupe quelques secondes, puis ce poste se
+            rebranche tout seul — rien à faire.
+          </div>
+        ) : (
+          <>
+            <div className="row">
+              <Button icon={<Icons.refresh size={14} />} onClick={lookUp} loading={checking}>
+                Vérifier le serveur
+              </Button>
+              {check?.available && (
+                <Button variant="primary" onClick={install} loading={applying}>
+                  Mettre le serveur à jour
+                </Button>
+              )}
+            </div>
+
+            {check && !check.supported && <div className="warnbox">{check.reason}</div>}
+            {check?.supported && check.reason && <div className="warnbox">{check.reason}</div>}
+            {check?.supported && !check.reason && !check.available && (
+              <div className="infobox">Le serveur est déjà à jour.</div>
+            )}
+            {check?.available && (
+              <div className="infobox">
+                {check.behind > 0 ? (
+                  <>
+                    <strong>
+                      Le serveur a {check.behind} version{check.behind > 1 ? 's' : ''} de retard
+                    </strong>
+                    {check.changes.length > 0 && (
+                      <ul style={{ margin: '6px 0 0 16px' }}>
+                        {check.changes.map((c, i) => (
+                          <li key={i}>{c}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                ) : (
+                  <strong>
+                    Le serveur a le bon code, mais tourne sur une compilation plus ancienne :
+                    une reconstruction est nécessaire.
+                  </strong>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        <p className="tiny muted" style={{ margin: 0, lineHeight: 1.55 }}>
+          Le serveur redémarre après l'installation : il ne le fait que si son service est réglé
+          pour le relancer, sans quoi il refuse et l'explique — l'éteindre à distance obligerait
+          à aller sur place.
+        </p>
+      </div>
+    </Card>
   );
 }

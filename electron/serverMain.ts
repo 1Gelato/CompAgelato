@@ -1,9 +1,10 @@
 import { store } from './store';
 import { folderWatcher } from './watcher';
 import { ensureWatchFolder, scanFolder } from './services/documents';
-import { appVersion } from './handlers';
+import { appVersion, projectRoot, restartPolicy } from './handlers';
 import { createCompaServer, lanAddresses } from './server';
-import { autoBackupOptionsFromEnv, startAutoBackup } from './services/autoBackup';
+import { autoBackupOptionsFromEnv, backupNow, startAutoBackup } from './services/autoBackup';
+import { autoUpdateHourFromEnv, startAutoUpdate } from './services/autoUpdate';
 
 /**
  * Point d'entrée du serveur CompaGelato — un simple processus Node, sans
@@ -19,6 +20,7 @@ import { autoBackupOptionsFromEnv, startAutoBackup } from './services/autoBackup
  *   COMPAGELATO_BACKUP_HOURS  heures entre deux sauvegardes automatiques (défaut 24, 0 = jamais)
  *   COMPAGELATO_BACKUP_KEEP   sauvegardes conservées (défaut 30)
  *   COMPAGELATO_BACKUP_COPY   dossiers de recopie, séparés par « ; » (disque externe, partage réseau)
+ *   COMPAGELATO_UPDATE_HOUR   heure du passage de mise à jour (défaut 3, -1 = jamais)
  */
 async function main(): Promise<void> {
   store.init();
@@ -38,6 +40,27 @@ async function main(): Promise<void> {
   const backupOptions = autoBackupOptionsFromEnv();
   const stopBackups = startAutoBackup(backupOptions);
 
+  // Le serveur se met à jour de lui-même, de nuit. Sans cela il reste en
+  // arrière pendant que les postes avancent, et chaque poste finit par
+  // demander une fonction qu'il ne connaît pas.
+  const updateHour = autoUpdateHourFromEnv();
+  const stopUpdates = startAutoUpdate({
+    root: projectRoot,
+    atHour: updateHour,
+    policy: restartPolicy,
+    backup: () => backupNow(backupOptions),
+    restart: (code) => {
+      // Arrêt propre — la base est écrite, le dossier surveillé relâché — puis
+      // sortie : c'est le superviseur qui relance, avec le code neuf.
+      void (async () => {
+        store.flushSync();
+        await folderWatcher.stop();
+        await running.close();
+        process.exit(code);
+      })();
+    },
+  });
+
   console.log(`CompaGelato serveur v${appVersion()}`);
   console.log(`  Données   : ${store.dbFile}`);
   console.log(`  Dossier   : ${store.settings.watchFolder}`);
@@ -47,6 +70,15 @@ async function main(): Promise<void> {
         ? `toutes les ${backupOptions.everyHours} h, ${backupOptions.keep} conservées`
         : 'désactivée'
     }${backupOptions.copyTo?.length ? ` → ${backupOptions.copyTo.join(', ')}` : ''}`,
+  );
+  console.log(
+    `  Mise à jour: ${
+      updateHour >= 0 && updateHour <= 23
+        ? restartPolicy() === 'no'
+          ? `inactive (rien ne relancerait ce serveur — « Restart=always » manque à l’unité systemd)`
+          : `automatique, chaque nuit vers ${String(updateHour).padStart(2, '0')} h`
+        : 'désactivée'
+    }`,
   );
   console.log(`  Accès     : http://localhost:${running.port}`);
   for (const ip of lanAddresses()) console.log(`              http://${ip}:${running.port}`);
@@ -68,6 +100,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`\n${signal} reçu : écriture de la base puis arrêt.`);
     stopBackups();
+    stopUpdates();
     store.flushSync();
     await folderWatcher.stop();
     await running.close();

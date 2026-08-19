@@ -251,6 +251,20 @@ test('serveur : les tâches vivent de bout en bout, corbeille comprise', async (
   assert.equal(pull.changes.tasks.length, 2);
 });
 
+test('serveur : la mise à jour à distance refuse d’éteindre un serveur que rien ne relance', async () => {
+  // Ce serveur de test ne tourne sous aucun superviseur : le mettre à jour
+  // l'éteindrait pour de bon, et il faudrait aller sur place. Il doit donc
+  // refuser — et dire quoi faire, plutôt que de laisser un 502.
+  const refus = await api('updates', 'serverApply');
+  const payload = await refus.json();
+  assert.equal(payload.ok, false);
+  assert.match(payload.error, /Restart=always/);
+
+  // La vérification, elle, ne casse rien et répond toujours.
+  const check = await callOk('updates', 'serverCheck');
+  assert.equal(typeof check.supported, 'boolean');
+});
+
 test('serveur : la base vit bien dans le dossier demandé', async () => {
   const stats = await callOk('db', 'stats');
   assert.ok(stats.file.startsWith(dataDir), `${stats.file} hors de ${dataDir}`);

@@ -17,6 +17,17 @@ export * from '../electron/services/updater';
 // Sauvegardes automatiques : le planificateur du serveur et la copie que chaque
 // poste rapatrie. Ni l'un ni l'autre ne dépend d'Electron.
 export * from '../electron/services/autoBackup';
+// Mise à jour automatique du serveur : la décision de passer, le refus quand
+// rien ne le relancerait, et l'arrêt après plusieurs échecs — tout se vérifie
+// sans toucher au dépôt.
+export {
+  shouldRunAt,
+  localDay,
+  updateNow,
+  startAutoUpdate,
+  autoUpdateHourFromEnv,
+  readUpdateState,
+} from '../electron/services/autoUpdate';
 export * from '../electron/services/serverBackup';
 // Liaison au serveur et proxy HTTP : sans Electron eux non plus, ce qui permet
 // de vérifier le mode branché de l'application de bureau contre un vrai serveur.

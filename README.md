@@ -345,6 +345,16 @@ simple nom noté au vol — même sélecteur que les cahiers) et peut être
 modifier, jeter, restaurer partent en file d'attente et se rejouent au retour
 du serveur, comme le reste.
 
+**Le serveur se met à jour tout seul**
+Les postes se mettent à jour d'un bouton, sous les yeux de quelqu'un ; le
+serveur, lui, restait en arrière jusqu'à ce qu'on aille ouvrir un navigateur
+sur sa propre machine. Il le fait désormais **chaque nuit vers 3 h**, avec une
+sauvegarde prise juste avant de basculer. Trois garde-fous : il s'abstient
+complètement si rien ne le relancerait (sans quoi une mise à jour l'éteindrait
+et il faudrait se déplacer), il cesse d'insister après trois échecs sur la même
+version, et il n'agit qu'une fois par jour même s'il redémarre entre-temps. Un
+bouton **Réglages → Mise à jour du serveur** permet de ne pas attendre la nuit.
+
 **Un écran ne tourne jamais dans le vide**
 Un chargement qui échoue le dit, au lieu d'afficher une attente sans fin ou —
 pire — une liste vide qui ressemble à « rien à faire ». Le cas le plus
@@ -566,6 +576,7 @@ l'appareil, l'adresse se garde en favori.
 | `COMPAGELATO_BACKUP_HOURS` | Heures entre deux sauvegardes automatiques (`0` = désactivé) | `24` |
 | `COMPAGELATO_BACKUP_KEEP` | Sauvegardes conservées | `30` |
 | `COMPAGELATO_BACKUP_COPY` | Dossiers de recopie, séparés par `;` | *(aucun)* |
+| `COMPAGELATO_UPDATE_HOUR` | Heure du passage de mise à jour automatique (`-1` = jamais) | `3` |
 
 Ce qui marche dans le navigateur : tout — tableaux, recherche, tournées,
 cahiers, banque, imports (le « choisir un fichier » téléverse vers le serveur),
@@ -652,11 +663,24 @@ Notes de fonctionnement :
   WantedBy=multi-user.target
   ```
 
-  puis `systemctl enable --now compagelato`. Pour mettre le serveur à jour,
-  ouvrez CompaGelato **dans un navigateur sur le serveur lui-même**
-  (`http://localhost:4680`) et utilisez Réglages → Mises à jour : après
-  « Installer », le service redémarre tout seul. Depuis une application de
-  bureau branchée à distance, ce bouton met à jour le poste, pas le serveur.
+  puis `systemctl enable --now compagelato`.
+
+  **`Restart=always` n'est pas décoratif** : c'est lui qui autorise le serveur
+  à se mettre à jour tout seul. Sans cette ligne, redémarrer reviendrait à
+  éteindre — il faudrait aller sur place — et le serveur refuse alors de le
+  faire, en le disant au démarrage comme à l'écran.
+
+  **Le serveur se met à jour de lui-même, chaque nuit vers 3 h** (réglable par
+  `COMPAGELATO_UPDATE_HOUR`, `-1` pour ne jamais le faire). Il prend une
+  sauvegarde juste avant de basculer, puis redémarre. Si une version échoue
+  trois fois de suite, il cesse d'insister et le journal le dit : un serveur
+  qui se relance en boucle toute la nuit serait pire que le retard.
+
+  Pour ne pas attendre la nuit — typiquement le jour où un poste vient de
+  prendre une nouveauté que le serveur ne connaît pas encore —, l'application
+  de bureau branchée offre **Réglages → Mise à jour du serveur**. Attention à
+  ne pas confondre avec la carte **Mises à jour** juste au-dessus, qui met à
+  jour *le poste* : chaque machine exécute sa propre copie du logiciel.
 - Pour l'accès **hors du réseau local** (tournées, télétravail), installez
   [Tailscale](https://tailscale.com) sur le serveur et sur vos appareils :
   l'adresse `http://<nom-tailscale>:4680` marche alors de partout, chiffrée,
@@ -1064,7 +1088,7 @@ assumée : un fichier monté au serveur sous une mauvaise étiquette reste
 rangé dans le sous-dossier de l'étiquette (le type en base, lui, est le bon,
 et les copies en double n'oscillent plus).
 
-- **230 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **239 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,

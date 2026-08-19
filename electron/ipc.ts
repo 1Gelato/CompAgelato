@@ -131,6 +131,13 @@ const folderHandlers = {
   },
 };
 
+/**
+ * Cette copie travaille sur ses propres données : il n'y a pas de serveur
+ * derrière elle, et prétendre en mettre un à jour n'aurait aucun sens.
+ */
+const NO_SERVER =
+  'Cette copie n’est branchée sur aucun serveur : « Mettre à jour » ci-dessus met à jour ce poste.';
+
 const desktopHandlers: Registry = {
   folders: folderHandlers,
   app: {
@@ -711,6 +718,16 @@ const remoteDesktopHandlers: Registry = {
     },
     async apply(options?: { discardLocalChanges?: boolean }) {
       return coreHandlers.updates.apply(options);
+    },
+    // En mode branché ces deux-là ne sont pas surchargés : ils partent au
+    // serveur, qui se met à jour puis redémarre. Ici, en mode local, il n'y a
+    // aucun serveur — et mettre à jour « le serveur » reviendrait à refaire ce
+    // que « check » vient de faire, sous un nom qui ment.
+    async serverCheck() {
+      throw new Error(NO_SERVER);
+    },
+    async serverApply() {
+      throw new Error(NO_SERVER);
     },
   },
 

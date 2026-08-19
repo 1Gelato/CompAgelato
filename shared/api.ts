@@ -72,7 +72,7 @@ export const CHANNELS = {
   geo: ['autocomplete', 'reverse', 'fuelPrice'],
   stats: ['dashboard'],
   db: ['backup', 'restore', 'exportAll', 'stats', 'seedDemo', 'wipeDemo'],
-  updates: ['check', 'apply'],
+  updates: ['check', 'apply', 'serverCheck', 'serverApply'],
   auth: ['status', 'login', 'logout', 'me', 'changePassword', 'users', 'saveUser', 'removeUser', 'sessions', 'revokeSession'],
   sync: ['pull', 'status', 'retry', 'discard'],
   folders: ['list', 'save', 'remove', 'syncNow', 'pick'],
@@ -251,8 +251,12 @@ export const CHANNEL_ACCESS: Record<ChannelName, readonly Role[]> = {
   'db:stats': GERANT,
   'db:seedDemo': GERANT,
   'db:wipeDemo': GERANT,
+  // `check` et `apply` concernent **le poste** ; `serverCheck` et `serverApply`
+  // traversent jusqu'au serveur, qui redémarre ensuite de lui-même.
   'updates:check': GERANT,
   'updates:apply': GERANT,
+  'updates:serverCheck': GERANT,
+  'updates:serverApply': GERANT,
 
   /* Comptes ------------------------------------------------------------ */
   // `status` et `login` répondent forcément avant toute connexion : c'est
@@ -756,6 +760,22 @@ export interface Api {
      * poste avant d'installer. Sans conséquence sur les données.
      */
     apply(options?: { discardLocalChanges?: boolean }): Promise<UpdateApplyResult>;
+    /**
+     * L'état du **serveur**, vu depuis un poste branché.
+     *
+     * `check` et `apply` ci-dessus ne concernent que la copie qui s'exécute
+     * ici : mettre à jour le serveur depuis un poste distant exigeait jusqu'ici
+     * d'ouvrir un navigateur sur le serveur lui-même.
+     */
+    serverCheck(): Promise<UpdateCheckResult>;
+    /**
+     * Met à jour le serveur puis le laisse redémarrer. La liaison se coupe
+     * quelques secondes, le temps qu'il reparte — le poste se rebranche seul.
+     *
+     * Refusé si rien ne relancerait le serveur : il resterait éteint, et il
+     * faudrait aller sur place.
+     */
+    serverApply(options?: { discardLocalChanges?: boolean }): Promise<UpdateApplyResult>;
   };
   auth: {
     /** Interrogeable sans être connecté : y a-t-il des comptes, faut-il ouvrir une session ? */
