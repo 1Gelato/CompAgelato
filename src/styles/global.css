@@ -667,6 +667,14 @@ textarea,
   border-radius: var(--radius-sm);
   padding: 2px;
   gap: 2px;
+  /*
+    Les boutons ne se coupent jamais : ils portent `white-space: nowrap`, et
+    sans ces deux lignes une barre trop large pour sa colonne débordait sur le
+    champ voisin au lieu de s'adapter. Passer à la ligne est laid, mais moins
+    qu'un libellé tronqué à cheval sur autre chose.
+  */
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .segmented button {

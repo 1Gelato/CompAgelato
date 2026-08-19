@@ -194,6 +194,10 @@ export function Taches() {
                 <th>Priorité</th>
                 <th>Tâche</th>
                 <th>Client</th>
+                {/* Les deux dates côte à côte : quand elle a été notée, quand
+                    elle est attendue. Le journal les détaillait déjà, mais il
+                    fallait ouvrir chaque tâche pour les lire. */}
+                <th>Créée le</th>
                 <th>Échéance</th>
                 <th>Confiée à</th>
                 {view === 'trash' ? <th>Supprimée le</th> : <th>Statut</th>}
@@ -208,8 +212,14 @@ export function Taches() {
                       {TASK_PRIORITY_LABEL[task.priority]}
                     </Badge>
                   </td>
-                  <td>
-                    <span
+                  {/*
+                    Largeur bornée, et deux blocs plutôt que deux lignes de
+                    texte : sans cela une note contenant un lien s'étirait sur
+                    toute sa longueur, poussant le statut et la corbeille hors
+                    du cadre — qui les coupe au lieu de les faire défiler.
+                  */}
+                  <td style={{ maxWidth: 330 }}>
+                    <div
                       className="truncate"
                       style={{
                         fontWeight: 500,
@@ -218,14 +228,23 @@ export function Taches() {
                       }}
                     >
                       {task.title}
-                    </span>
-                    {task.details && <div className="tiny muted truncate">{task.details}</div>}
+                    </div>
+                    {task.details && (
+                      <div className="tiny muted truncate" title={task.details}>
+                        {task.details}
+                      </div>
+                    )}
                   </td>
                   <td>
                     <span className="truncate">{clientLabel(task)}</span>
                     {!task.clientId && task.clientName && (
                       <div className="tiny muted">sans fiche client</div>
                     )}
+                  </td>
+                  {/* L'heure exacte au survol : elle encombrerait la colonne,
+                      mais c'est elle qui départage deux tâches du même jour. */}
+                  <td className="muted" title={dateTimeFr(task.createdAt)}>
+                    {dateFr(task.createdAt)}
                   </td>
                   <td>
                     {task.dueDate ? (
@@ -411,17 +430,25 @@ function TaskDialog({
     >
       <div className="col" style={{ gap: 14 }}>
         <div className="formgrid">
-          <Field label="À faire">
+          {/*
+            L'intitulé et les priorités prennent chacun une ligne entière
+            (`1 / -1` vaut « toute la largeur », quel que soit le nombre de
+            colonnes que la grille s'est donné). L'intitulé parce qu'il est le
+            champ principal ; les priorités parce que leurs quatre boutons ne
+            tiennent pas dans une colonne étroite — serrés, ils venaient
+            mordre sur le champ d'à côté.
+          */}
+          <Field label="À faire" style={{ gridColumn: '1 / -1' }}>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus={!task} />
           </Field>
-          <Field label="Priorité">
+          <Field label="Priorité" style={{ gridColumn: '1 / -1' }}>
             <Segmented
               value={priority}
               onChange={(p) => setPriority(p)}
               options={PRIORITIES.map((p) => ({ value: p, label: TASK_PRIORITY_LABEL[p] }))}
             />
           </Field>
-          <Field label="Échéance" hint="Passée sans être faite, la tâche s’affiche en retard">
+          <Field label="Échéance" hint="Passée, la tâche s’affiche en retard">
             <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
           </Field>
           <Field label="Statut">
