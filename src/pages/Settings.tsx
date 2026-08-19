@@ -790,6 +790,19 @@ export function Settings({
                   onBlur={(e) => e.target.value !== (settings.companyName ?? '') && patch({ companyName: e.target.value })}
                 />
               </Field>
+              <Field
+                label="SIRET de votre entreprise"
+                hint="Sert à reconnaître les factures que vous recevez : le « client » y est vous"
+              >
+                <Input
+                  defaultValue={settings.companySiret ?? ''}
+                  placeholder="80184990200011"
+                  onBlur={(e) =>
+                    e.target.value !== (settings.companySiret ?? '') &&
+                    patch({ companySiret: e.target.value.trim() })
+                  }
+                />
+              </Field>
               <Field label="Votre adresse e-mail" hint="Figure comme expéditeur du brouillon">
                 <Input
                   type="email"

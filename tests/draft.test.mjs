@@ -284,6 +284,12 @@ test('des jumelles déjà en base sont résorbées à la relecture', () => {
     1,
     'la jumelle n’a pas été résorbée',
   );
-  assert.equal(relu.id, ancienne.id, 'la plus ancienne, qui porte l’historique, devait être gardée');
+  // Laquelle des deux survit se décide ailleurs (tests/audit.test.mjs, B4) : la
+  // pièce qui porte le travail de l'utilisateur. Ici les deux sont vierges — ce
+  // qui compte, c'est qu'il n'en reste qu'une, et qu'elle porte le bon type.
   assert.equal(relu.kind, 'quote');
+  assert.ok(
+    !dataStore.db.documents.some((d) => d.id !== relu.id && d.number === 'DEV00000621'),
+    'une jumelle a survécu',
+  );
 });

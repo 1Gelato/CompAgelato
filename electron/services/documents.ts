@@ -328,8 +328,27 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
   // client le restait pour toujours. Un client choisi à la main l'emporte de
   // toute façon juste après (voir `manualFields`), et si la nouvelle lecture ne
   // reconnaît personne on garde le lien précédent plutôt que de le perdre.
+  // Votre entreprise n'est jamais son propre client. Sur une facture que vous
+  // RECEVEZ — un transporteur, un fournisseur —, le bloc client porte VOS
+  // coordonnées : votre SIRET, votre nom. Sans ce garde-fou, la pièce se
+  // rattachait à la fiche de la base qui portait ce SIRET, avec un score
+  // parfait, alors que rien dans le document ne désigne ce client-là.
+  const digits = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '');
+  const ownSiret = digits(settings.companySiret);
+  const receivedInvoice =
+    (!!ownSiret && ownSiret.length >= 9 && digits(parsed.clientSiret) === ownSiret) ||
+    (!!settings.companyName &&
+      !!parsed.clientName &&
+      normalize(parsed.clientName) === normalize(settings.companyName));
+  if (receivedInvoice) {
+    warnings.push(
+      'Pièce reçue : le « client » de ce document, c’est vous. Ce n’est pas une ' +
+        'vente — elle n’a pas été rattachée à un client.',
+    );
+  }
+
   let clientId: ID | undefined;
-  {
+  if (!receivedInvoice) {
     const match = matchClient(store.db.clients, parsed.clientName, parsed.clientSiret);
     if (match && match.method !== 'fuzzy') {
       // Rattachement CERTAIN seulement : même SIRET, même nom, ou orthographe
@@ -350,7 +369,7 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
   }
   // Beaucoup de factures n'écrivent pas « Client : » : le nom figure seul dans
   // un bloc d'adresse. On cherche alors un client connu dans le texte du document.
-  if (!clientId && parsed.sourceText) {
+  if (!clientId && !receivedInvoice && parsed.sourceText) {
     const found = findClientInText(parsed.sourceText);
     if (found) {
       clientId = found.id;
@@ -366,13 +385,13 @@ export function ingestParsedDocument(parsed: ParsedDocument, ctx: IngestContext)
   // typiquement une lecture erronée, désormais corrigée. Le conserver figerait
   // l'erreur pour toujours : c'est ce qui faisait survivre un mauvais client à
   // toutes les relectures, y compris forcées.
-  if (!clientId && existing?.clientId) {
+  if (!clientId && !receivedInvoice && existing?.clientId) {
     const sameReading =
       !parsed.clientName ||
       normalize(existing.clientNameRaw ?? '') === normalize(parsed.clientName);
     if (sameReading) clientId = existing.clientId;
   }
-  if (!clientId && parsed.clientName && settings.autoCreateClients) {
+  if (!clientId && !receivedInvoice && parsed.clientName && settings.autoCreateClients) {
     clientId = createClientFromDocument(
       parsed.clientName,
       parsed.clientAddress,

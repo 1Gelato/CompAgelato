@@ -85,6 +85,14 @@ explicite : **Réglages → Réparer les rattachements clients → Oublier les
 orthographes apprises**, puis **Documents → Tout relire**. Vos fiches, vos
 pièces et vos rattachements corrigés à la main ne sont pas touchés.
 
+**Votre entreprise n'est jamais son propre client.** Sur une facture que vous
+**recevez** — un transporteur, un fournisseur —, le bloc « client » porte VOS
+coordonnées : votre nom, votre SIRET. Ces pièces se rattachaient donc à la fiche
+de votre base qui portait ce SIRET, avec un rapprochement à 100 %, alors que
+rien dans le document ne désigne ce client-là. Renseignez le **SIRET de votre
+entreprise** dans Réglages : une pièce dont le client est vous-même est
+reconnue comme reçue, signalée comme telle, et n'est rattachée à personne.
+
 **Un nom non reconnu n'est jamais rattaché au jugé.** Une pièce n'est reliée à
 un client que sur une certitude : même SIRET, même nom, ou une orthographe que
 vous avez vous-même confirmée. Quand le nom lu ne correspond à rien, la pièce
@@ -1023,7 +1031,7 @@ assumée : un fichier monté au serveur sous une mauvaise étiquette reste
 rangé dans le sous-dossier de l'étiquette (le type en base, lui, est le bon,
 et les copies en double n'oscillent plus).
 
-- **215 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **218 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,

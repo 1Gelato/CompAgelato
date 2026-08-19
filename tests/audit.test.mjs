@@ -691,3 +691,79 @@ test('un nom exact, un SIRET ou une orthographe confirmée rattachent toujours',
   assert.equal(parAlias.clientId, 'cli_exact');
   assert.equal(parSiret.clientId, 'cli_exact');
 });
+
+test('une facture REÇUE n’est jamais rattachée à un client', () => {
+  // Cas vécu : des factures Colissimo rangées par erreur dans le dossier des
+  // ventes. Le bloc « client » y porte les coordonnées d'O'GELATO — dont son
+  // SIRET. Une fiche de la base portait ce même SIRET : rapprochement à 100 %,
+  // et des factures de transporteur attribuées à un client au hasard.
+  dataStore.mutate((db) => {
+    db.clients.length = 0;
+    db.clients.push({
+      id: 'cli_r',
+      code: 'C1',
+      name: 'Rondeau Vincent',
+      siret: '80184990200011', // le SIRET d'O'GELATO, hérité d'une lecture fautive
+      address: {},
+      tags: [],
+      aliases: [],
+      archived: false,
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    });
+    db.settings.companySiret = '80184990200011';
+    db.settings.companyName = "EURL O'GELATO";
+    db.settings.autoCreateClients = true;
+  });
+
+  const recue = ingestParsedDocument(
+    piece('CO00750992', { clientName: 'BGELATO', clientSiret: '80184990200011' }),
+    { sourceFormat: 'pdf', filePath: '/srv/Factures/CO00750992.pdf', sourceHash: 'hColissimo' },
+  );
+  assert.equal(recue.clientId, undefined, 'une facture reçue a été rattachée à un client');
+  assert.ok(
+    recue.warnings.some((w) => /Pièce reçue/.test(w)),
+    `l'utilisateur doit être prévenu : ${JSON.stringify(recue.warnings)}`,
+  );
+  // Et aucune fiche n'a été créée au nom de l'entreprise elle-même.
+  assert.equal(dataStore.db.clients.length, 1);
+});
+
+test('le nom de l’entreprise suffit, même sans SIRET lisible', () => {
+  dataStore.mutate((db) => {
+    db.settings.companySiret = '';
+    db.settings.companyName = "EURL O'GELATO";
+  });
+  const recue = ingestParsedDocument(
+    piece('CO00684660', { clientName: "EURL O'GELATO" }),
+    { sourceFormat: 'pdf', filePath: '/srv/Factures/CO00684660.pdf', sourceHash: 'hCol2' },
+  );
+  assert.equal(recue.clientId, undefined);
+  assert.ok(recue.warnings.some((w) => /Pièce reçue/.test(w)));
+});
+
+test('une vraie facture de vente reste rattachée normalement', () => {
+  dataStore.mutate((db) => {
+    db.clients.length = 0;
+    db.clients.push({
+      id: 'cli_v',
+      code: 'C2',
+      name: 'AB Airlines',
+      address: {},
+      tags: [],
+      aliases: [],
+      archived: false,
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    });
+    db.settings.companySiret = '80184990200011';
+    db.settings.companyName = "EURL O'GELATO";
+  });
+  const vente = ingestParsedDocument(piece('FAC-VENTE', { clientName: 'AB Airlines' }), {
+    sourceFormat: 'pdf',
+    filePath: '/srv/Factures/FAC-VENTE.pdf',
+    sourceHash: 'hVente',
+  });
+  assert.equal(vente.clientId, 'cli_v');
+  assert.ok(!vente.warnings.some((w) => /Pièce reçue/.test(w)));
+});

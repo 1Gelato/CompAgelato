@@ -604,6 +604,16 @@ export interface Settings {
   mapProvider: 'google' | 'waze' | 'apple';
   theme: 'system' | 'light' | 'dark';
   companyName?: string;
+  /**
+   * SIRET de votre entreprise.
+   *
+   * Sert d'abord à un garde-fou : sur une facture que vous **recevez**, le
+   * « client » c'est vous — votre propre SIRET figure donc dans le bloc client.
+   * Sans ce repère, cette pièce se rattachait à la fiche de votre base qui
+   * portait ce SIRET, avec un rapprochement à 100 %, alors que votre
+   * entreprise n'est évidemment pas son propre client.
+   */
+  companySiret?: string;
   lowStockAlert: boolean;
   /** Adresse e-mail d'expédition, reprise dans les brouillons générés. */
   senderEmail?: string;
