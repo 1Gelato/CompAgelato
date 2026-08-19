@@ -94,6 +94,12 @@ test('serveur : sans jeton, l’API et les fichiers sont refusés', async () => 
 test('serveur : un canal inconnu est refusé, un canal de bureau explique pourquoi', async () => {
   const unknown = await api('clients', 'hack');
   assert.equal(unknown.status, 404);
+  // Les canaux sont générés de la même liste des deux côtés : un canal inconnu
+  // signifie un poste plus récent que le serveur. Le message doit dire quoi
+  // faire — c'est ce qui manquait quand l'onglet Tâches tournait dans le vide
+  // sur un serveur resté en arrière.
+  const inconnu = await unknown.json();
+  assert.match(inconnu.error, /mettez le serveur à jour/i);
 
   const local = await api('app', 'chooseFolder');
   assert.equal(local.status, 400);
@@ -212,6 +218,37 @@ test('serveur : le brouillon d’e-mail se prépare et se télécharge', async (
   // La pièce est marquée « envoyée par e-mail ».
   const after = await callOk('documents', 'get', [doc.id]);
   assert.ok(after.emailedAt, 'emailedAt non renseigné');
+});
+
+test('serveur : les tâches vivent de bout en bout, corbeille comprise', async () => {
+  // Le chemin réellement emprunté par l'onglet Tâches : HTTP, pas un appel de
+  // fonction. C'est ce qui manquait — les tests métier passaient pendant que
+  // l'écran, lui, tournait dans le vide.
+  assert.deepEqual(await callOk('tasks', 'list'), []);
+
+  const urgente = await callOk('tasks', 'save', [
+    { title: 'Relancer SNSM LE CROISIC', priority: 'urgent' },
+  ]);
+  await callOk('tasks', 'save', [{ title: 'Ranger le dépôt', priority: 'low' }]);
+
+  const liste = await callOk('tasks', 'list');
+  assert.equal(liste.length, 2);
+  assert.equal(liste[0].id, urgente.id, 'l’urgent remonte en tête');
+  assert.equal(liste[0].history[0].text, 'créée');
+
+  // « Supprimer » met à la corbeille, et la restauration rend tout.
+  const jetee = await callOk('tasks', 'remove', [urgente.id]);
+  assert.ok(jetee.deletedAt);
+  const restauree = await callOk('tasks', 'restore', [urgente.id]);
+  assert.equal(restauree.deletedAt, undefined);
+  assert.equal(restauree.title, 'Relancer SNSM LE CROISIC');
+
+  const faite = await callOk('tasks', 'setStatus', [urgente.id, 'done']);
+  assert.ok(faite.doneAt);
+
+  // Les tâches descendent aux postes comme les autres collections.
+  const pull = await callOk('sync', 'pull', [{}]);
+  assert.equal(pull.changes.tasks.length, 2);
 });
 
 test('serveur : la base vit bien dans le dossier demandé', async () => {

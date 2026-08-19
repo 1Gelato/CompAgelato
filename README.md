@@ -345,6 +345,13 @@ simple nom noté au vol — même sélecteur que les cahiers) et peut être
 modifier, jeter, restaurer partent en file d'attente et se rejouent au retour
 du serveur, comme le reste.
 
+**Un écran ne tourne jamais dans le vide**
+Un chargement qui échoue le dit, au lieu d'afficher une attente sans fin ou —
+pire — une liste vide qui ressemble à « rien à faire ». Le cas le plus
+fréquent est nommé : quand un poste demande une fonction que le serveur ne
+connaît pas encore, l'écran affiche **« Le serveur n'est pas à jour »** et non
+un code technique. Les deux versions se comparent dans Réglages → À propos.
+
 **Calculateur de tournées de livraison**
 
 - Recherche d'adresse avec auto-complétion (Base Adresse Nationale)

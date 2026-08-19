@@ -95,7 +95,14 @@ export function useResource<T>(
         }
       })
       .catch((err: Error) => {
-        if (!cancelled) setError(err.message);
+        if (!cancelled) {
+          setError(err.message);
+          // Un échec compte aussi comme « on sait à quoi s'en tenir ». Sans
+          // cette ligne, `loading` restait vrai pour toujours et les écrans qui
+          // affichent une attente tant qu'ils n'ont rien tournaient sans fin,
+          // sans jamais montrer l'erreur qu'ils tenaient pourtant en main.
+          setLoaded(true);
+        }
       })
       .finally(() => {
         if (!cancelled) setRefreshing(false);

@@ -21,6 +21,7 @@ import {
   Icons,
   IconButton,
   Input,
+  LoadError,
   Modal,
   NumberInput,
   SearchInput,
@@ -68,7 +69,7 @@ const KIND_EMPTY: Record<RegisterKind, string> = {
 };
 
 export function Cahiers() {
-  const { data: entries, loading } = useRegisterEntries();
+  const { data: entries, loading, error, reload } = useRegisterEntries();
   const { data: machines } = useMachines();
   const { data: clients } = useClients();
   const { data: routes } = useRoutes();
@@ -153,6 +154,8 @@ export function Cahiers() {
       </div>
     );
   }
+
+  if (error) return <LoadError error={error} onRetry={reload} />;
 
   return (
     <div className="col" style={{ gap: 18 }}>

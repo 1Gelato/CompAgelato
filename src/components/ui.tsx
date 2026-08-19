@@ -452,6 +452,38 @@ export function EmptyState({
   );
 }
 
+/**
+ * Un chargement qui a échoué, dit franchement.
+ *
+ * Une liste vide et une liste qu'on n'a pas pu lire se ressemblent à l'écran,
+ * et ce sont deux situations opposées : la première n'appelle rien, la seconde
+ * demande d'agir. Ce bandeau les sépare — et il nomme le cas le plus fréquent,
+ * le poste en avance sur le serveur, parce que le message brut du serveur ne
+ * dit pas quoi faire.
+ */
+export function LoadError({ error, onRetry }: { error: string; onRetry?: () => void }) {
+  const outdated = /canal inconnu/i.test(error);
+  return (
+    <div className="card">
+      <EmptyState
+        icon={<Icons.warning size={30} />}
+        title={outdated ? 'Le serveur n’est pas à jour' : 'Chargement impossible'}
+        text={
+          outdated
+            ? 'Ce poste connaît une fonction que le serveur ne connaît pas encore. Mettez à jour le serveur, puis redémarrez-le — « À propos » dans les Réglages montre les deux versions.'
+            : error
+        }
+        action={onRetry ? <Button onClick={onRetry}>Réessayer</Button> : undefined}
+      />
+      {outdated && (
+        <p className="tiny muted" style={{ textAlign: 'center', margin: '0 0 4px' }}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function Modal({
   open,
   title,

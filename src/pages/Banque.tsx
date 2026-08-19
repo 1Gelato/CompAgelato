@@ -15,6 +15,7 @@ import {
   Icons,
   IconButton,
   Input,
+  LoadError,
   Modal,
   SearchInput,
   Segmented,
@@ -58,7 +59,7 @@ const CATEGORIES = Object.keys(BANK_CATEGORY_LABEL) as BankCategory[];
 const STATEMENT_FOLDER_KINDS: UploadFolderKind[] = ['statement'];
 
 export function Banque() {
-  const { data: transactions, loading } = useBankTransactions();
+  const { data: transactions, loading, error, reload } = useBankTransactions();
   const { data: summary } = useBankSummary();
   const { data: clients } = useClients();
   const clientIndex = useClientIndex(clients);
@@ -250,6 +251,8 @@ export function Banque() {
       </div>
     );
   }
+
+  if (error) return <LoadError error={error} onRetry={reload} />;
 
   return (
     <div className="col" style={{ gap: 18 }}>

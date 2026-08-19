@@ -9,6 +9,7 @@ import {
   Icons,
   IconButton,
   Input,
+  LoadError,
   Modal,
   SearchInput,
   Segmented,
@@ -39,7 +40,7 @@ function isLate(task: Task): boolean {
 }
 
 export function Taches() {
-  const { data: tasks, loading } = useTasks();
+  const { data: tasks, loading, error, reload } = useTasks();
   const { data: clients } = useClients();
   const clientIndex = useClientIndex(clients);
   const toast = useToast();
@@ -124,6 +125,10 @@ export function Taches() {
       </div>
     );
   }
+
+  // Sans cette sortie, un serveur qui refuse le canal donnerait une liste vide
+  // — « aucune tâche » là où il faut lire « je n'ai pas pu regarder ».
+  if (error) return <LoadError error={error} onRetry={reload} />;
 
   return (
     <div className="col" style={{ gap: 18 }}>

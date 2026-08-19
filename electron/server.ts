@@ -381,7 +381,16 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
         const channels = (CHANNELS as Record<string, readonly string[]>)[namespace];
         const handler = coreHandlers[namespace]?.[method];
         if (!channels?.includes(method) || !handler) {
-          sendJson(res, 404, { ok: false, error: `Canal inconnu : ${namespace}:${method}` });
+          // Ce cas n'arrive pas par hasard : les canaux sont générés de la même
+          // liste des deux côtés. Un canal inconnu, c'est un poste plus récent
+          // que le serveur — la seule chose à faire est de mettre le serveur à
+          // jour, et c'est ce qu'il faut lire ici plutôt qu'un nom technique.
+          sendJson(res, 404, {
+            ok: false,
+            error:
+              `Canal inconnu : ${namespace}:${method}. Ce poste demande une fonction que ce ` +
+              'serveur ne connaît pas encore : mettez le serveur à jour, puis redémarrez-le.',
+          });
           return;
         }
 
