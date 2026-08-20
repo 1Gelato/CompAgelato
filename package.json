@@ -18,7 +18,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "start": "npm run build && electron .",
     "server": "npm run build && node dist/server/server.mjs",
-    "test": "node scripts/build-tests.mjs && node --test tests/utils.test.mjs tests/parse.test.mjs tests/bank.test.mjs tests/sort.test.mjs tests/search.test.mjs tests/registers.test.mjs tests/packaging.test.mjs tests/optimize.test.mjs tests/mail.test.mjs tests/updater.test.mjs tests/restore.test.mjs tests/autobackup.test.mjs tests/draft.test.mjs tests/notify.test.mjs tests/audit.test.mjs tests/tasks.test.mjs tests/autoupdate.test.mjs tests/push.test.mjs",
+    "test": "node scripts/build-tests.mjs && node --test tests/utils.test.mjs tests/parse.test.mjs tests/bank.test.mjs tests/sort.test.mjs tests/search.test.mjs tests/registers.test.mjs tests/packaging.test.mjs tests/optimize.test.mjs tests/mail.test.mjs tests/updater.test.mjs tests/restore.test.mjs tests/autobackup.test.mjs tests/draft.test.mjs tests/notify.test.mjs tests/audit.test.mjs tests/tasks.test.mjs tests/autoupdate.test.mjs tests/push.test.mjs tests/expoupdates.test.mjs",
     "dist:win": "npm run build && electron-builder --win --x64",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:linux": "npm run build && electron-builder --linux",

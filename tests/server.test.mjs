@@ -265,6 +265,71 @@ test('serveur : la mise à jour à distance refuse d’éteindre un serveur que 
   assert.equal(typeof check.supported, 'boolean');
 });
 
+test('serveur : les mises à jour mobiles se servent sans jeton, dans les deux protocoles', async () => {
+  // Ces routes sont volontairement publiques : elles ne servent que du code
+  // compilé, et expo-updates les interroge avant toute connexion.
+  const rien = await fetch(`${BASE}/expo/manifest`);
+  assert.equal(rien.status, 404, 'sans fabrication, on dit qu’il n’y a rien');
+
+  // Une fabrication factice, posée là où le serveur la lit.
+  const crypto = await import('node:crypto');
+  const dist = path.join(dataDir, 'mobile-update', 'dist');
+  fs.mkdirSync(path.join(dist, 'js'), { recursive: true });
+  const bundle = Buffer.from('bundle de test');
+  const key = crypto.createHash('md5').update(bundle).digest('hex');
+  fs.writeFileSync(path.join(dist, 'js', 'index.hbc'), bundle);
+  const base = {
+    id: '01234567-89ab-cdef-0123-456789abcdef',
+    createdAt: new Date().toISOString(),
+    runtimeVersion: '1.0.0',
+    launchAsset: {
+      hash: 'h',
+      key,
+      fileExtension: '.bundle',
+      contentType: 'application/javascript',
+      filePath: 'js/index.hbc',
+    },
+    assets: [],
+  };
+  fs.writeFileSync(path.join(dist, 'manifest-base.json'), JSON.stringify(base));
+  fs.writeFileSync(
+    path.join(dataDir, 'mobile-update', 'etat.json'),
+    JSON.stringify({ commit: 'x', runtimeVersion: '1.0.0', id: base.id, createdAt: base.createdAt }),
+  );
+
+  // Protocole 0 : le manifeste en JSON nu.
+  const v0 = await fetch(`${BASE}/expo/manifest`, {
+    headers: { 'expo-runtime-version': '1.0.0' },
+  });
+  assert.equal(v0.status, 200);
+  assert.equal(v0.headers.get('expo-protocol-version'), '0');
+  const manifest = await v0.json();
+  assert.equal(manifest.id, base.id);
+  assert.match(manifest.launchAsset.url, /\/expo\/assets\//);
+
+  // Protocole 1 : le même manifeste, en enveloppe multipart.
+  const v1 = await fetch(`${BASE}/expo/manifest`, {
+    headers: { 'expo-runtime-version': '1.0.0', 'expo-protocol-version': '1' },
+  });
+  assert.equal(v1.status, 200);
+  assert.match(v1.headers.get('content-type'), /multipart\/mixed/);
+  const enveloppe = await v1.text();
+  assert.match(enveloppe, /name="manifest"/);
+  assert.ok(enveloppe.includes(base.id));
+
+  // Une APK d'une autre version native ne reçoit rien.
+  const autre = await fetch(`${BASE}/expo/manifest`, {
+    headers: { 'expo-runtime-version': '9.9.9' },
+  });
+  assert.equal(autre.status, 404);
+
+  // Le fichier se télécharge par sa clé, avec son type.
+  const asset = await fetch(`${BASE}/expo/assets/${key}`);
+  assert.equal(asset.status, 200);
+  assert.equal(asset.headers.get('content-type'), 'application/javascript');
+  assert.equal(Buffer.compare(Buffer.from(await asset.arrayBuffer()), bundle), 0);
+});
+
 test('serveur : la base vit bien dans le dossier demandé', async () => {
   const stats = await callOk('db', 'stats');
   assert.ok(stats.file.startsWith(dataDir), `${stats.file} hors de ${dataDir}`);

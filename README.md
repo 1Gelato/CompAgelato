@@ -1158,16 +1158,34 @@ Google, Firebase ne délivre aucun jeton — l'application tente quand même, et
 dit dans **Réglages → Notifications** ce qui manque, plutôt que de laisser
 croire à une panne.
 
-### Mettre à jour l'application
+### Mettre à jour l'application — par les airs, depuis l'oldpc
 
-Chaque nouvelle version demande de **reconstruire et réinstaller l'APK**
-(mêmes commandes que ci-dessus). Signée avec le même keystore, elle
-s'installe par-dessus la précédente sans rien perdre.
+Les mises à jour de code JavaScript arrivent **toutes seules** sur les
+téléphones : le serveur du dépôt est aussi leur serveur de mises à jour
+(protocole `expo-updates`, auto-hébergé — aucun compte Expo, rien qui sorte
+du tailnet). Le circuit complet, sans un geste :
 
-Les mises à jour par les airs (`eas update`) exigeraient un compte Expo ou un
-serveur de mises à jour auto-hébergé : ce n'est pas en place, et l'écran
-Réglages du téléphone le dit clairement plutôt que d'offrir un bouton qui ne
-peut rien faire.
+1. Le code est poussé sur le dépôt git.
+2. Le serveur se met à jour tout seul la nuit (ou via **Réglages → Mise à
+   jour du serveur**) et redémarre.
+3. Au démarrage, il constate le nouveau commit et **fabrique la mise à jour
+   mobile lui-même** (`expo export`, en arrière-plan — sa bannière l'affiche :
+   `MàJ mobile: servies aux téléphones (…)`).
+4. Chaque téléphone la récupère à l'ouverture de l'application, la vérifie
+   (empreinte SHA-256 de chaque fichier) et l'applique au lancement suivant.
+   Le bouton **Réglages → Vérifier les mises à jour** du téléphone fait la
+   même chose sans attendre.
+
+`COMPAGELATO_MOBILE_UPDATES=0` dans l'unité systemd désactive la fabrication.
+
+**Ce qui exige encore une APK** : les changements *natifs* — nouveau module
+Expo, permission Android, changement dans `app.json` hors JavaScript. Le
+garde-fou est la version native (`expo.version`) : un téléphone ne reçoit
+jamais une mise à jour prévue pour une autre APK que la sienne — il garde sa
+version et attend la nouvelle APK (mêmes commandes de construction que
+ci-dessus ; signée du même keystore, elle s'installe par-dessus). Lors d'un
+changement natif, **incrémentez `version` dans `mobile/app.json`** : c'est ce
+qui sépare les deux mondes.
 
 ### Vérifier
 
@@ -1287,7 +1305,7 @@ assumée : un fichier monté au serveur sous une mauvaise étiquette reste
 rangé dans le sous-dossier de l'étiquette (le type en base, lui, est le bon,
 et les copies en double n'oscillent plus).
 
-- **254 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **261 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,

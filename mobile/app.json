@@ -10,6 +10,8 @@
       "policy": "appVersion"
     },
     "updates": {
+      "url": "http://100.100.53.66:4680/expo/manifest",
+      "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },

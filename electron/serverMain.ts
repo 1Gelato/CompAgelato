@@ -6,6 +6,8 @@ import { createCompaServer, lanAddresses } from './server';
 import { autoBackupOptionsFromEnv, backupNow, startAutoBackup } from './services/autoBackup';
 import { autoUpdateHourFromEnv, startAutoUpdate } from './services/autoUpdate';
 import { configureFcm, fcmFromEnv } from './services/fcm';
+import { prepareMobileUpdate, readMobileUpdateState } from './services/expoUpdates';
+import path from 'node:path';
 
 /**
  * Point d'entrée du serveur CompaGelato — un simple processus Node, sans
@@ -94,6 +96,28 @@ async function main(): Promise<void> {
         : 'désactivées (COMPAGELATO_FCM_KEY_FILE non renseigné)'
     }`,
   );
+  // Mises à jour de l'application mobile, fabriquées ici et servies aux
+  // téléphones. En arrière-plan : l'export Metro prend une à deux minutes et
+  // n'a rien à faire sur le chemin du démarrage. Le déclencheur naturel est
+  // la mise à jour nocturne du serveur : il redémarre, constate le nouveau
+  // commit, refabrique — et les téléphones suivent à leur prochaine
+  // ouverture, sans un geste.
+  const dataDir = path.dirname(store.dbFile);
+  const mobileUpdates = process.env.COMPAGELATO_MOBILE_UPDATES !== '0';
+  if (mobileUpdates) {
+    void prepareMobileUpdate(projectRoot, dataDir);
+  }
+  const mobileState = readMobileUpdateState(dataDir);
+  console.log(
+    `  MàJ mobile: ${
+      !mobileUpdates
+        ? 'désactivées (COMPAGELATO_MOBILE_UPDATES=0)'
+        : mobileState
+          ? `servies aux téléphones (${mobileState.id.slice(0, 8)}, runtime ${mobileState.runtimeVersion})`
+          : 'première fabrication en cours…'
+    }`,
+  );
+
   console.log(`  Accès     : http://localhost:${running.port}`);
   for (const ip of lanAddresses()) console.log(`              http://${ip}:${running.port}`);
   if (!process.env.COMPAGELATO_TOKEN) {

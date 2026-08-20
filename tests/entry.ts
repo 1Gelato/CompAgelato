@@ -71,6 +71,16 @@ export {
   readServiceAccount,
   fcmFromEnv,
 } from '../electron/services/fcm';
+// Mises à jour mobiles auto-hébergées : la description d'un export Metro et
+// le manifeste servi aux téléphones se vérifient sur un export fabriqué.
+export {
+  describeExport,
+  buildManifest,
+  resolveAsset,
+  readMobileUpdateState,
+  readRuntimeVersion,
+  hashToUuid,
+} from '../electron/services/expoUpdates';
 export {
   registerDevice,
   unregisterDevice,

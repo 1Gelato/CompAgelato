@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { CHANNELS, CHANNEL_ACCESS, mayCall } from '@shared/api';
 import type { AuthIdentity, ChannelName } from '@shared/api';
 import type { DocumentKind, Role } from '@shared/types';
+import { buildManifest, resolveAsset } from './services/expoUpdates';
 import { coreHandlers, emlFilePath, setBroadcast } from './handlers';
 import { store, newId } from './store';
 import { resolvePath } from './services/paths';
@@ -342,6 +343,67 @@ export function createCompaServer(options: ServerOptions = {}): Promise<RunningS
     const segments = url.pathname.split('/').filter(Boolean);
 
     try {
+      /* ------------- Mises à jour de l'application mobile ------------- */
+      // Publiques à dessein : elles ne servent que du code compilé — jamais de
+      // données — et le port n'est joignable que du réseau local et du
+      // tailnet. Exiger le jeton casserait le mécanisme : `expo-updates`
+      // interroge cette adresse tout seul, avant toute connexion.
+      if (req.method === 'GET' && segments[0] === 'expo') {
+        const baseUrl = `http://${req.headers.host ?? 'localhost'}`;
+        if (segments[1] === 'manifest' && segments.length === 2) {
+          const manifest = buildManifest(
+            path.dirname(store.dbFile),
+            (req.headers['expo-runtime-version'] as string) ?? null,
+            baseUrl,
+          );
+          if (!manifest) {
+            sendJson(res, 404, { ok: false, error: 'Aucune mise à jour disponible.' });
+            return;
+          }
+          // Deux générations du protocole : la 0 attend le manifeste en JSON
+          // nu, la 1 l'attend dans une enveloppe multipart. On répond dans la
+          // langue que le téléphone annonce — les APK récentes parlent la 1.
+          const wantsV1 = req.headers['expo-protocol-version'] === '1';
+          const body = JSON.stringify(manifest);
+          if (wantsV1) {
+            const boundary = 'compagelato-manifest';
+            res.writeHead(200, {
+              'Content-Type': `multipart/mixed; boundary=${boundary}`,
+              'expo-protocol-version': '1',
+              'expo-sfv-version': '0',
+              'cache-control': 'private, max-age=0',
+            });
+            res.end(
+              `--${boundary}\r\n` +
+                'Content-Type: application/json; charset=utf-8\r\n' +
+                'Content-Disposition: inline; name="manifest"\r\n\r\n' +
+                `${body}\r\n--${boundary}--\r\n`,
+            );
+          } else {
+            res.writeHead(200, {
+              'Content-Type': 'application/json; charset=utf-8',
+              'expo-protocol-version': '0',
+              'expo-sfv-version': '0',
+              'cache-control': 'private, max-age=0',
+            });
+            res.end(body);
+          }
+          return;
+        }
+        if (segments[1] === 'assets' && segments.length === 3) {
+          const asset = resolveAsset(path.dirname(store.dbFile), segments[2]);
+          if (!asset) {
+            sendJson(res, 404, { ok: false, error: 'Fichier inconnu.' });
+            return;
+          }
+          res.writeHead(200, { 'Content-Type': asset.contentType });
+          fs.createReadStream(asset.file).pipe(res);
+          return;
+        }
+        sendJson(res, 404, { ok: false, error: 'Route inconnue.' });
+        return;
+      }
+
       const isProtected =
         segments[0] === 'api' || segments[0] === 'files' || segments[0] === 'upload';
       const caller = isProtected
