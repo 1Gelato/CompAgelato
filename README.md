@@ -1043,12 +1043,24 @@ pas.
 ```powershell
 winget install EclipseAdoptium.Temurin.17.JDK
 dir "C:\Program Files\Eclipse Adoptium"     # relever le nom exact du dossier
-[Environment]::SetEnvironmentVariable("JAVA_HOME", "C:\Program Files\Eclipse Adoptium\jdk-17…-hotspot", "User")
 ```
 
-Puis **arrêter les démons Gradle** (`.\gradlew.bat --stop` depuis
-`mobile/android`) — ils survivent aux fenêtres et rejoueraient l'ancien Java —,
-rouvrir PowerShell et vérifier : `& "$env:JAVA_HOME\bin\java" -version`.
+Puis déclarer ce JDK **dans `~/.gradle/gradle.properties`**, à côté des
+identifiants de signature :
+
+```properties
+org.gradle.java.home=C:/Program Files/Eclipse Adoptium/jdk-17.0.20.8-hotspot
+```
+
+De préférence à `JAVA_HOME` : une variable d'environnement ne vaut que pour
+les fenêtres ouvertes ensuite, et pas d'une session administrateur à une
+session ordinaire — on croit alors avoir changé de Java et l'on relance la
+même erreur. Ce réglage-ci, Gradle le lit toujours, et il survit aux
+`prebuild --clean` puisqu'il vit dans le profil de l'utilisateur.
+
+Enfin **arrêter les démons Gradle** avant de reconstruire (`.\gradlew.bat
+--stop` depuis `mobile/android`) : ils survivent aux fenêtres et rejoueraient
+l'ancien Java.
 
 Une fois, la clé de signature — **à sauvegarder précieusement** : sans elle,
 une nouvelle version ne pourra plus s'installer par-dessus l'ancienne, il
