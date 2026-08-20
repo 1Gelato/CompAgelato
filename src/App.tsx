@@ -9,6 +9,7 @@ import {
   refreshAll,
   setCurrentRole,
   useAppInfo,
+  useDeliveryNotes,
   useDocuments,
   useProducts,
   useRegisterEntries,
@@ -23,10 +24,11 @@ import { Routes } from './pages/Routes';
 import { Banque } from './pages/Banque';
 import { Cahiers } from './pages/Cahiers';
 import { Taches } from './pages/Taches';
+import { Bons } from './pages/Bons';
 import { Settings } from './pages/Settings';
 import { errorMessage } from './lib/data';
 
-type Page = 'dashboard' | 'documents' | 'clients' | 'stock' | 'routes' | 'cahiers' | 'taches' | 'banque' | 'settings';
+type Page = 'dashboard' | 'documents' | 'clients' | 'stock' | 'routes' | 'bons' | 'cahiers' | 'taches' | 'banque' | 'settings';
 
 const PAGES: {
   id: Page;
@@ -69,6 +71,13 @@ const PAGES: {
     icon: Icons.routes,
     title: 'Tournées de livraison',
     subtitle: 'Feuille de route, optimisation du trajet et coût réel',
+  },
+  {
+    id: 'bons',
+    label: 'Bons',
+    icon: Icons.edit,
+    title: 'Bons de livraison',
+    subtitle: 'Signés en tournée sur le téléphone — la facture se fait ensuite ici',
   },
   {
     id: 'cahiers',
@@ -126,6 +135,7 @@ const PAGE_CHANNEL: Record<Page, ChannelName | null> = {
   clients: 'clients:list',
   stock: 'products:list',
   routes: 'routes:list',
+  bons: 'delivery:list',
   cahiers: 'registers:list',
   taches: 'tasks:list',
   banque: 'bank:list',
@@ -148,6 +158,7 @@ function Shell({
   const { data: products } = useProducts();
   const { data: registerEntries } = useRegisterEntries();
   const { data: tasks } = useTasks();
+  const { data: deliveryNotes } = useDeliveryNotes();
   const toast = useToast();
 
   /* Thème -------------------------------------------------------- */
@@ -269,8 +280,10 @@ function Shell({
     const open = registerEntries.filter((e) => e.status === 'open').length;
     // Tâches encore à faire — la corbeille et le fait ne comptent pas.
     const todo = tasks.filter((t) => !t.deletedAt && t.status !== 'done').length;
-    return { documents: pending, stock: low, cahiers: open, taches: todo };
-  }, [documents, products, registerEntries, tasks]);
+    // Bons signés en tournée dont la facture reste à faire.
+    const bons = deliveryNotes.filter((n) => n.status === 'signed').length;
+    return { documents: pending, stock: low, cahiers: open, taches: todo, bons };
+  }, [documents, products, registerEntries, tasks, deliveryNotes]);
 
   // Sans identité (application de bureau sur ses propres données), tout est
   // visible : il n'y a ni compte ni rôle, l'utilisateur est chez lui.
@@ -313,7 +326,9 @@ function Shell({
                     ? badges.cahiers
                     : item.id === 'taches'
                       ? badges.taches
-                      : 0;
+                      : item.id === 'bons'
+                        ? badges.bons
+                        : 0;
             return (
               <button
                 key={item.id}
@@ -403,6 +418,7 @@ function Shell({
           {page === 'clients' && <Clients />}
           {page === 'stock' && <Stock />}
           {page === 'routes' && <Routes />}
+          {page === 'bons' && <Bons />}
           {page === 'cahiers' && <Cahiers />}
           {page === 'taches' && <Taches />}
           {page === 'banque' && <Banque />}

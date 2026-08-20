@@ -5,6 +5,7 @@ import type {
   BankTransaction,
   Client,
   DashboardStats,
+  DeliveryNote,
   DeliveryRoute,
   MachineAvailability,
   Product,
@@ -42,6 +43,14 @@ export function setCurrentRole(role: Role | null): void {
 
 function allowed(channel?: ChannelName): boolean {
   return !channel || !currentRole || mayCall(currentRole, channel);
+}
+
+/**
+ * Le rôle en cours a-t-il ce droit ? Pour montrer ou cacher un geste —
+ * le serveur refuse de toute façon, cacher n'est qu'un confort.
+ */
+export function hasRight(channel: ChannelName): boolean {
+  return allowed(channel);
 }
 
 export function useResource<T>(
@@ -143,6 +152,8 @@ export const useRegisterEntries = () =>
 export const useMachines = () =>
   useResource<MachineAvailability[]>(() => api.machines.list(), [], [], 'machines:list');
 export const useTasks = () => useResource<Task[]>(() => api.tasks.list(), [], [], 'tasks:list');
+export const useDeliveryNotes = () =>
+  useResource<DeliveryNote[]>(() => api.delivery.list(), [], [], 'delivery:list');
 export const useBankTransactions = () =>
   useResource<BankTransaction[]>(() => api.bank.list(), [], [], 'bank:list');
 export const useBankSummary = () =>

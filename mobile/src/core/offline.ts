@@ -7,6 +7,7 @@ import type {
 } from '@shared/api';
 import type {
   AccountingDocument,
+  DeliveryNote,
   DeliveryRoute,
   ID,
   RegisterEntry,
@@ -351,6 +352,10 @@ const MIRROR_READS: Record<string, (...args: unknown[]) => unknown> = {
   // Sans réseau, la liste des comptes n'est pas connue : on n'attribue donc
   // pas de tâche hors ligne, plutôt que de proposer une liste vide trompeuse.
   'tasks:people': () => [],
+  'delivery:list': () =>
+    [...rows<DeliveryNote>('deliveryNotes')].sort(
+      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt),
+    ),
   'bank:list': () => rows('bankTransactions'),
   'attachments:list': () =>
     rows<{ id: ID }>('attachments').map((a) => ({ ...a, exists: true })),
@@ -421,6 +426,33 @@ const OPTIMISTIC: Record<string, (args: unknown[]) => unknown> = {
       status: args[1] as Task['status'],
       doneAt: args[1] === 'done' ? new Date().toISOString() : undefined,
     }),
+  // Le bon s'écrit là où le réseau manque justement : il part en file, le
+  // serveur lui attribue son numéro définitif au rejeu.
+  'delivery:save': (args) => {
+    if (!mirror) throw new Error('Aucune copie locale.');
+    const input = { ...(args[0] as Partial<DeliveryNote>) };
+    const list = (mirror.collections.deliveryNotes ??= []) as DeliveryNote[];
+    const existing = input.id ? list.find((n) => n.id === input.id) : undefined;
+    if (existing) {
+      Object.assign(existing, input, { updatedAt: new Date().toISOString() });
+      void saveMirror();
+      return existing;
+    }
+    input.id = input.id ?? newRecordId('bl');
+    (args[0] as Partial<DeliveryNote>).id = input.id;
+    const created = {
+      number: 'BL (en attente)',
+      status: 'signed',
+      items: [],
+      date: new Date().toISOString().slice(0, 10),
+      ...input,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as DeliveryNote;
+    list.unshift(created);
+    void saveMirror();
+    return created;
+  },
   'routes:save': (args) => {
     if (!mirror) throw new Error('Aucune copie locale.');
     const input = { ...(args[0] as Partial<DeliveryRoute>) };

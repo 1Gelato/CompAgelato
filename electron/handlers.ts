@@ -22,6 +22,7 @@ import type {
   Attachment,
   BankTransaction,
   Client,
+  DeliveryNote,
   DeliveryRoute,
   DocumentKind,
   EmailDraft,
@@ -85,7 +86,8 @@ import {
   suggestProducts,
 } from './services/stock';
 import { computeRoute, optimizeRoute, removeRoute, upsertRoute } from './services/routes';
-import { autocompleteAddress, fetchFuelPrice, geocodeOne, reverseGeocode } from './services/routing';
+import { autocompleteAddress, fetchFuelPrice, reverseGeocode } from './services/routing';
+import { geocodeStatus, startGeocode } from './services/geocode';
 import { buildMapUrls, providerLabel, providerLimit, type MapPoint } from './services/mapLinks';
 import { buildDashboard } from './services/dashboard';
 import {
@@ -129,6 +131,12 @@ import {
   upsertTask,
 } from './services/tasks';
 import { sendNotification, notifyEnabled } from './services/notify';
+import {
+  listDeliveryNotes,
+  markDeliveryInvoiced,
+  removeDeliveryNote,
+  upsertDeliveryNote,
+} from './services/delivery';
 import {
   listDevices,
   pushActivityToDevices,
@@ -319,14 +327,6 @@ function formatFrenchDate(iso?: string): string {
   return y && m && d ? `${d}/${m}/${y}` : iso;
 }
 
-/** Chaîne d'adresse la plus complète possible pour interroger le géocodeur. */
-function addressQuery(client: Client): string {
-  const { address } = client;
-  const parts = [address.street, address.postcode, address.city].filter(Boolean);
-  const composed = parts.join(' ').trim();
-  return composed || (address.label ?? '').trim();
-}
-
 async function makeQr(text: string): Promise<string> {
   const QRCode = await import('qrcode');
   return QRCode.toDataURL(text, {
@@ -494,43 +494,16 @@ export const coreHandlers: Registry = {
       return client;
     },
     /**
-     * Complète les coordonnées GPS des fiches importées, pour qu'elles
-     * deviennent utilisables dans le calculateur de tournée.
+     * Lance la recherche des coordonnées GPS en tâche de fond et répond tout
+     * de suite. La version qui travaillait dans la requête durait plus que le
+     * délai d'attente du poste : celui-ci se croyait hors ligne alors que le
+     * serveur géocodait toujours.
      */
     async geocodeMissing() {
-      const targets = store.db.clients.filter(
-        (c) => !c.archived && typeof c.address.lat !== 'number' && addressQuery(c),
-      );
-      let located = 0;
-      let failed = 0;
-      // Traitement séquentiel et espacé : on reste courtois avec le service public.
-      for (const client of targets.slice(0, 400)) {
-        const query = addressQuery(client);
-        try {
-          const hit = await geocodeOne(query);
-          if (hit) {
-            store.mutate(() => {
-              client.address = {
-                ...client.address,
-                label: client.address.label || hit.label,
-                postcode: client.address.postcode ?? hit.postcode,
-                city: client.address.city ?? hit.city,
-                lat: hit.lat,
-                lon: hit.lon,
-              };
-              client.updatedAt = nowIso();
-            });
-            located++;
-          } else {
-            failed++;
-          }
-        } catch {
-          failed++;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 120));
-      }
-      store.flushSync();
-      return { processed: targets.length, located, failed };
+      return startGeocode();
+    },
+    async geocodeStatus() {
+      return geocodeStatus();
     },
   },
 
@@ -1124,6 +1097,30 @@ export const coreHandlers: Registry = {
     },
     async people() {
       return listTaskPeople();
+    },
+  },
+
+  /**
+   * Bons de livraison signés en tournée : reçus au bureau dans la minute,
+   * annoncés comme les tâches, facturés ensuite.
+   */
+  delivery: {
+    async list() {
+      return listDeliveryNotes();
+    },
+    async save(input: Partial<DeliveryNote> & { id?: ID }) {
+      const note = upsertDeliveryNote(input);
+      store.flushSync();
+      return note;
+    },
+    async remove(id: ID) {
+      removeDeliveryNote(id);
+      store.flushSync();
+    },
+    async markInvoiced(id: ID, invoiced: boolean, documentId?: ID) {
+      const note = markDeliveryInvoiced(id, invoiced, documentId);
+      store.flushSync();
+      return note;
     },
   },
 

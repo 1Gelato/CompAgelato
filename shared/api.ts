@@ -13,6 +13,7 @@ import type {
   Client,
   DashboardStats,
   Database,
+  DeliveryNote,
   DeliveryRoute,
   EmailDraft,
   EventMachine,
@@ -51,7 +52,7 @@ export const CHANNELS = {
     'relaunch', 'connection', 'setConnection',
   ],
   settings: ['get', 'update', 'resetFolder'],
-  clients: ['list', 'save', 'remove', 'importFrom', 'pickAndImport', 'exportCsv', 'merge', 'geocodeMissing', 'forgetAliases'],
+  clients: ['list', 'save', 'remove', 'importFrom', 'pickAndImport', 'exportCsv', 'merge', 'geocodeMissing', 'geocodeStatus', 'forgetAliases'],
   documents: [
     'list', 'get', 'save', 'remove', 'scan', 'rescanFile', 'setClient', 'setStatus', 'exportCsv',
     'openFile', 'print', 'setPrinted', 'prepareEmail', 'sendEmail', 'addFiles', 'pickAndAdd',
@@ -64,6 +65,7 @@ export const CHANNELS = {
   registers: ['list', 'save', 'remove', 'setStatus', 'addToRoute'],
   machines: ['list', 'save', 'remove'],
   tasks: ['list', 'save', 'remove', 'restore', 'purge', 'setStatus', 'people'],
+  delivery: ['list', 'save', 'remove', 'markInvoiced'],
   notify: ['test'],
   push: ['register', 'unregister', 'devices', 'test'],
   bank: [
@@ -138,6 +140,7 @@ export const CHANNEL_ACCESS: Record<ChannelName, readonly Role[]> = {
   'clients:exportCsv': BUREAU,
   'clients:merge': BUREAU,
   'clients:geocodeMissing': BUREAU,
+  'clients:geocodeStatus': BUREAU,
   'clients:forgetAliases': BUREAU,
 
   /* Documents comptables --------------------------------------------- */
@@ -219,6 +222,14 @@ export const CHANNEL_ACCESS: Record<ChannelName, readonly Role[]> = {
   // Noms affichés des comptes actifs, rien d'autre : de quoi confier une
   // tâche sans ouvrir la gestion des comptes, réservée au gérant.
   'tasks:people': BUREAU,
+
+  /* Bons de livraison — établis en tournée, facturés au bureau ---------- */
+  // Le livreur crée et consulte : c'est son geste de terrain. Marquer facturé
+  // et supprimer relèvent du bureau, qui tient la comptabilité.
+  'delivery:list': ALL,
+  'delivery:save': ALL,
+  'delivery:remove': BUREAU,
+  'delivery:markInvoiced': BUREAU,
 
   /* Divers ------------------------------------------------------------ */
   'notify:test': BUREAU,
@@ -328,6 +339,7 @@ export const COLLECTION_CHANNEL: Record<SyncedCollection, ChannelName> = {
   registerEntries: 'registers:list',
   eventMachines: 'machines:list',
   tasks: 'tasks:list',
+  deliveryNotes: 'delivery:list',
 };
 
 /** Type d'un dossier surveillé : trois types de pièces, plus les relevés. */
@@ -477,6 +489,16 @@ export interface EmailOutcome {
   fileUrl?: string;
 }
 
+/** Avancement de la géolocalisation des fiches, menée en tâche de fond. */
+export interface GeocodeProgress {
+  running: boolean;
+  processed: number;
+  located: number;
+  failed: number;
+  total: number;
+  finishedAt?: string;
+}
+
 /** État de l'authentification, consultable avant toute connexion. */
 export interface AuthStatus {
   /** Des comptes existent-ils ? Sinon le serveur reste au jeton partagé. */
@@ -607,8 +629,14 @@ export interface Api {
     pickAndImport(): Promise<ImportClientsReport | null>;
     exportCsv(): Promise<string | null>;
     merge(keepId: ID, mergeId: ID): Promise<Client>;
-    /** Recherche les coordonnées GPS des fiches qui n'en ont pas encore. */
-    geocodeMissing(): Promise<{ processed: number; located: number; failed: number }>;
+    /**
+     * Lance la recherche des coordonnées GPS des fiches qui n'en ont pas.
+     * Répond immédiatement : le travail continue sur le serveur, et
+     * `geocodeStatus` donne l'avancement.
+     */
+    geocodeMissing(): Promise<GeocodeProgress>;
+    /** Avancement de la passe de géolocalisation en cours (ou terminée). */
+    geocodeStatus(): Promise<GeocodeProgress>;
     /**
      * Efface les orthographes mémorisées sur les fiches clients.
      *
@@ -719,6 +747,17 @@ export interface Api {
     setStatus(id: ID, status: TaskStatus): Promise<Task>;
     /** Comptes actifs (id + nom affiché), pour confier une tâche. */
     people(): Promise<{ id: ID; displayName: string }[]>;
+  };
+  /**
+   * Bons de livraison signés en tournée. Le serveur attribue le numéro ;
+   * la création est annoncée au bureau comme une tâche ou un cahier.
+   */
+  delivery: {
+    list(): Promise<DeliveryNote[]>;
+    save(note: Partial<DeliveryNote> & { id?: ID }): Promise<DeliveryNote>;
+    remove(id: ID): Promise<void>;
+    /** La facture est faite — ou le geste se défait (`invoiced: false`). */
+    markInvoiced(id: ID, invoiced: boolean, documentId?: ID): Promise<DeliveryNote>;
   };
   notify: {
     /** Envoie une notification d'essai sur le sujet configuré. */

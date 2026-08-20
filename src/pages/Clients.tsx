@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Address, Client, ImportClientsReport } from '@shared/types';
+import type { GeocodeProgress } from '@shared/api';
 import { AddressInput } from '../components/AddressInput';
 import {
   Badge,
@@ -32,31 +33,70 @@ export function Clients() {
   const [importReport, setImportReport] = useState<ImportClientsReport | null>(null);
   const [merging, setMerging] = useState<Client | null>(null);
   const [importing, setImporting] = useState(false);
-  const [geocoding, setGeocoding] = useState(false);
+  const [geoJob, setGeoJob] = useState<GeocodeProgress | null>(null);
+  const geoLocated = useRef(0);
 
   const missingCoords = useMemo(
     () => clients.filter((c) => !c.archived && typeof c.address.lat !== 'number' && c.address.label).length,
     [clients],
   );
 
+  // Une passe peut déjà tourner, lancée d'un autre poste ou avant un
+  // rechargement de la page : on la retrouve pour afficher son avancement.
+  useEffect(() => {
+    let cancelled = false;
+    window.api.clients
+      .geocodeStatus()
+      .then((status) => {
+        if (!cancelled && status.running) setGeoJob(status);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Tant que la passe tourne, on la suit : le bouton affiche l'avancement, et
+  // les fiches localisées apparaissent au fil de l'eau.
+  useEffect(() => {
+    if (!geoJob?.running) return;
+    const timer = setInterval(async () => {
+      try {
+        const status = await window.api.clients.geocodeStatus();
+        if (status.located !== geoLocated.current) {
+          geoLocated.current = status.located;
+          refreshAll();
+        }
+        setGeoJob(status);
+        if (!status.running) {
+          toast.push({
+            tone: status.located ? 'success' : 'warn',
+            title: status.located
+              ? `${status.located} client(s) géolocalisé(s)`
+              : 'Aucune adresse localisée',
+            text: status.failed
+              ? `${status.failed} adresse(s) non reconnue(s) : ouvrez la fiche et choisissez une proposition.`
+              : 'Ces clients peuvent maintenant être ajoutés à une tournée.',
+          });
+        }
+      } catch {
+        /* liaison momentanément coupée : la prochaine passe du minuteur verra */
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [geoJob?.running, toast]);
+
   const geocodeMissing = async () => {
-    setGeocoding(true);
     try {
-      const report = await window.api.clients.geocodeMissing();
-      refreshAll();
-      toast.push({
-        tone: report.located ? 'success' : 'warn',
-        title: report.located
-          ? `${report.located} client(s) géolocalisé(s)`
-          : 'Aucune adresse localisée',
-        text: report.failed
-          ? `${report.failed} adresse(s) non reconnue(s) : ouvrez la fiche et choisissez une proposition.`
-          : 'Ces clients peuvent maintenant être ajoutés à une tournée.',
-      });
+      geoLocated.current = 0;
+      const status = await window.api.clients.geocodeMissing();
+      if (!status.total) {
+        toast.push({ tone: 'info', title: 'Aucune fiche à géolocaliser' });
+        return;
+      }
+      setGeoJob(status);
     } catch (err) {
       toast.push({ tone: 'error', title: 'Géolocalisation impossible', text: errorMessage(err) });
-    } finally {
-      setGeocoding(false);
     }
   };
 
@@ -151,14 +191,16 @@ export function Clients() {
         />
         <div className="spacer" />
         <div className="row">
-          {missingCoords > 0 && (
+          {(missingCoords > 0 || geoJob?.running) && (
             <Button
               icon={<Icons.route size={14} />}
               onClick={geocodeMissing}
-              loading={geocoding}
-              title="Rechercher les coordonnées GPS des adresses importées"
+              loading={Boolean(geoJob?.running)}
+              title="Rechercher les coordonnées GPS des adresses importées — le travail continue sur le serveur, vous pouvez naviguer pendant ce temps"
             >
-              Géolocaliser {missingCoords}
+              {geoJob?.running
+                ? `Géolocalisation ${geoJob.processed}/${geoJob.total}…`
+                : `Géolocaliser ${missingCoords}`}
             </Button>
           )}
           <Button icon={<Icons.download size={14} />} onClick={exportCsv} title="Exporter en CSV" />

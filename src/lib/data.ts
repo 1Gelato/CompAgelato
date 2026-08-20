@@ -6,6 +6,7 @@ import type {
   BankTransaction,
   Client,
   DashboardStats,
+  DeliveryNote,
   DeliveryRoute,
   EventMachine,
   MachineAvailability,
@@ -136,6 +137,8 @@ export const useMachines = () =>
   useResource<MachineAvailability[]>(() => window.api.machines.list(), [], [], 'machines:list');
 export const useTasks = () =>
   useResource<Task[]>(() => window.api.tasks.list(), [], [], 'tasks:list');
+export const useDeliveryNotes = () =>
+  useResource<DeliveryNote[]>(() => window.api.delivery.list(), [], [], 'delivery:list');
 export const useBankTransactions = () =>
   useResource<BankTransaction[]>(() => window.api.bank.list(), [], [], 'bank:list');
 export const useBankSummary = () =>

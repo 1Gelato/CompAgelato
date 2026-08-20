@@ -27,6 +27,7 @@ const SOURCE_CHANNEL: Record<ActivityEvent['source'], ChannelName> = {
   document: 'documents:list',
   statement: 'bank:list',
   task: 'tasks:list',
+  delivery: 'delivery:list',
 };
 
 /** Écran à ouvrir au clic — même correspondance que les bulles du bureau. */
@@ -35,6 +36,7 @@ const SOURCE_PAGE: Record<ActivityEvent['source'], string> = {
   document: 'documents',
   statement: 'banque',
   task: 'taches',
+  delivery: 'bons',
 };
 
 /**

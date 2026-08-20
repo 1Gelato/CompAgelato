@@ -437,7 +437,9 @@ Sur un serveur sans écran, préfixez les tests de bout en bout par
    les fiches à jour sans jamais effacer ce que le fichier n'apporte pas.
 3. **Clients → Géolocaliser.** Ce bouton apparaît tant que des fiches n'ont pas
    de position GPS connue ; il la recherche en lot pour les rendre utilisables
-   dans les tournées.
+   dans les tournées. Le travail se fait **sur le serveur, en tâche de fond** :
+   le bouton affiche l'avancement, vous pouvez continuer à travailler — et même
+   fermer l'application, la passe continue.
 4. **Stock → Nouveau consommable** (ou Importer). Renseignez la référence, la
    quantité et le seuil d'alerte.
 5. **Déposez vos factures** dans `Documents\CompaGelato\Factures`. Elles
@@ -922,16 +924,29 @@ avec les mêmes comptes et les mêmes droits que le bureau et le navigateur : un
 livreur y voit trois onglets (Tournées, Clients, Réglages), un gérant les voit
 tous.
 
-**Le cœur de l'app est la tournée** : les arrêts dans l'ordre, naviguer
-(Waze / Google Maps / Plans selon le réglage), appeler le client, et **marquer
-livré** — la coche apparaît en vert sur l'écran du bureau. Le tout marche **en
-zone blanche** : l'app garde un miroir local (même protocole `sync:pull` que
-le bureau), les pointages faits sans réseau sont conservés et rejoués à la
-reconnexion, et un rejeu refusé est présenté dans les Réglages, jamais avalé.
+**Le cœur de l'app est la tournée** : créer une tournée depuis le téléphone
+(départ au dépôt), ajouter des arrêts parmi les clients géolocalisés,
+épingler, réordonner, **optimiser** (le calcul se fait sur le serveur),
+naviguer (Waze / Google Maps / Plans selon le réglage), appeler le client, et
+**marquer livré** — la coche apparaît en vert sur l'écran du bureau. Le tout
+marche **en zone blanche** : l'app garde un miroir local (même protocole
+`sync:pull` que le bureau), les gestes faits sans réseau sont conservés et
+rejoués à la reconnexion, et un rejeu refusé est présenté dans les Réglages,
+jamais avalé — seule l'optimisation attend le serveur.
 S'y ajoutent tous les écrans de gestion : documents (PDF partagé/imprimé
 depuis le téléphone, e-mail pré-rempli), stock avec ajustement d'inventaire,
 cahiers en prise de note rapide, **tâches** (l'urgent d'abord, corbeille
 restaurable, notables sans réseau), banque en consultation, tableau de bord.
+
+**Bons de livraison signés.** Un client servi en tournée sans facture
+préparée : depuis l'arrêt (ou Plus → Bons), le livreur note les articles,
+signe au doigt, fait signer le client, et le bureau reçoit le bon dans la
+minute — bulle sur le poste, notification sur les autres téléphones, page
+« Bons » avec les signatures affichées. La signature du livreur s'enregistre
+sur l'appareil et se réutilise d'un geste. Le numéro (BL-2026-0001…) est
+attribué par le serveur ; un bon établi hors réseau part en file et prend son
+numéro à la reconnexion. Une fois la facture faite dans le logiciel de
+comptabilité, « Marquer facturé » clôt le bon.
 
 **Notifications natives** : l'application prévient elle-même des arrivées,
 fermée et écran éteint — voir plus bas.

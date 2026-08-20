@@ -255,12 +255,27 @@ export function Sheet({
 }) {
   const insets = useSafeAreaInsets();
   return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.sheetBackdrop} onPress={onClose} />
-      <View style={[styles.sheet, { paddingBottom: insets.bottom + spacing.lg }]}>
-        <View style={styles.sheetHandle} />
-        {title ? <Text style={styles.sheetTitle}>{title}</Text> : null}
-        {children}
+    <Modal
+      visible={open}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+      // Sans ces deux drapeaux, Android mesure la fenêtre sans les barres
+      // système : la feuille débordait sous l'écran et son dernier bouton
+      // était coupé, donc introuvable.
+      statusBarTranslucent
+      navigationBarTranslucent
+    >
+      <View style={styles.sheetWrap}>
+        <Pressable style={styles.sheetBackdrop} onPress={onClose} />
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+          <View style={styles.sheetHandle} />
+          {title ? <Text style={styles.sheetTitle}>{title}</Text> : null}
+          {/* Une feuille trop garnie défile à l'intérieur, jamais hors écran. */}
+          <ScrollView bounces={false} style={{ flexGrow: 0 }}>
+            {children}
+          </ScrollView>
+        </View>
       </View>
     </Modal>
   );
@@ -414,8 +429,16 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
     paddingVertical: 5,
   },
-  sheetBackdrop: {
+  sheetWrap: {
     flex: 1,
+    justifyContent: 'flex-end',
+  },
+  sheetBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
   sheet: {
@@ -425,6 +448,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
     gap: 4,
+    maxHeight: '80%',
   },
   sheetHandle: {
     alignSelf: 'center',

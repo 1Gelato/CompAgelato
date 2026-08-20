@@ -16,7 +16,18 @@ import { Loading, ToastProvider, useToast } from './src/components/ui';
 import { colors } from './src/theme';
 import { SetupScreen } from './src/screens/Setup';
 import { LoginScreen } from './src/screens/Login';
-import { RouteDetailScreen, RoutesListScreen, type RoutesStackParams } from './src/screens/Routes';
+import {
+  RouteAddStopScreen,
+  RouteDetailScreen,
+  RoutesListScreen,
+  type RoutesStackParams,
+} from './src/screens/Routes';
+import {
+  BonDetailScreen,
+  BonNouveauScreen,
+  BonsListScreen,
+  type BonsStackParams,
+} from './src/screens/Bons';
 import { ClientDetailScreen, ClientsListScreen, type ClientsStackParams } from './src/screens/Clients';
 import {
   DocumentDetailScreen,
@@ -41,6 +52,7 @@ import { SettingsScreen } from './src/screens/Settings';
 /* ------------------------------------------------------------------ */
 
 const RoutesStack = createNativeStackNavigator<RoutesStackParams>();
+const BonsStack = createNativeStackNavigator<BonsStackParams>();
 const ClientsStack = createNativeStackNavigator<ClientsStackParams>();
 const DocumentsStack = createNativeStackNavigator<DocumentsStackParams>();
 const StockStack = createNativeStackNavigator<StockStackParams>();
@@ -50,7 +62,32 @@ function RoutesFlow() {
     <RoutesStack.Navigator>
       <RoutesStack.Screen name="RoutesList" component={RoutesListScreen} options={{ title: 'Tournées' }} />
       <RoutesStack.Screen name="RouteDetail" component={RouteDetailScreen} options={{ title: 'Tournée' }} />
+      <RoutesStack.Screen
+        name="RouteAddStop"
+        component={RouteAddStopScreen}
+        options={{ title: 'Ajouter des arrêts' }}
+      />
+      {/* Le bon se remplit sans quitter la tournée : client et tournée pré-remplis. */}
+      <RoutesStack.Screen
+        name="RouteBon"
+        component={BonNouveauScreen as never}
+        options={{ title: 'Bon de livraison' }}
+      />
     </RoutesStack.Navigator>
+  );
+}
+
+function BonsFlow() {
+  return (
+    <BonsStack.Navigator>
+      <BonsStack.Screen name="BonsList" component={BonsListScreen} options={{ title: 'Bons de livraison' }} />
+      <BonsStack.Screen name="BonDetail" component={BonDetailScreen} options={{ title: 'Bon de livraison' }} />
+      <BonsStack.Screen
+        name="BonNouveau"
+        component={BonNouveauScreen as never}
+        options={{ title: 'Nouveau bon' }}
+      />
+    </BonsStack.Navigator>
   );
 }
 
@@ -106,6 +143,7 @@ type TabName = 'Tournées' | 'Tâches' | 'Cahiers' | 'Clients' | 'Plus';
 /** Écrans atteints par l'onglet « Plus », dans sa propre pile. */
 type PlusStackParams = {
   PlusIndex: undefined;
+  Bons: undefined;
   Documents: undefined;
   Stock: undefined;
   Banque: undefined;
@@ -158,6 +196,7 @@ function PlusFlow({
           />
         )}
       </PlusStack.Screen>
+      <PlusStack.Screen name="Bons" component={BonsFlow} options={{ headerShown: false }} />
       <PlusStack.Screen name="Documents" component={DocumentsFlow} options={{ headerShown: false }} />
       <PlusStack.Screen name="Stock" component={StockFlow} options={{ headerShown: false }} />
       <PlusStack.Screen name="Banque" component={BanqueScreen} options={{ title: 'Banque' }} />
@@ -262,6 +301,7 @@ const PAGE_TARGET: Record<
   cahiers: { tab: 'Cahiers', channel: 'registers:list' },
   documents: { tab: 'Plus', screen: 'Documents', channel: 'documents:list' },
   banque: { tab: 'Plus', screen: 'Banque', channel: 'bank:list' },
+  bons: { tab: 'Plus', screen: 'Bons', channel: 'delivery:list' },
 };
 
 function Gate() {

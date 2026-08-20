@@ -563,6 +563,11 @@ export function Settings({
                 label="Nouvelle tâche ajoutée au suivi"
               />
               <Switch
+                checked={notify.deliveries}
+                onChange={(v) => patchNotify({ deliveries: v })}
+                label="Bon de livraison signé en tournée"
+              />
+              <Switch
                 checked={notify.whenFocused}
                 onChange={(v) => patchNotify({ whenFocused: v })}
                 label="Notifier même quand la fenêtre CompaGelato est au premier plan"

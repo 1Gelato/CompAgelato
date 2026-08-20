@@ -25,6 +25,13 @@ export interface PlusEntry {
 
 export const PLUS_ENTRIES: PlusEntry[] = [
   {
+    name: 'Bons',
+    label: 'Bons de livraison',
+    icon: 'create-outline',
+    channel: 'delivery:list',
+    hint: 'Signés en tournée, facturés ensuite',
+  },
+  {
     name: 'Documents',
     label: 'Documents',
     icon: 'document-text-outline',

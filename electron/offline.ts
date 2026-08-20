@@ -369,6 +369,10 @@ const MIRROR_READS: Record<string, (...args: unknown[]) => unknown> = {
         (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999') ||
         b.createdAt.localeCompare(a.createdAt),
     ),
+  'delivery:list': () =>
+    [...rows<{ date: string; createdAt: string }>('deliveryNotes')].sort(
+      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt),
+    ),
   'bank:list': () => rows('bankTransactions'),
   // L'existence des fichiers ne se vérifie que sur le serveur : hors ligne, on
   // suppose la bibliothèque intacte plutôt que d'afficher de fausses alertes.
@@ -401,6 +405,7 @@ const NAMESPACE_COLLECTION: Record<string, { collection: SyncedCollection; prefi
   registers: { collection: 'registerEntries', prefix: 'reg' },
   documents: { collection: 'documents', prefix: 'doc' },
   tasks: { collection: 'tasks', prefix: 'tsk' },
+  delivery: { collection: 'deliveryNotes', prefix: 'bl' },
 };
 
 function upsertOptimistic(namespace: string, input: Record<string, unknown>): unknown {
@@ -469,6 +474,9 @@ const OPTIMISTIC: Record<string, (args: unknown[]) => unknown> = {
   'registers:save': (a) => upsertOptimistic('registers', { ...(a[0] as object) }),
   'documents:save': (a) => upsertOptimistic('documents', { ...(a[0] as object) }),
   'tasks:save': (a) => upsertOptimistic('tasks', { ...(a[0] as object) }),
+  // Le numéro définitif est attribué par le serveur au rejeu de l'intention.
+  'delivery:save': (a) =>
+    upsertOptimistic('delivery', { number: 'BL (en attente)', status: 'signed', items: [], ...(a[0] as object) }),
   // « Supprimer » une tâche n'en retire jamais l'enregistrement : c'est une
   // mise à la corbeille, réversible — le miroir reflète le même geste.
   'tasks:remove': (a) => patchOptimistic('tasks', a[0], { deletedAt: nowIso() }),

@@ -42,6 +42,7 @@ export const SYNCED_COLLECTIONS = [
   'registerEntries',
   'eventMachines',
   'tasks',
+  'deliveryNotes',
 ] as const;
 
 export type SyncedCollection = (typeof SYNCED_COLLECTIONS)[number];
@@ -461,6 +462,62 @@ export interface Task extends Syncable {
   updatedAt: string;
 }
 
+/* ------------------------------------------------------------------ */
+/* Bons de livraison (signés en tournée, facturés ensuite au bureau)    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Une signature tracée au doigt sur le téléphone.
+ *
+ * Les tracés sont gardés en vecteurs — des suites de points `[x, y]`
+ * normalisés entre 0 et 1 — plutôt qu'en image : quelques centaines d'octets,
+ * lisibles sur n'importe quel écran à n'importe quelle taille, et rien à
+ * transporter de lourd dans la synchronisation.
+ */
+export interface Signature {
+  strokes: [number, number][][];
+  /** Nom du signataire, saisi à côté du tracé. */
+  name?: string;
+  at: string;
+}
+
+/**
+ * Le bon fait foi de la livraison ; la facture vient ensuite, au bureau.
+ * `invoiced` marque simplement que ce travail est fait.
+ */
+export type DeliveryNoteStatus = 'signed' | 'invoiced';
+
+/**
+ * Bon de livraison établi sur la route, quand un client est servi sans
+ * facture préparée. Il remplace le bon papier : articles notés sur place,
+ * signé par le livreur et par le client, reçu au bureau dans la minute —
+ * la facture se fait ensuite, tranquillement.
+ */
+export interface DeliveryNote extends Syncable {
+  id: ID;
+  /** Numéro attribué par le serveur : BL-2026-0001, BL-2026-0002… */
+  number: string;
+  /** Jour de la livraison (ISO yyyy-mm-dd). */
+  date: string;
+  clientId?: ID;
+  /** Nom noté à la volée quand le client n'a pas (encore) de fiche. */
+  clientName?: string;
+  /** Ce qui a été livré — mêmes lignes libres que les cahiers. */
+  items: RegisterItem[];
+  notes?: string;
+  /** Tournée pendant laquelle le bon a été établi, si c'est le cas. */
+  routeId?: ID;
+  driverSignature?: Signature;
+  clientSignature?: Signature;
+  status: DeliveryNoteStatus;
+  /** Facture créée ensuite au bureau, rattachée pour la traçabilité. */
+  documentId?: ID;
+  createdBy?: ID;
+  createdByName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** Machine du parc événementiel (machine à glace italienne, vitrine…). */
 export interface EventMachine extends Syncable {
   id: ID;
@@ -703,6 +760,8 @@ export interface DesktopNotifySettings {
   statements: boolean;
   /** Nouvelle tâche ajoutée au suivi. */
   tasks: boolean;
+  /** Bon de livraison signé en tournée. */
+  deliveries: boolean;
   /**
    * Notifier aussi quand la fenêtre CompaGelato est au premier plan. Faux par
    * défaut : sous les yeux de l'utilisateur, l'écriture apparaît d'elle-même et
@@ -716,6 +775,7 @@ export const DEFAULT_DESKTOP_NOTIFY: DesktopNotifySettings = {
   documents: true,
   statements: true,
   tasks: true,
+  deliveries: true,
   whenFocused: false,
 };
 
@@ -729,7 +789,7 @@ export const DEFAULT_DESKTOP_NOTIFY: DesktopNotifySettings = {
  * exemple, qui est justement ce qu'on veut savoir.
  */
 export interface ActivityEvent {
-  source: 'register' | 'document' | 'statement' | 'task';
+  source: 'register' | 'document' | 'statement' | 'task' | 'delivery';
   title: string;
   text: string;
   /** Identifiant du compte à l'origine, `null` si l'arrivée n'a pas d'auteur. */
@@ -838,6 +898,7 @@ export interface Database {
   registerEntries: RegisterEntry[];
   eventMachines: EventMachine[];
   tasks: Task[];
+  deliveryNotes: DeliveryNote[];
   settings: Settings;
   /** État de synchronisation multi-appareils, créé à la migration. */
   sync?: SyncMeta;

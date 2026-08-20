@@ -8,6 +8,17 @@ export {
 } from '../electron/services/clients';
 // Adresses en une ligne : découpage, nettoyage et réparation des fiches.
 export { cleanAddressLine, parseAddressLine, repairAddress } from '../electron/services/address';
+// Géolocalisation en tâche de fond : le lancement, l'avancement, l'attente —
+// jamais de vrai appel réseau dans la suite, le géocodeur est injecté.
+export { addressQuery, geocodeStatus, startGeocode, waitGeocode } from '../electron/services/geocode';
+// Bons de livraison : numérotation annuelle, annonce au bureau, facturation.
+export {
+  listDeliveryNotes,
+  markDeliveryInvoiced,
+  nextDeliveryNumber,
+  removeDeliveryNote,
+  upsertDeliveryNote,
+} from '../electron/services/delivery';
 export * from '../electron/services/pdf';
 export * from '../electron/services/parseInvoice';
 export * from '../electron/services/facturx';
