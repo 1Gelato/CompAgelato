@@ -1038,8 +1038,33 @@ keytool -genkeypair -v -keystore compagelato.keystore \
   -alias compagelato -keyalg RSA -keysize 2048 -validity 10000
 ```
 
-Rangez `compagelato.keystore` **hors du dépôt** (il y est ignoré par git) et
-notez son mot de passe.
+Rangez `compagelato.keystore` **hors du dépôt** — par exemple
+`C:\Users\<vous>\cles\` — puis déclarez-la une fois dans
+`~/.gradle/gradle.properties` (soit `C:\Users\<vous>\.gradle\gradle.properties`,
+un fichier personnel qui ne suit jamais le projet) :
+
+```properties
+COMPAGELATO_STORE_FILE=C:/Users/<vous>/cles/compagelato.keystore
+COMPAGELATO_STORE_PASSWORD=le-mot-de-passe-du-magasin
+COMPAGELATO_KEY_ALIAS=compagelato
+COMPAGELATO_KEY_PASSWORD=le-mot-de-passe-de-la-cle
+```
+
+Barres obliques **normales** même sous Windows, y compris dans ce chemin :
+Gradle traiterait `\` comme un caractère d'échappement.
+
+C'est le greffon `mobile/plugins/withReleaseSigning.js` qui relie les deux.
+Il existe parce que `expo prebuild` régénère `android/` à chaque passage avec
+`signingConfig signingConfigs.debug` — la clé de débogage, elle aussi
+régénérée : deux APK construites à deux moments ne porteraient pas la même
+signature, et Android refuserait d'installer la seconde par-dessus la
+première. Modifier `build.gradle` à la main tiendrait jusqu'au prochain
+`prebuild --clean`. Le greffon, lui, réécrit le fichier à chaque génération.
+
+**Sans ces propriétés, la construction n'échoue pas** : elle retombe sur la
+clé de débogage. Une APK d'essai reste donc possible sur un poste qui n'a pas
+la clé — c'est seulement l'installation par-dessus une version signée
+autrement qui sera refusée.
 
 Puis, à chaque version :
 

@@ -45,7 +45,8 @@
           "color": "#1f6feb",
           "defaultChannel": "compagelato"
         }
-      ]
+      ],
+      "./plugins/withReleaseSigning"
     ]
   }
 }
