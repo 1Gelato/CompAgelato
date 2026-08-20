@@ -1111,6 +1111,18 @@ cd android
 
 L'APK sort dans `mobile/android/app/build/outputs/apk/release/`.
 
+**Vérifiez toujours quelle clé l'a signée** avant de la distribuer — la
+construction réussit aussi bien avec la clé de débogage, sans rien dire :
+
+```powershell
+& "$env:LOCALAPPDATA\Android\Sdk\build-tools\36.0.0\apksigner.bat" verify --print-certs app\build\outputs\apk\release\app-release.apk
+```
+
+La ligne `Signer #1 certificate DN:` doit nommer votre certificat. Attention,
+`keytool -printcert -jarfile` **ne convient pas** : il ne lit que l'ancienne
+signature JAR (v1), que les APK modernes n'utilisent plus, et répond
+« Fichier JAR non signé » sur une APK pourtant correctement signée en v2/v3.
+
 Le dossier `mobile/android/` n'est **pas versionné** : il se régénère à
 volonté depuis `app.json`, et le versionner créerait deux sources de vérité
 qui finiraient par diverger.
