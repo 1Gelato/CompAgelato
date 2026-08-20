@@ -1029,6 +1029,17 @@ ou compte supprimé font taire le téléphone.
 L'APK se construit **localement**, avec Android Studio. Aucun compte Expo,
 aucun service en ligne.
 
+**Prérequis : Java 17 ou plus.** Gradle refuse de démarrer en deçà, et un
+poste qui a servi à autre chose traîne souvent un Java 11. Inutile d'installer
+quoi que ce soit : Android Studio embarque son propre JDK. Une fois, dans
+PowerShell —
+
+```powershell
+[Environment]::SetEnvironmentVariable("JAVA_HOME", "C:\Program Files\Android\Android Studio\jbr", "User")
+```
+
+— puis rouvrir PowerShell et vérifier avec `& "$env:JAVA_HOME\bin\java" -version`.
+
 Une fois, la clé de signature — **à sauvegarder précieusement** : sans elle,
 une nouvelle version ne pourra plus s'installer par-dessus l'ancienne, il
 faudrait désinstaller l'application et perdre sa session.
