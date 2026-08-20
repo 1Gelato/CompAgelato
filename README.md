@@ -936,6 +936,15 @@ fermée et écran éteint — voir plus bas.
 **Réseau** : l'app passe par Tailscale (`100.100.53.66:4680`, proposé
 d'office). Vérifiez que Tailscale est activé sur le téléphone.
 
+Le serveur parlant HTTP en clair, l'application autorise explicitement le
+trafic non chiffré (`expo-build-properties`, `usesCleartextTraffic`) — sans
+quoi Android refuse la connexion avec un « CLEARTEXT communication not
+permitted by network security policy ». Le réglage d'`app.json`
+(`android.usesCleartextTraffic`) ne suffit pas : Expo ne l'applique qu'aux
+versions de développement, et la version distribuée se retrouve bloquée.
+Ce que cela suppose reste vrai : **le port 4680 ne doit jamais être exposé
+sur Internet** — c'est WireGuard, sous Tailscale, qui chiffre réellement.
+
 ### Développer (iPhone ou Android, Expo Go)
 
 ```bash
