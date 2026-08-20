@@ -1029,16 +1029,26 @@ ou compte supprimé font taire le téléphone.
 L'APK se construit **localement**, avec Android Studio. Aucun compte Expo,
 aucun service en ligne.
 
-**Prérequis : Java 17 ou plus.** Gradle refuse de démarrer en deçà, et un
-poste qui a servi à autre chose traîne souvent un Java 11. Inutile d'installer
-quoi que ce soit : Android Studio embarque son propre JDK. Une fois, dans
-PowerShell —
+**Prérequis : Java 17 — ni moins, ni beaucoup plus.** Gradle refuse de
+démarrer sous Java 17, et un poste qui a servi à autre chose traîne souvent un
+Java 11. Mais **Java 24 et au-delà échouent aussi**, d'une façon qui égare :
+le greffon Android lit la sortie de ses outils ligne par ligne et prend chaque
+ligne pour une erreur ; à partir de Java 24, la JVM émet
+`WARNING: A restricted method in java.lang.System has been called`, qu'Android
+interprète comme un échec. La compilation C++ s'arrête alors sur un
+`configureCMake…FAILED` qui ne dit rien de la vraie cause. Le JDK embarqué
+dans les versions récentes d'Android Studio étant un Java 25, il ne convient
+pas.
 
 ```powershell
-[Environment]::SetEnvironmentVariable("JAVA_HOME", "C:\Program Files\Android\Android Studio\jbr", "User")
+winget install EclipseAdoptium.Temurin.17.JDK
+dir "C:\Program Files\Eclipse Adoptium"     # relever le nom exact du dossier
+[Environment]::SetEnvironmentVariable("JAVA_HOME", "C:\Program Files\Eclipse Adoptium\jdk-17…-hotspot", "User")
 ```
 
-— puis rouvrir PowerShell et vérifier avec `& "$env:JAVA_HOME\bin\java" -version`.
+Puis **arrêter les démons Gradle** (`.\gradlew.bat --stop` depuis
+`mobile/android`) — ils survivent aux fenêtres et rejoueraient l'ancien Java —,
+rouvrir PowerShell et vérifier : `& "$env:JAVA_HOME\bin\java" -version`.
 
 Une fois, la clé de signature — **à sauvegarder précieusement** : sans elle,
 une nouvelle version ne pourra plus s'installer par-dessus l'ancienne, il
