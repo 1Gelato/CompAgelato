@@ -15,8 +15,10 @@ import type {
   StockMove,
   Syncable,
   SyncedCollection,
+  Task,
 } from '@shared/types';
 import { SYNCED_COLLECTIONS } from '@shared/types';
+import { TASK_PRIORITY_RANK } from '@shared/format';
 import { ApiError, serverCall } from './api';
 
 /**
@@ -336,6 +338,19 @@ const MIRROR_READS: Record<string, (...args: unknown[]) => unknown> = {
       available: machine.qtyTotal,
       upcoming: [],
     })),
+  // Même ordre que le serveur : l'urgent d'abord, puis l'échéance la plus
+  // proche. La corbeille descend aussi (repérable à `deletedAt`) — sa purge
+  // automatique, elle, attend le serveur.
+  'tasks:list': () =>
+    [...rows<Task>('tasks')].sort(
+      (a, b) =>
+        (TASK_PRIORITY_RANK[a.priority] ?? 2) - (TASK_PRIORITY_RANK[b.priority] ?? 2) ||
+        (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999') ||
+        b.createdAt.localeCompare(a.createdAt),
+    ),
+  // Sans réseau, la liste des comptes n'est pas connue : on n'attribue donc
+  // pas de tâche hors ligne, plutôt que de proposer une liste vide trompeuse.
+  'tasks:people': () => [],
   'bank:list': () => rows('bankTransactions'),
   'attachments:list': () =>
     rows<{ id: ID }>('attachments').map((a) => ({ ...a, exists: true })),
@@ -353,12 +368,59 @@ const MIRROR_READS: Record<string, (...args: unknown[]) => unknown> = {
 /* Écritures mises en file : les gestes de tournée                      */
 /* ------------------------------------------------------------------ */
 
+/** Retrouve une tâche du miroir et lui applique un correctif. */
+function patchTask(id: unknown, patch: Partial<Task>): Task | null {
+  if (!mirror) throw new Error('Aucune copie locale.');
+  const list = (mirror.collections.tasks ??= []) as Task[];
+  const task = list.find((t) => t.id === id);
+  if (!task) return null;
+  Object.assign(task, patch, { updatedAt: new Date().toISOString() });
+  void saveMirror();
+  return task;
+}
+
 /**
- * Seuls les gestes de tournée se rejouent depuis le téléphone — c'est le cas
- * réel de la zone blanche en camionnette. Le reste des écritures demande le
- * serveur et le dit clairement.
+ * Les gestes rejouables depuis le téléphone : la tournée — c'est le cas réel
+ * de la zone blanche en camionnette — et les tâches, qui se notent justement
+ * là où l'on n'a pas de réseau. Le reste des écritures demande le serveur et
+ * le dit clairement.
  */
 const OPTIMISTIC: Record<string, (args: unknown[]) => unknown> = {
+  'tasks:save': (args) => {
+    if (!mirror) throw new Error('Aucune copie locale.');
+    const input = { ...(args[0] as Partial<Task>) };
+    const list = (mirror.collections.tasks ??= []) as Task[];
+    const existing = input.id ? list.find((t) => t.id === input.id) : undefined;
+    if (existing) {
+      Object.assign(existing, input, { updatedAt: new Date().toISOString() });
+      void saveMirror();
+      return existing;
+    }
+    // L'identifiant est pré-assigné **dans l'intention** : le serveur créera
+    // la tâche sous ce même identifiant au rejeu, et les gestes suivants de la
+    // file la retrouveront.
+    input.id = input.id ?? newRecordId('tsk');
+    (args[0] as Partial<Task>).id = input.id;
+    const created = {
+      priority: 'normal',
+      status: 'open',
+      history: [],
+      ...input,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as Task;
+    list.unshift(created);
+    void saveMirror();
+    return created;
+  },
+  // « Supprimer » n'efface jamais : c'est une mise à la corbeille, réversible.
+  'tasks:remove': (args) => patchTask(args[0], { deletedAt: new Date().toISOString() }),
+  'tasks:restore': (args) => patchTask(args[0], { deletedAt: undefined }),
+  'tasks:setStatus': (args) =>
+    patchTask(args[0], {
+      status: args[1] as Task['status'],
+      doneAt: args[1] === 'done' ? new Date().toISOString() : undefined,
+    }),
   'routes:save': (args) => {
     if (!mirror) throw new Error('Aucune copie locale.');
     const input = { ...(args[0] as Partial<DeliveryRoute>) };

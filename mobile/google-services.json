@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "351691632065",
+    "project_id": "comptagelato-d4fe5",
+    "storage_bucket": "comptagelato-d4fe5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:351691632065:android:c528056d47c1e110dfd340",
+        "android_client_info": {
+          "package_name": "fr.compagelato.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCWMR-Qpxof5alWsNpChKouAB5rCKocpAY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

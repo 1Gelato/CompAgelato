@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, type NavigationContainerRef } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { AuthIdentity, AuthStatus, ChannelName } from '@shared/api';
 import { mayCall } from '@shared/api';
 import { boot, setAuthRequiredHandler, startLive } from './src/lib/runtime';
+import { onNotificationOpened, registerForPush } from './src/lib/push';
 import { onOfflineChange, syncStatus } from './src/core/offline';
 import { refreshAll, setCurrentRole } from './src/lib/data';
 import { Loading, ToastProvider, useToast } from './src/components/ui';
@@ -24,6 +25,7 @@ import {
 } from './src/screens/Documents';
 import { ProductDetailScreen, StockListScreen, type StockStackParams } from './src/screens/Stock';
 import { CahiersScreen } from './src/screens/Cahiers';
+import { TachesScreen } from './src/screens/Taches';
 import { BanqueScreen } from './src/screens/Banque';
 import { DashboardScreen } from './src/screens/Dashboard';
 import { SettingsScreen } from './src/screens/Settings';
@@ -93,6 +95,7 @@ function StockFlow() {
 type TabName =
   | 'Tournées'
   | 'Clients'
+  | 'Tâches'
   | 'Documents'
   | 'Stock'
   | 'Cahiers'
@@ -108,6 +111,7 @@ type TabName =
 const TAB_CHANNEL: Record<TabName, ChannelName | null> = {
   Tournées: 'routes:list',
   Clients: 'clients:list',
+  Tâches: 'tasks:list',
   Documents: 'documents:list',
   Stock: 'products:list',
   Cahiers: 'registers:list',
@@ -119,6 +123,7 @@ const TAB_CHANNEL: Record<TabName, ChannelName | null> = {
 const TAB_ICON: Record<TabName, keyof typeof Ionicons.glyphMap> = {
   Tournées: 'navigate-outline',
   Clients: 'people-outline',
+  Tâches: 'checkbox-outline',
   Documents: 'document-text-outline',
   Stock: 'cube-outline',
   Cahiers: 'book-outline',
@@ -146,6 +151,7 @@ function MainTabs({
       screenOptions={({ route }) => ({
         headerShown:
           route.name === 'Cahiers' ||
+          route.name === 'Tâches' ||
           route.name === 'Banque' ||
           route.name === 'Activité' ||
           route.name === 'Réglages',
@@ -159,6 +165,7 @@ function MainTabs({
     >
       {visible.includes('Tournées') && <Tabs.Screen name="Tournées" component={RoutesFlow} />}
       {visible.includes('Clients') && <Tabs.Screen name="Clients" component={ClientsFlow} />}
+      {visible.includes('Tâches') && <Tabs.Screen name="Tâches" component={TachesScreen} />}
       {visible.includes('Documents') && <Tabs.Screen name="Documents" component={DocumentsFlow} />}
       {visible.includes('Stock') && <Tabs.Screen name="Stock" component={StockFlow} />}
       {visible.includes('Cahiers') && <Tabs.Screen name="Cahiers" component={CahiersScreen} />}
@@ -212,9 +219,18 @@ type GateState =
   | { step: 'login' }
   | { step: 'main'; identity: AuthIdentity | null };
 
+/** Onglet à ouvrir selon la page annoncée par la notification. */
+const PAGE_TAB: Record<string, TabName> = {
+  cahiers: 'Cahiers',
+  documents: 'Documents',
+  banque: 'Banque',
+  taches: 'Tâches',
+};
+
 function Gate() {
   const [state, setState] = useState<GateState>({ step: 'boot' });
   const toast = useToast();
+  const navigation = useRef<NavigationContainerRef<Record<string, undefined>> | null>(null);
 
   const enter = useCallback((identity: AuthIdentity | null) => {
     setCurrentRole(identity?.role ?? null);
@@ -268,6 +284,27 @@ function Gate() {
     };
   }, [state.step, toast]);
 
+  /* Notifications natives ------------------------------------------- */
+  useEffect(() => {
+    if (state.step !== 'main') return;
+    // Réaffirmé à chaque entrée dans l'application : Firebase renouvelle
+    // parfois le jeton de lui-même, et un abonnement enregistré une fois pour
+    // toutes finirait par ne plus réveiller personne, sans rien signaler.
+    void registerForPush();
+
+    // Le clic sur une notification ouvre l'onglet annoncé — mais seulement
+    // s'il est visible pour ce rôle : le serveur ne pousse déjà rien
+    // au-delà des droits, cette vérification est la ceinture.
+    return onNotificationOpened((page) => {
+      const tab = PAGE_TAB[page];
+      if (!tab || !navigation.current) return;
+      const channel = TAB_CHANNEL[tab];
+      const identity = state.step === 'main' ? state.identity : null;
+      if (channel && identity && !mayCall(identity.role, channel)) return;
+      navigation.current.navigate(tab as never);
+    });
+  }, [state]);
+
   if (state.step === 'boot') return <Loading />;
   if (state.step === 'setup') {
     return (
@@ -286,7 +323,7 @@ function Gate() {
   return (
     <View style={{ flex: 1 }}>
       <OfflineBanner />
-      <NavigationContainer>
+      <NavigationContainer ref={navigation}>
         <MainTabs
           identity={state.identity}
           onSignedOut={() => {

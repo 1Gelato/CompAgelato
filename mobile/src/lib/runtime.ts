@@ -22,6 +22,7 @@ import {
   schedulePull,
   type OfflineStorage,
 } from '../core/offline';
+import { unregisterFromPush } from './push';
 
 /**
  * Le branchement Expo du cœur portable : où vivent les fichiers, où vit la
@@ -131,6 +132,9 @@ export async function login(username: string, password: string): Promise<AuthIde
 }
 
 export async function logout(): Promise<void> {
+  // Désabonner **avant** de fermer la session : après, le serveur refuserait
+  // l'appel faute de jeton, et le téléphone continuerait de sonner.
+  await unregisterFromPush();
   try {
     await serverCall('auth', 'logout', []);
   } catch {

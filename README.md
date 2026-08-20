@@ -577,6 +577,7 @@ l'appareil, l'adresse se garde en favori.
 | `COMPAGELATO_BACKUP_KEEP` | Sauvegardes conservées | `30` |
 | `COMPAGELATO_BACKUP_COPY` | Dossiers de recopie, séparés par `;` | *(aucun)* |
 | `COMPAGELATO_UPDATE_HOUR` | Heure du passage de mise à jour automatique (`-1` = jamais) | `3` |
+| `COMPAGELATO_FCM_KEY_FILE` | Clé de compte de service Firebase, pour les notifications des téléphones | *(aucune — push désactivé)* |
 
 Ce qui marche dans le navigateur : tout — tableaux, recherche, tournées,
 cahiers, banque, imports (le « choisir un fichier » téléverse vers le serveur),
@@ -926,7 +927,11 @@ le bureau), les pointages faits sans réseau sont conservés et rejoués à la
 reconnexion, et un rejeu refusé est présenté dans les Réglages, jamais avalé.
 S'y ajoutent tous les écrans de gestion : documents (PDF partagé/imprimé
 depuis le téléphone, e-mail pré-rempli), stock avec ajustement d'inventaire,
-cahiers en prise de note rapide, banque en consultation, tableau de bord.
+cahiers en prise de note rapide, **tâches** (l'urgent d'abord, corbeille
+restaurable, notables sans réseau), banque en consultation, tableau de bord.
+
+**Notifications natives** : l'application prévient elle-même des arrivées,
+fermée et écran éteint — voir plus bas.
 
 **Réseau** : l'app passe par Tailscale (`100.100.53.66:4680`, proposé
 d'office). Vérifiez que Tailscale est activé sur le téléphone.
@@ -969,48 +974,130 @@ Deux pièges de l'émulateur : il sort par le réseau du PC, donc l'adresse
 Tailscale du serveur ne marche que si **Tailscale tourne sur le PC** ; et
 `localhost` y désigne l'émulateur lui-même, jamais la machine hôte.
 
-### Installer sur un téléphone Android (APK)
+### Les notifications natives (Firebase)
 
-Une fois, pour lier le projet à votre compte Expo :
+L'application prévient des arrivées **elle-même**, y compris fermée et écran
+éteint — sans ntfy, sans application tierce à installer. Le serveur s'adresse
+directement à Firebase Cloud Messaging, l'infrastructure de notification
+d'Android : c'est la seule façon de réveiller une application fermée.
+
+Deux fichiers, deux natures, deux places — ne pas les confondre :
+
+| Fichier | Ce que c'est | Où il va |
+|---|---|---|
+| `google-services.json` | Configuration **cliente** (identifiant du projet, clé d'API publique) | `mobile/`, versionné dans le dépôt |
+| Clé de compte de service (`…firebase-adminsdk….json`) | **Secret** : il permet d'envoyer au nom du projet | Sur le serveur uniquement, jamais dans le dépôt |
+
+Mise en place, une fois pour toutes :
+
+1. Créer un projet sur [console.firebase.google.com](https://console.firebase.google.com)
+   avec un compte Google **personnel** — un compte rattaché à une organisation
+   Workspace interdit souvent la création de clés de compte de service.
+2. Ajouter une application Android au nom de paquet exact
+   **`fr.compagelato.mobile`** (il doit correspondre à `mobile/app.json`),
+   télécharger `google-services.json` et le placer dans `mobile/`.
+3. Paramètres du projet → Comptes de service → *Générer une nouvelle clé
+   privée*. Déposer le fichier sur le serveur, lisible du seul utilisateur du
+   service :
+
+   ```bash
+   scp cle-firebase.json oldpc@oldpc:/home/oldpc/compagelato-firebase.json
+   ssh oldpc@oldpc 'chmod 600 /home/oldpc/compagelato-firebase.json'
+   ```
+
+4. Ajouter à l'unité systemd, section `[Service]` :
+
+   ```ini
+   Environment=COMPAGELATO_FCM_KEY_FILE=/home/oldpc/compagelato-firebase.json
+   ```
+
+   puis `sudo systemctl daemon-reload && sudo systemctl restart compagelato`.
+
+Au démarrage, le serveur annonce `Notifs : téléphones via Firebase (projet …)`.
+S'il affiche `désactivées`, le chemin est faux ou le fichier illisible — et
+l'application continue de fonctionner, simplement sans notifications.
+
+**Ce qui part, et à qui.** Les mêmes annonces que les bulles du bureau : pièce
+comptable, écriture de cahier, relevé, tâche. Deux filtres avant tout envoi :
+jamais à l'auteur du geste, et jamais au-delà du rôle — un livreur ne reçoit
+pas les annonces de facture, puisqu'il n'a pas accès aux documents. Un
+abonnement ne survit pas à ce qui l'autorise : déconnexion, session révoquée
+ou compte supprimé font taire le téléphone.
+
+### Construire l'APK (sans compte Expo)
+
+L'APK se construit **localement**, avec Android Studio. Aucun compte Expo,
+aucun service en ligne.
+
+Une fois, la clé de signature — **à sauvegarder précieusement** : sans elle,
+une nouvelle version ne pourra plus s'installer par-dessus l'ancienne, il
+faudrait désinstaller l'application et perdre sa session.
+
+```bash
+keytool -genkeypair -v -keystore compagelato.keystore \
+  -alias compagelato -keyalg RSA -keysize 2048 -validity 10000
+```
+
+Rangez `compagelato.keystore` **hors du dépôt** (il y est ignoré par git) et
+notez son mot de passe.
+
+Puis, à chaque version :
 
 ```bash
 cd mobile
-npx eas init          # crée le projet EAS et inscrit son identifiant
-npx eas update:configure
+npm install
+npx expo prebuild -p android --clean   # génère mobile/android/ depuis app.json
+cd android
+./gradlew assembleRelease              # gradlew.bat sous Windows
 ```
 
-Puis, pour produire l'APK :
+L'APK sort dans `mobile/android/app/build/outputs/apk/release/`.
 
-```bash
-npx eas build -p android --profile preview
-```
+Le dossier `mobile/android/` n'est **pas versionné** : il se régénère à
+volonté depuis `app.json`, et le versionner créerait deux sources de vérité
+qui finiraient par diverger.
 
-Le lien de téléchargement de l'APK s'affiche à la fin. Sur le téléphone :
-installer Tailscale et se connecter au tailnet, autoriser l'installation
-depuis cette source, installer l'APK, ouvrir CompaGelato — l'adresse du
-serveur est proposée, il ne reste qu'à se connecter à son compte (session de
-180 jours : le mot de passe ne se retape pas).
+### Installer sur un téléphone
 
-### Mettre à jour l'app sans réinstaller
+1. **Tailscale** sur le téléphone, connecté au tailnet (ou partage du seul
+   nœud `oldpc`, voir plus haut).
+2. Transférer l'APK (câble, e-mail, clé USB), autoriser l'installation depuis
+   cette source, installer.
+3. Ouvrir CompaGelato : l'adresse du serveur est déjà proposée, il ne reste
+   qu'à se connecter — session de 180 jours, le mot de passe ne se retape pas.
+4. Accepter les notifications à la demande. **Réglages → Notifications**
+   montre l'état et propose un essai.
 
-Les mises à jour de code JavaScript partent **par les airs** :
+Dans l'**émulateur** Android Studio : `adb install chemin/vers/app-release.apk`.
+Attention, un émulateur sans les services Google ne recevra jamais de
+notification — l'application le dit dans ses Réglages plutôt que de laisser
+croire le contraire.
 
-```bash
-cd mobile
-npx eas update --channel preview --message "description du changement"
-```
+### Mettre à jour l'application
 
-L'app installée vérifie **toute seule à chaque lancement**, et le bouton
-**Réglages → Vérifier les mises à jour** sert quand elle reste ouverte des
-journées entières : vérifier, télécharger, relancer — sans jamais toucher à
-l'APK. (Seul l'ajout d'un nouveau module natif redemande un `eas build`.)
+Chaque nouvelle version demande de **reconstruire et réinstaller l'APK**
+(mêmes commandes que ci-dessus). Signée avec le même keystore, elle
+s'installe par-dessus la précédente sans rien perdre.
+
+Les mises à jour par les airs (`eas update`) exigeraient un compte Expo ou un
+serveur de mises à jour auto-hébergé : ce n'est pas en place, et l'écran
+Réglages du téléphone le dit clairement plutôt que d'offrir un bouton qui ne
+peut rien faire.
 
 ### Vérifier
 
 Le cœur du client mobile (`mobile/src/core/`) ne dépend ni de React Native ni
 d'Expo : la suite `tests/mobile.test.mjs` l'exerce contre un vrai serveur —
-session d'appareil, miroir, coupure réelle, pointage hors ligne, rejeu — avec
-la même rigueur que le reste du projet.
+session d'appareil, abonnement aux notifications, miroir, coupure réelle,
+pointage et tâche notés hors ligne, rejeu — avec la même rigueur que le reste
+du projet.
+
+Côté serveur, `tests/push.test.mjs` vérifie l'envoi sans jamais appeler
+Google : l'assertion JWT est **contrôlée cryptographiquement** contre une
+paire de clés fabriquée dans le test (c'est elle qui dit si Google
+acceptera), le jeton d'accès est mis en cache puis renouvelé avant terme, et
+les deux filtres — jamais l'auteur, jamais au-delà du rôle — sont exercés un
+à un.
 
 ## Ce qui sort de votre ordinateur
 
@@ -1115,7 +1202,7 @@ assumée : un fichier monté au serveur sous une mauvaise étiquette reste
 rangé dans le sous-dossier de l'étiquette (le type en base, lui, est le bon,
 et les copies en double n'oscillent plus).
 
-- **239 tests unitaires** — lecture de nombres et dates français, CSV avec
+- **254 tests unitaires** — lecture de nombres et dates français, CSV avec
   guillemets et sauts de ligne, décodage Windows-1252, reconnaissance de
   colonnes, extraction PDF sur de vraies factures, Factur-X et UBL, optimisation
   de tournée (comparée à une recherche exhaustive), respect des épinglages,

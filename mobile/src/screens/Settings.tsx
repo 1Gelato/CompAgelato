@@ -5,6 +5,7 @@ import * as Application from 'expo-application';
 import type { AuthIdentity, SyncStatus } from '@shared/api';
 import { ROLE_LABEL } from '@shared/types';
 import { api, logout, serverUrl } from '../lib/runtime';
+import { pushState, registerForPush, type PushState } from '../lib/push';
 import { discardIntent, retryNow, syncStatus } from '../core/offline';
 import { errorMessage } from '../lib/data';
 import {
@@ -22,9 +23,23 @@ import { colors, spacing } from '../theme';
 
 /**
  * Les réglages du téléphone : mon compte, la synchronisation de cet appareil,
- * et la mise à jour de l'application — vérifiée toute seule au lancement, et
- * déclenchable ici d'un bouton pour l'app qu'on ne referme jamais.
+ * les notifications, et la mise à jour de l'application.
  */
+
+/** L'état de l'abonnement, dit en français plutôt qu'en code. */
+function pushLabel(state: PushState | null): string {
+  if (!state) return 'Vérification…';
+  switch (state.status) {
+    case 'active':
+      return state.serverReady ? 'Actives ✓' : 'Abonné — serveur non configuré';
+    case 'refusée':
+      return 'Refusées sur ce téléphone';
+    case 'indisponible':
+      return 'Indisponibles';
+    default:
+      return 'Erreur';
+  }
+}
 export function SettingsScreen({
   identity,
   onSignedOut,
@@ -40,6 +55,9 @@ export function SettingsScreen({
   const [busyPassword, setBusyPassword] = useState(false);
   const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'downloading' | 'ready' | 'none'>('idle');
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [push, setPush] = useState<PushState | null>(pushState());
+  const [busyPush, setBusyPush] = useState(false);
+  const [busyTest, setBusyTest] = useState(false);
 
   const refreshSync = useCallback(() => setStatus(syncStatus()), []);
 
@@ -47,6 +65,38 @@ export function SettingsScreen({
     const timer = setInterval(refreshSync, 8000);
     return () => clearInterval(timer);
   }, [refreshSync]);
+
+  // L'abonnement est demandé au démarrage de l'application ; on relit
+  // simplement son résultat en ouvrant cet écran.
+  useEffect(() => {
+    if (!pushState()) void registerForPush().then(setPush);
+    else setPush(pushState());
+  }, []);
+
+  const retryPush = async () => {
+    setBusyPush(true);
+    try {
+      setPush(await registerForPush());
+    } finally {
+      setBusyPush(false);
+    }
+  };
+
+  const sendTestPush = async () => {
+    setBusyTest(true);
+    try {
+      const result = await api.push.test();
+      toast.push({
+        tone: result.sent ? 'success' : 'warn',
+        title: result.sent ? 'Notification envoyée' : 'Rien n’est parti',
+        text: result.reason ?? `${result.sent} appareil(s) prévenu(s).`,
+      });
+    } catch (err) {
+      toast.push({ tone: 'danger', title: 'Échec', text: errorMessage(err) });
+    } finally {
+      setBusyTest(false);
+    }
+  };
 
   /**
    * Le bouton « Mettre à jour ». L'application vérifie déjà toute seule au
@@ -166,6 +216,35 @@ export function SettingsScreen({
         <Button title="Synchroniser maintenant" onPress={retry} busy={busySync} />
       </Card>
 
+      {/* ------------------------------------------------ Notifications */}
+      <Card>
+        <SectionTitle>Notifications</SectionTitle>
+        <InfoRow label="État" value={pushLabel(push)} />
+        {push?.status === 'active' && !push.serverReady && (
+          <Muted size={12}>
+            Ce téléphone est abonné, mais le serveur n’a pas encore sa clé Firebase : rien ne
+            partira tant qu’elle n’est pas installée.
+          </Muted>
+        )}
+        {push?.status === 'refusée' && (
+          <Muted size={12}>
+            Autorisez les notifications dans les réglages Android de CompaGelato, puis touchez
+            « Réessayer ».
+          </Muted>
+        )}
+        {(push?.status === 'indisponible' || push?.status === 'erreur') && (
+          <Muted size={12}>{push.reason}</Muted>
+        )}
+        <Button title="Réessayer" onPress={retryPush} busy={busyPush} />
+        {push?.status === 'active' && push.serverReady && (
+          <Button title="Envoyer une notification d’essai" onPress={sendTestPush} busy={busyTest} />
+        )}
+        <Muted size={12}>
+          CompaGelato vous prévient des arrivées — jamais de vos propres gestes. Vous ne recevez
+          que ce que votre rôle vous permet de consulter.
+        </Muted>
+      </Card>
+
       {/* ------------------------------------------------ Mise à jour */}
       <Card>
         <SectionTitle>Mise à jour de l’application</SectionTitle>
@@ -175,7 +254,15 @@ export function SettingsScreen({
             Updates.updateId ? ` · ${Updates.updateId.slice(0, 8)}` : ''
           }`}
         />
-        {updateState === 'ready' ? (
+        {!Updates.isEnabled ? (
+          // APK construite localement, sans service de mises à jour par les
+          // airs : promettre un bouton qui ne peut rien faire serait pire que
+          // de ne rien afficher.
+          <Muted size={12}>
+            Cette installation se met à jour en réinstallant l’APK — il n’y a pas de mise à jour
+            par les airs. Demandez la nouvelle version à Quentin.
+          </Muted>
+        ) : updateState === 'ready' ? (
           <>
             <Muted>Mise à jour téléchargée. L’application va se relancer.</Muted>
             <Button

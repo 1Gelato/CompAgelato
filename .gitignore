@@ -8,3 +8,16 @@ tests/screens/
 .DS_Store
 Thumbs.db
 .vite/
+
+# Projet Android régénéré par `npx expo prebuild` : reproductible à volonté
+# depuis app.json, donc jamais versionné — sinon deux sources de vérité
+# finiraient par diverger.
+mobile/android/
+mobile/ios/
+
+# Clé de signature de l'APK et son mot de passe. À conserver **hors du dépôt**
+# et à sauvegarder : sans elle, une nouvelle version ne peut plus s'installer
+# par-dessus l'ancienne.
+*.keystore
+*.jks
+mobile/keystore.properties

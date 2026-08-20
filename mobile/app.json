@@ -25,6 +25,7 @@
     "android": {
       "package": "fr.compagelato.mobile",
       "usesCleartextTraffic": true,
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#eaf4ff",
         "foregroundImage": "./assets/icon.png"
@@ -37,7 +38,14 @@
     "plugins": [
       "expo-secure-store",
       "expo-sharing",
-      "expo-updates"
+      "expo-updates",
+      [
+        "expo-notifications",
+        {
+          "color": "#1f6feb",
+          "defaultChannel": "compagelato"
+        }
+      ]
     ]
   }
 }

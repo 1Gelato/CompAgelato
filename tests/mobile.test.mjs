@@ -162,6 +162,72 @@ test('le téléphone se synchronise : miroir écrit sur l’appareil', async () 
   assert.equal(routes[0].name, 'Tournée du matin');
 });
 
+test('le téléphone s’abonne aux notifications, et le serveur retient l’appareil', async () => {
+  // Le chemin réel de l'application : après connexion, elle confie son jeton
+  // Firebase au serveur, qui s'en servira pour la réveiller.
+  const outcome = await api.push.register({
+    token: 'jeton-firebase-de-test',
+    label: 'Pixel 7 de test',
+    platform: 'android',
+  });
+  assert.equal(outcome.registered, true);
+  // Aucune clé Firebase sur ce serveur de test : l'app doit pouvoir le savoir
+  // pour ne pas promettre des notifications qui ne partiront jamais.
+  assert.equal(outcome.enabled, false);
+
+  const devices = await api.push.devices();
+  assert.equal(devices.length, 1);
+  assert.equal(devices[0].label, 'Pixel 7 de test');
+  assert.equal(devices[0].username, 'oliver');
+
+  // Rouvrir l'application ne crée pas de doublon.
+  await api.push.register({ token: 'jeton-firebase-de-test', label: 'Pixel 7' });
+  assert.equal((await api.push.devices()).length, 1);
+
+  // L'essai le dit franchement quand le serveur n'a pas sa clé.
+  const essai = await api.push.test();
+  assert.equal(essai.sent, 0);
+  assert.match(essai.reason, /clé Firebase|COMPAGELATO_FCM_KEY_FILE/);
+});
+
+test('une tâche notée hors ligne part en file et arrive au retour du réseau', async () => {
+  // Une tâche se note souvent là où il n'y a pas de réseau — c'est le cas
+  // d'usage, pas un cas limite.
+  await api.tasks.save({ title: 'Tâche de préparation', priority: 'normal' });
+  await pullNow();
+
+  await stopServer();
+  const horsLigne = await api.tasks.save({
+    title: 'Rappeler le camping',
+    priority: 'urgent',
+  });
+  assert.equal(horsLigne.priority, 'urgent');
+  assert.ok(horsLigne.id, 'un identifiant est pré-assigné pour le rejeu');
+
+  // Elle est visible tout de suite, et l'urgent passe devant.
+  const locales = await api.tasks.list();
+  assert.equal(locales[0].title, 'Rappeler le camping', 'l’urgent d’abord, même hors ligne');
+  assert.ok(syncStatus().pending.length >= 1, 'l’intention attend le réseau');
+
+  startServer();
+  await waitUp();
+  const status = await retryNow();
+  assert.equal(status.pending.length, 0, 'la file a été rejouée');
+  assert.equal(status.failed.length, 0);
+
+  // Vérifié côté serveur : c'est ce que verra le bureau.
+  const res = await fetch(`${BASE}/api/tasks/list`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-auth-token': apiConfig().token },
+    body: JSON.stringify({ args: [] }),
+  });
+  const { result: tasks } = await res.json();
+  const rejouee = tasks.find((t) => t.id === horsLigne.id);
+  assert.ok(rejouee, 'la tâche notée hors ligne n’est pas arrivée sur le serveur');
+  assert.equal(rejouee.title, 'Rappeler le camping');
+  assert.equal(rejouee.priority, 'urgent');
+});
+
 test('coupure en pleine tournée : lecture sur le miroir, pointage en file', async () => {
   await stopServer();
 
