@@ -97,6 +97,8 @@ export interface Client extends Syncable {
   contact?: string;
   email?: string;
   phone?: string;
+  /** Second numéro (portable) : les exports comptables en portent souvent deux. */
+  mobile?: string;
   siret?: string;
   vatNumber?: string;
   address: Address;

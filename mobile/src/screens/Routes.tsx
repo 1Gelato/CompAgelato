@@ -142,7 +142,8 @@ export function RouteDetailScreen({
   };
 
   const client = selected?.clientId ? clientIndex.get(selected.clientId) : undefined;
-  const phone = client?.phone?.trim();
+  // En livraison, le portable joint plus sûrement que le fixe du magasin.
+  const phone = client?.mobile?.trim() || client?.phone?.trim();
 
   /**
    * L'itinéraire de la **tournée entière**, ouvert dans l'application de

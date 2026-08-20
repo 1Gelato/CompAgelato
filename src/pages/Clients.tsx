@@ -85,6 +85,7 @@ export function Clients() {
               client.legalName ?? '',
               client.email ?? '',
               client.phone ?? '',
+              client.mobile ?? '',
               client.address.city ?? '',
               client.address.postcode ?? '',
               client.tags.join(' '),
@@ -244,8 +245,14 @@ export function Clients() {
                     </td>
                     <td className="tiny">
                       {client.email && <div className="truncate">{client.email}</div>}
-                      {client.phone && <div className="muted">{client.phone}</div>}
-                      {!client.email && !client.phone && <span className="muted">—</span>}
+                      {(client.phone || client.mobile) && (
+                        <div className="muted">
+                          {[client.phone, client.mobile].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
+                      {!client.email && !client.phone && !client.mobile && (
+                        <span className="muted">—</span>
+                      )}
                     </td>
                     <td className="num">{stats ? euro(stats.total) : '—'}</td>
                     <td className="num muted">{stats?.count ?? 0}</td>
@@ -440,6 +447,9 @@ function ClientEditor({
             </Field>
             <Field label="Téléphone">
               <Input value={draft.phone ?? ''} onChange={(e) => set('phone', e.target.value)} />
+            </Field>
+            <Field label="Portable">
+              <Input value={draft.mobile ?? ''} onChange={(e) => set('mobile', e.target.value)} />
             </Field>
             <Field label="SIRET">
               <Input value={draft.siret ?? ''} onChange={(e) => set('siret', e.target.value)} />
@@ -659,13 +669,16 @@ const FIELD_LABELS: Record<string, string> = {
   code: 'Code client',
   name: 'Nom',
   legalName: 'Raison sociale',
+  firstName: 'Prénom (accolé au nom)',
   contact: 'Contact',
   email: 'E-mail',
   phone: 'Téléphone',
+  mobile: 'Portable',
   siret: 'SIRET',
   vatNumber: 'N° TVA',
   street: 'Adresse',
   street2: 'Complément d’adresse',
+  street3: 'Complément d’adresse (2)',
   postcode: 'Code postal',
   city: 'Ville',
   country: 'Pays',

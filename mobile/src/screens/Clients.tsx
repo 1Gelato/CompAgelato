@@ -63,7 +63,7 @@ export function ClientsListScreen({
           <ListItem
             title={client.name}
             subtitle={client.address.label || client.address.city || client.code}
-            right={client.phone ? <Muted size={12}>📞</Muted> : undefined}
+            right={client.phone || client.mobile ? <Muted size={12}>📞</Muted> : undefined}
             onPress={() => navigation.navigate('ClientDetail', { clientId: client.id })}
           />
         )}
@@ -90,6 +90,7 @@ export function ClientDetailScreen({
   if (!client) return <EmptyState title="Client introuvable" />;
 
   const phone = client.phone?.trim();
+  const mobile = client.mobile?.trim();
   const email = client.email?.trim();
 
   return (
@@ -100,6 +101,7 @@ export function ClientDetailScreen({
         {client.contact ? <InfoRow label="Contact" value={client.contact} /> : null}
         <InfoRow label="Adresse" value={client.address.label || '—'} />
         {phone ? <InfoRow label="Téléphone" value={phone} /> : null}
+        {mobile ? <InfoRow label="Portable" value={mobile} /> : null}
         {email ? <InfoRow label="E-mail" value={email} /> : null}
         {client.siret ? <InfoRow label="SIRET" value={client.siret} /> : null}
         {client.notes ? <InfoRow label="Notes" value={client.notes} /> : null}
@@ -118,6 +120,9 @@ export function ClientDetailScreen({
           />
         ) : null}
         {phone ? <SheetAction title="📞  Appeler" subtitle={phone} onPress={() => call(phone)} /> : null}
+        {mobile ? (
+          <SheetAction title="📱  Appeler le portable" subtitle={mobile} onPress={() => call(mobile)} />
+        ) : null}
         {email ? (
           <SheetAction
             title="✉️  Écrire un e-mail"

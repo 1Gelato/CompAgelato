@@ -296,13 +296,19 @@ export const CLIENT_FIELDS: FieldDictionary = {
   code: ['code client', 'code', 'numero client', 'n client', 'ref client', 'reference client', 'id client', 'id'],
   name: ['nom', 'client', 'raison sociale', 'nom client', 'societe', 'denomination', 'name', 'company', 'intitule'],
   legalName: ['raison sociale complete', 'legal name', 'denomination sociale'],
+  // Avant « contact » : sans champ dédié, la colonne Prénom des exports
+  // comptables partait dans Contact et le nom des particuliers restait amputé.
+  firstName: ['prenom', 'first name'],
   contact: ['contact', 'interlocuteur', 'responsable', 'nom contact', 'prenom nom'],
   email: ['email', 'e mail', 'mail', 'courriel', 'adresse email'],
-  phone: ['telephone', 'tel', 'phone', 'portable', 'mobile', 'tel fixe', 'numero de telephone'],
+  phone: ['telephone 1', 'telephone', 'tel', 'phone', 'tel fixe', 'telephone fixe', 'numero de telephone'],
+  // Deux numéros par fiche : le portable a son champ, il n'écrase plus le fixe.
+  mobile: ['portable', 'mobile', 'gsm', 'tel portable', 'telephone portable'],
   siret: ['siret', 'siren', 'numero siret'],
   vatNumber: ['tva', 'numero tva', 'tva intracommunautaire', 'vat', 'n tva'],
   street: ['adresse', 'adresse 1', 'rue', 'voie', 'adresse ligne 1', 'address', 'street'],
   street2: ['adresse 2', 'complement adresse', 'adresse ligne 2', 'complement'],
+  street3: ['adresse 3', 'adresse ligne 3'],
   postcode: ['code postal', 'cp', 'zip', 'postal', 'postcode'],
   city: ['ville', 'commune', 'city', 'localite'],
   country: ['pays', 'country'],

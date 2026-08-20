@@ -1,6 +1,13 @@
 /** Point d'entrée des tests : réexporte les services testables sans Electron. */
 export * from '../electron/services/text';
-export { matchClient, rememberClientAlias, forgetLearnedAliases } from '../electron/services/clients';
+export {
+  matchClient,
+  rememberClientAlias,
+  forgetLearnedAliases,
+  importClientsFile,
+} from '../electron/services/clients';
+// Adresses en une ligne : découpage, nettoyage et réparation des fiches.
+export { cleanAddressLine, parseAddressLine, repairAddress } from '../electron/services/address';
 export * from '../electron/services/pdf';
 export * from '../electron/services/parseInvoice';
 export * from '../electron/services/facturx';

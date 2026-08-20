@@ -35,7 +35,7 @@ function write(name: string, content: string): string {
 export function exportClientsCsv(): string {
   const rows = store.db.clients.map((c) => [
     c.code, c.name, c.legalName ?? '', c.contact ?? '', c.email ?? '', c.phone ?? '',
-    c.siret ?? '', c.vatNumber ?? '',
+    c.mobile ?? '', c.siret ?? '', c.vatNumber ?? '',
     c.address.street ?? '', c.address.postcode ?? '', c.address.city ?? '', c.address.country ?? '',
     c.address.lat ?? '', c.address.lon ?? '',
     c.tags.join(' | '), c.notes ?? '',
@@ -43,7 +43,7 @@ export function exportClientsCsv(): string {
   return write(
     'clients',
     toCsv(
-      ['Code', 'Nom', 'Raison sociale', 'Contact', 'E-mail', 'Téléphone', 'SIRET', 'N° TVA',
+      ['Code', 'Nom', 'Raison sociale', 'Contact', 'E-mail', 'Téléphone', 'Portable', 'SIRET', 'N° TVA',
        'Adresse', 'Code postal', 'Ville', 'Pays', 'Latitude', 'Longitude', 'Étiquettes', 'Notes'],
       rows,
     ),

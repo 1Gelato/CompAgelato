@@ -15,6 +15,7 @@ import type {
   Vehicle,
 } from '@shared/types';
 import { SYNCED_COLLECTIONS } from '@shared/types';
+import { repairAddress } from './services/address';
 
 const DB_VERSION = 1;
 
@@ -401,6 +402,21 @@ export class Store {
     // celui de l'entreprise s'il a été vidé ou saisi sans géolocalisation.
     if (!db.settings.depot?.lat || !db.settings.depot?.lon) {
       db.settings.depot = { ...DEFAULT_DEPOT };
+    }
+    // Les fiches importées avant le découpage d'adresse portent tout dans la
+    // ligne complète — code postal et ville vides, géolocalisation aveugle.
+    // On les décompose une fois pour toutes. La révision est effacée : le
+    // prochain flush en attribue une neuve et la réparation atteint les
+    // téléphones et postes déjà synchronisés.
+    for (const client of db.clients) {
+      const repaired = client.address ? repairAddress(client.address) : null;
+      if (repaired) {
+        client.address = repaired;
+        client.updatedAt = nowIso();
+        delete client.rev;
+        // Sans quoi le flush du chargement ne numérote ni n'écrit la réparation.
+        this.dirty = true;
+      }
     }
     this.relativizePaths(db);
     return db;

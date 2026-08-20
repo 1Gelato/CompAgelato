@@ -1,8 +1,11 @@
 import type { Address, Client, ID, ImportClientsReport, Product } from '@shared/types';
 import { newId, nowIso, store } from '../store';
+import { parseAddressLine } from './address';
 import { looksLikeClientName, normalize, parseNumber, round2, similarity } from './text';
 import { CLIENT_FIELDS, PRODUCT_FIELDS, guessMapping, readTable } from './tabular';
 import { adjustStock, registerOpeningStock } from './stock';
+
+export { cleanAddressLine, parseAddressLine, repairAddress } from './address';
 
 const FUZZY_ACCEPT = 0.82;
 
@@ -44,6 +47,7 @@ export function upsertClient(input: Partial<Client> & { id?: ID }): Client {
       contact: input.contact,
       email: input.email,
       phone: input.phone,
+      mobile: input.mobile,
       siret: input.siret,
       vatNumber: input.vatNumber,
       address: { ...emptyAddress(), ...(input.address ?? {}) },
@@ -79,7 +83,7 @@ export function mergeClients(keepId: ID, mergeId: ID): Client {
     if (keepId === mergeId) return keep;
 
     // Complète les champs vides de la fiche conservée.
-    for (const field of ['legalName', 'contact', 'email', 'phone', 'siret', 'vatNumber', 'notes'] as const) {
+    for (const field of ['legalName', 'contact', 'email', 'phone', 'mobile', 'siret', 'vatNumber', 'notes'] as const) {
       if (!keep[field] && merge[field]) keep[field] = merge[field];
     }
     if (!keep.address.label && merge.address.label) keep.address = merge.address;
@@ -258,21 +262,6 @@ export function fillClientContact(
   });
 }
 
-/** Extrait code postal et ville d'une adresse écrite en une ligne. */
-export function parseAddressLine(line: string): Partial<Address> {
-  const out: Partial<Address> = {};
-  if (!line) return out;
-  const m = line.match(/\b(\d{5})\b[\s,-]*([A-Za-zÀ-ÿ' -]{2,40})/);
-  if (m) {
-    out.postcode = m[1];
-    out.city = m[2].trim().replace(/[,;]$/, '');
-    out.street = line.slice(0, m.index).replace(/[,;\s-]+$/, '').trim() || undefined;
-  } else {
-    out.street = line.trim();
-  }
-  return out;
-}
-
 /* ------------------------------------------------------------------ */
 /* Import de la liste clients                                           */
 /* ------------------------------------------------------------------ */
@@ -323,9 +312,19 @@ export async function importClientsFile(
     };
   }
 
+  // Une mise à jour ne doit toucher que ce que le fichier apporte : une
+  // colonne absente laissait `undefined` écraser l'e-mail ou les notes déjà
+  // saisis sur la fiche. On ne reporte donc que les valeurs présentes.
+  const present = <T extends object>(obj: T): Partial<T> =>
+    Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as Partial<T>;
+
   store.mutate((db) => {
     for (const [index, row] of table.rows.entries()) {
-      const name = value(row, 'name');
+      const legalName = value(row, 'legalName');
+      // Les exports comptables séparent Nom et Prénom ; une société n'a
+      // parfois que sa raison sociale. La fiche porte le nom complet.
+      const name =
+        [value(row, 'firstName'), value(row, 'name')].filter(Boolean).join(' ') || legalName;
       if (!name) {
         skipped++;
         continue;
@@ -341,61 +340,64 @@ export async function importClientsFile(
         (email && db.clients.find((c) => (c.email ?? '').toLowerCase() === email.toLowerCase())) ||
         db.clients.find((c) => normalize(c.name) === normalize(name));
 
-      const street = joinAddress([value(row, 'street'), value(row, 'street2')]);
-      const postcode = value(row, 'postcode');
-      const city = value(row, 'city');
-      const country = value(row, 'country') ?? 'France';
-      const label = joinAddress([street, [postcode, city].filter(Boolean).join(' ')]);
+      let street: string | undefined =
+        joinAddress([value(row, 'street'), value(row, 'street2'), value(row, 'street3')]) || undefined;
+      let postcode = value(row, 'postcode');
+      let city = value(row, 'city');
+      let country = value(row, 'country');
+      // Fichier sans colonnes CP/ville : l'adresse arrive en une seule ligne,
+      // on la découpe pour que la ville s'affiche et se géolocalise.
+      if (street && !postcode && !city) {
+        const parsed = parseAddressLine(street);
+        if (parsed.postcode || parsed.city) {
+          street = parsed.street;
+          postcode = parsed.postcode;
+          city = parsed.city;
+          country = country ?? parsed.country;
+        }
+      }
+      const label =
+        joinAddress([street, [postcode, city].filter(Boolean).join(' ')]) || undefined;
       const tagsRaw = value(row, 'tags');
       const tags = tagsRaw ? tagsRaw.split(/[;,|]/).map((t) => t.trim()).filter(Boolean) : [];
 
-      const payload = {
-        code: code ?? existing?.code,
+      const fields = {
         name,
-        legalName: value(row, 'legalName'),
+        legalName,
         contact: value(row, 'contact'),
         email,
         phone: value(row, 'phone'),
+        mobile: value(row, 'mobile'),
         siret,
         vatNumber: value(row, 'vatNumber'),
         notes: value(row, 'notes'),
-        tags,
-        address: {
-          label: label || existing?.address.label || '',
-          street: street || undefined,
-          postcode,
-          city,
-          country,
-          // Les coordonnées existantes sont conservées (géocodage déjà fait).
-          lat: existing?.address.lat,
-          lon: existing?.address.lon,
-        },
       };
+      const addressPatch = { label, street, postcode, city, country };
 
       try {
         if (existing) {
-          Object.assign(existing, {
-            ...payload,
-            code: existing.code,
+          Object.assign(existing, present(fields), {
             tags: tags.length ? [...new Set([...existing.tags, ...tags])] : existing.tags,
-            address: { ...existing.address, ...payload.address },
+            // Les coordonnées GPS déjà trouvées restent : le géocodage est fait.
+            address: { ...existing.address, ...present(addressPatch) },
             updatedAt: nowIso(),
           });
           updated++;
         } else {
           const client: Client = {
             id: newId('cli'),
-            code: payload.code?.trim() || nextClientCode(),
-            name: payload.name,
-            legalName: payload.legalName,
-            contact: payload.contact,
-            email: payload.email,
-            phone: payload.phone,
-            siret: payload.siret,
-            vatNumber: payload.vatNumber,
-            address: { ...emptyAddress(), ...payload.address },
-            notes: payload.notes,
-            tags: payload.tags,
+            code: code?.trim() || nextClientCode(),
+            name,
+            legalName: fields.legalName,
+            contact: fields.contact,
+            email: fields.email,
+            phone: fields.phone,
+            mobile: fields.mobile,
+            siret: fields.siret,
+            vatNumber: fields.vatNumber,
+            address: { ...emptyAddress(), ...present(addressPatch), label: label ?? '' },
+            notes: fields.notes,
+            tags,
             aliases: [],
             archived: false,
             createdAt: nowIso(),

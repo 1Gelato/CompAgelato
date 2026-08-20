@@ -59,7 +59,9 @@ export function ClientPicker({
       <Field label="Client">
         <div className="row" style={{ gap: 10, alignItems: 'center' }}>
           <Badge tone="badge--blue">{selected.name}</Badge>
-          {selected.phone && <span className="tiny muted">{selected.phone}</span>}
+          {(selected.phone ?? selected.mobile) && (
+            <span className="tiny muted">{selected.phone ?? selected.mobile}</span>
+          )}
           <div className="spacer" />
           <Button size="sm" onClick={() => onChange({ clientId: undefined, clientName: '' })}>
             Changer

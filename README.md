@@ -431,7 +431,10 @@ Sur un serveur sans écran, préfixez les tests de bout en bout par
    `Devis`, `Avoirs`, `Clients` et `Exports` sont créés automatiquement.
 2. **Clients → Importer une liste.** Choisissez l'export de votre logiciel de
    comptabilité (CSV ou Excel). Le récapitulatif indique quelles colonnes ont
-   été reconnues.
+   été reconnues. Les exports MEG sont compris tels quels : prénom et nom
+   composés, fixe **et** portable conservés chacun dans leur champ, adresse
+   décomposée (rue, code postal, ville, pays). Ré-importer le même fichier met
+   les fiches à jour sans jamais effacer ce que le fichier n'apporte pas.
 3. **Clients → Géolocaliser.** Ce bouton apparaît tant que des fiches n'ont pas
    de position GPS connue ; il la recherche en lot pour les rendre utilisables
    dans les tournées.
