@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
-import { FlatList, ScrollView, View } from 'react-native';
+import { FlatList, RefreshControl, ScrollView, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProductType } from '@shared/types';
 import { dateFr, num } from '@shared/format';
 import { api } from '../lib/runtime';
-import { errorMessage, refreshAll, useProducts, useStockMoves } from '../lib/data';
+import { errorMessage, refreshAll, useProducts, useRefresh, useStockMoves } from '../lib/data';
 import {
   Badge,
   Button,
@@ -42,6 +42,7 @@ export function StockListScreen({
   navigation,
 }: NativeStackScreenProps<StockStackParams, 'StockList'>) {
   const { data: products, loading } = useProducts();
+  const { refreshing, onRefresh } = useRefresh();
   const [query, setQuery] = useState('');
   const [type, setType] = useState<TypeFilter>('all');
 
@@ -75,6 +76,7 @@ export function StockListScreen({
       <FlatList
         data={filtered}
         keyExtractor={(product) => product.id}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={<EmptyState title="Aucun article ne correspond" />}
         renderItem={({ item: product }) => {
           const low = product.minQty > 0 && product.qtyOnHand < product.minQty;

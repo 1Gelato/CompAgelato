@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { FlatList, View } from 'react-native';
+import { FlatList, RefreshControl, View } from 'react-native';
 import type { Task, TaskPriority, TaskStatus } from '@shared/types';
 import {
   dateFr,
@@ -7,7 +7,7 @@ import {
   TASK_STATUS_LABEL,
 } from '@shared/format';
 import { api } from '../lib/runtime';
-import { errorMessage, refreshAll, useClients, useTasks } from '../lib/data';
+import { errorMessage, refreshAll, useClients, useRefresh, useTasks } from '../lib/data';
 import {
   Badge,
   Button,
@@ -60,6 +60,7 @@ type Vue = 'todo' | 'all' | 'trash';
 
 export function TachesScreen() {
   const { data: tasks, loading } = useTasks();
+  const { refreshing, onRefresh } = useRefresh();
   const { data: clients } = useClients();
   const toast = useToast();
 
@@ -147,6 +148,7 @@ export function TachesScreen() {
       <FlatList
         data={filtered}
         keyExtractor={(task) => task.id}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
           <EmptyState
             title={view === 'trash' ? 'Corbeille vide' : 'Aucune tâche'}

@@ -1,12 +1,13 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { dateFr, euro, KIND_LABEL } from '@shared/format';
-import { useDashboard } from '../lib/data';
+import { useDashboard, useRefresh } from '../lib/data';
 import { Card, EmptyState, InfoRow, Loading, Muted, SectionTitle } from '../components/ui';
 import { colors, spacing } from '../theme';
 
 /** L'activité en cartes simples : les chiffres qui se lisent en dix secondes. */
 export function DashboardScreen() {
   const { data: stats, loading, error } = useDashboard();
+  const { refreshing, onRefresh } = useRefresh();
 
   if (loading) return <Loading />;
   if (!stats) {
@@ -24,6 +25,7 @@ export function DashboardScreen() {
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.bg }}
       contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <View style={styles.tiles}>
         <View style={styles.tile}>

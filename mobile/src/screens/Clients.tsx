@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { FlatList, ScrollView, View } from 'react-native';
+import { FlatList, RefreshControl, ScrollView, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { Client } from '@shared/types';
 import { euro } from '@shared/format';
-import { useClients, useDocuments, useSettings } from '../lib/data';
+import { useClients, useDocuments, useRefresh, useSettings } from '../lib/data';
 import { call, openMailto, openNavigation } from '../lib/nav';
 import {
   Badge,
@@ -35,6 +35,7 @@ export function ClientsListScreen({
   navigation,
 }: NativeStackScreenProps<ClientsStackParams, 'ClientsList'>) {
   const { data: clients, loading } = useClients();
+  const { refreshing, onRefresh } = useRefresh();
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -56,6 +57,7 @@ export function ClientsListScreen({
       <FlatList
         data={filtered}
         keyExtractor={(client) => client.id}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={<EmptyState title="Aucun client ne correspond" />}
         renderItem={({ item: client }) => (
           <ListItem

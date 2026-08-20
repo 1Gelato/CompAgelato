@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { FlatList, View } from 'react-native';
+import { FlatList, RefreshControl, View } from 'react-native';
 import type { RegisterEntry, RegisterKind, RegisterStatus } from '@shared/types';
 import { dateFr } from '@shared/format';
 import { api } from '../lib/runtime';
-import { errorMessage, refreshAll, useRegisterEntries } from '../lib/data';
+import { errorMessage, refreshAll, useClients, useRefresh, useRegisterEntries } from '../lib/data';
 import {
   Badge,
   Button,
@@ -50,6 +50,20 @@ type KindFilter = 'all' | RegisterKind;
 
 export function CahiersScreen() {
   const { data: entries, loading } = useRegisterEntries();
+  const { refreshing, onRefresh } = useRefresh();
+  const { data: clients } = useClients();
+
+  /**
+   * Le client de l'écriture.
+   *
+   * Une écriture rattachée à une fiche ne porte pas de `clientName` — c'est la
+   * fiche qui fait foi. Se contenter de `clientName` laissait donc la ligne
+   * vide précisément pour les écritures les mieux renseignées.
+   */
+  const clientLabel = (entry: RegisterEntry): string => {
+    if (entry.clientId) return clients.find((c) => c.id === entry.clientId)?.name ?? 'Client supprimé';
+    return entry.clientName ?? '';
+  };
   const toast = useToast();
   const [kind, setKind] = useState<KindFilter>('all');
   const [selected, setSelected] = useState<RegisterEntry | null>(null);
@@ -119,11 +133,14 @@ export function CahiersScreen() {
       <FlatList
         data={filtered}
         keyExtractor={(entry) => entry.id}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={<EmptyState title="Rien dans ce cahier" />}
         renderItem={({ item: entry }) => (
           <ListItem
             title={entry.title}
-            subtitle={`${KIND_LABEL[entry.kind]} · ${entry.clientName ?? ''} · ${dateFr(entry.createdAt.slice(0, 10))}`}
+            subtitle={[KIND_LABEL[entry.kind], clientLabel(entry), dateFr(entry.createdAt.slice(0, 10))]
+              .filter(Boolean)
+              .join(' · ')}
             right={<Badge tone={STATUS_TONE[entry.status]}>{STATUS_LABEL[entry.status]}</Badge>}
             onPress={() => setSelected(entry)}
           />
@@ -131,7 +148,15 @@ export function CahiersScreen() {
       />
 
       {/* Changement de statut, d'un geste. */}
-      <Sheet open={Boolean(selected)} onClose={() => setSelected(null)} title={selected?.title}>
+      <Sheet
+        open={Boolean(selected)}
+        onClose={() => setSelected(null)}
+        title={
+          selected
+            ? [selected.title, clientLabel(selected)].filter(Boolean).join(' — ')
+            : undefined
+        }
+      >
         {selected &&
           (['open', 'confirmed', 'done', 'cancelled'] as RegisterStatus[])
             .filter((status) => status !== selected.status)

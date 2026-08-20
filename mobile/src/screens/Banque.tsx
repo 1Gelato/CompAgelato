@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { dateFr, euro } from '@shared/format';
-import { useBankSummary, useBankTransactions } from '../lib/data';
+import { useBankSummary, useBankTransactions, useRefresh } from '../lib/data';
 import { Badge, EmptyState, Loading, Muted, SearchBar } from '../components/ui';
 import { colors, spacing } from '../theme';
 
@@ -12,6 +12,7 @@ import { colors, spacing } from '../theme';
  */
 export function BanqueScreen() {
   const { data: transactions, loading } = useBankTransactions();
+  const { refreshing, onRefresh } = useRefresh();
   const { data: summary } = useBankSummary();
   const [query, setQuery] = useState('');
 
@@ -55,6 +56,7 @@ export function BanqueScreen() {
       <FlatList
         data={filtered.slice(0, 300)}
         keyExtractor={(tx) => tx.id}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
           <EmptyState
             title="Aucune opération"

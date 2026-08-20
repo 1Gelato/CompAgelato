@@ -18,6 +18,7 @@ import type {
 import type { ChannelName } from '@shared/api';
 import { mayCall } from '@shared/api';
 import { api } from './runtime';
+import { pullNow } from '../core/offline';
 
 /**
  * Chargement des données — le même patron que le bureau : un compteur global
@@ -90,6 +91,39 @@ export function useResource<T>(
   }, [tick, ...deps]);
 
   return { data, loading: !loaded, error, reload };
+}
+
+/**
+ * Le geste « tirer pour rafraîchir », commun à tous les écrans.
+ *
+ * Sur un téléphone, c'est le réflexe : on tire vers le bas pour être sûr de
+ * voir la dernière version. Le rafraîchissement automatique existe déjà
+ * (toutes les deux minutes et au retour au premier plan), mais deux minutes,
+ * c'est long quand on attend une tournée que le bureau vient de préparer.
+ *
+ * Le geste fait deux choses, dans cet ordre : redescendre le miroir depuis le
+ * serveur, puis recharger tous les écrans. Recharger sans resynchroniser
+ * relirait la même copie locale — et donnerait l'impression que le geste ne
+ * sert à rien.
+ */
+export function useRefresh(): { refreshing: boolean; onRefresh: () => void } {
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    void pullNow()
+      .catch(() => {
+        /* hors ligne : on rafraîchit quand même depuis le miroir */
+      })
+      .finally(() => {
+        refreshAll();
+        // Court délai avant de rendre la main : sans lui, l'indicateur
+        // disparaît si vite qu'on doute que quelque chose se soit passé.
+        setTimeout(() => setRefreshing(false), 400);
+      });
+  }, []);
+
+  return { refreshing, onRefresh };
 }
 
 export const useClients = () =>

@@ -26,6 +26,7 @@ import {
 import { ProductDetailScreen, StockListScreen, type StockStackParams } from './src/screens/Stock';
 import { CahiersScreen } from './src/screens/Cahiers';
 import { TachesScreen } from './src/screens/Taches';
+import { PlusScreen } from './src/screens/Plus';
 import { BanqueScreen } from './src/screens/Banque';
 import { DashboardScreen } from './src/screens/Dashboard';
 import { SettingsScreen } from './src/screens/Settings';
@@ -92,16 +93,25 @@ function StockFlow() {
 /* Onglets, filtrés par rôle                                           */
 /* ------------------------------------------------------------------ */
 
-type TabName =
-  | 'Tournées'
-  | 'Clients'
-  | 'Tâches'
-  | 'Documents'
-  | 'Stock'
-  | 'Cahiers'
-  | 'Banque'
-  | 'Activité'
-  | 'Réglages';
+/**
+ * Quatre onglets pour le quotidien, plus « Plus » pour le reste.
+ *
+ * Neuf onglets tenaient dans la barre, mais au prix de libellés tronqués
+ * (« Tourn… », « Régla… ») et de cibles trop étroites pour un pouce. Ce qu'on
+ * ouvre tous les jours reste à un geste ; ce qu'on consulte de temps en temps
+ * passe dans une grille lisible.
+ */
+type TabName = 'Tournées' | 'Tâches' | 'Cahiers' | 'Clients' | 'Plus';
+
+/** Écrans atteints par l'onglet « Plus », dans sa propre pile. */
+type PlusStackParams = {
+  PlusIndex: undefined;
+  Documents: undefined;
+  Stock: undefined;
+  Banque: undefined;
+  Activité: undefined;
+  Réglages: undefined;
+};
 
 /**
  * Le canal qui décide de la visibilité de chaque onglet — même mécanique que
@@ -110,29 +120,54 @@ type TabName =
  */
 const TAB_CHANNEL: Record<TabName, ChannelName | null> = {
   Tournées: 'routes:list',
-  Clients: 'clients:list',
   Tâches: 'tasks:list',
-  Documents: 'documents:list',
-  Stock: 'products:list',
   Cahiers: 'registers:list',
-  Banque: 'bank:list',
-  Activité: 'stats:dashboard',
-  Réglages: null,
+  Clients: 'clients:list',
+  Plus: null,
 };
 
 const TAB_ICON: Record<TabName, keyof typeof Ionicons.glyphMap> = {
   Tournées: 'navigate-outline',
-  Clients: 'people-outline',
   Tâches: 'checkbox-outline',
-  Documents: 'document-text-outline',
-  Stock: 'cube-outline',
   Cahiers: 'book-outline',
-  Banque: 'card-outline',
-  Activité: 'stats-chart-outline',
-  Réglages: 'settings-outline',
+  Clients: 'people-outline',
+  Plus: 'ellipsis-horizontal',
 };
 
 const Tabs = createBottomTabNavigator();
+const PlusStack = createNativeStackNavigator<PlusStackParams>();
+
+/**
+ * L'onglet « Plus » : une grille, puis l'écran choisi dans la même pile — on
+ * revient d'un geste, sans perdre l'onglet où l'on était.
+ */
+function PlusFlow({
+  identity,
+  onSignedOut,
+}: {
+  identity: AuthIdentity | null;
+  onSignedOut: () => void;
+}) {
+  return (
+    <PlusStack.Navigator>
+      <PlusStack.Screen name="PlusIndex" options={{ title: 'Plus' }}>
+        {({ navigation }) => (
+          <PlusScreen
+            identity={identity}
+            onOpen={(name) => navigation.navigate(name as keyof PlusStackParams)}
+          />
+        )}
+      </PlusStack.Screen>
+      <PlusStack.Screen name="Documents" component={DocumentsFlow} options={{ headerShown: false }} />
+      <PlusStack.Screen name="Stock" component={StockFlow} options={{ headerShown: false }} />
+      <PlusStack.Screen name="Banque" component={BanqueScreen} options={{ title: 'Banque' }} />
+      <PlusStack.Screen name="Activité" component={DashboardScreen} options={{ title: 'Activité' }} />
+      <PlusStack.Screen name="Réglages" options={{ title: 'Réglages' }}>
+        {() => <SettingsScreen identity={identity} onSignedOut={onSignedOut} />}
+      </PlusStack.Screen>
+    </PlusStack.Navigator>
+  );
+}
 
 function MainTabs({
   identity,
@@ -149,30 +184,23 @@ function MainTabs({
   return (
     <Tabs.Navigator
       screenOptions={({ route }) => ({
-        headerShown:
-          route.name === 'Cahiers' ||
-          route.name === 'Tâches' ||
-          route.name === 'Banque' ||
-          route.name === 'Activité' ||
-          route.name === 'Réglages',
+        // Les piles portent leur propre en-tête ; les écrans simples ont
+        // besoin de celui de l'onglet.
+        headerShown: route.name === 'Cahiers' || route.name === 'Tâches',
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.tertiary,
-        tabBarLabelStyle: { fontSize: 10 },
+        tabBarLabelStyle: { fontSize: 11 },
         tabBarIcon: ({ color, size }) => (
           <Ionicons name={TAB_ICON[route.name as TabName]} size={size - 2} color={color} />
         ),
       })}
     >
       {visible.includes('Tournées') && <Tabs.Screen name="Tournées" component={RoutesFlow} />}
-      {visible.includes('Clients') && <Tabs.Screen name="Clients" component={ClientsFlow} />}
       {visible.includes('Tâches') && <Tabs.Screen name="Tâches" component={TachesScreen} />}
-      {visible.includes('Documents') && <Tabs.Screen name="Documents" component={DocumentsFlow} />}
-      {visible.includes('Stock') && <Tabs.Screen name="Stock" component={StockFlow} />}
       {visible.includes('Cahiers') && <Tabs.Screen name="Cahiers" component={CahiersScreen} />}
-      {visible.includes('Banque') && <Tabs.Screen name="Banque" component={BanqueScreen} />}
-      {visible.includes('Activité') && <Tabs.Screen name="Activité" component={DashboardScreen} />}
-      <Tabs.Screen name="Réglages">
-        {() => <SettingsScreen identity={identity} onSignedOut={onSignedOut} />}
+      {visible.includes('Clients') && <Tabs.Screen name="Clients" component={ClientsFlow} />}
+      <Tabs.Screen name="Plus">
+        {() => <PlusFlow identity={identity} onSignedOut={onSignedOut} />}
       </Tabs.Screen>
     </Tabs.Navigator>
   );
@@ -219,12 +247,21 @@ type GateState =
   | { step: 'login' }
   | { step: 'main'; identity: AuthIdentity | null };
 
-/** Onglet à ouvrir selon la page annoncée par la notification. */
-const PAGE_TAB: Record<string, TabName> = {
-  cahiers: 'Cahiers',
-  documents: 'Documents',
-  banque: 'Banque',
-  taches: 'Tâches',
+/**
+ * Où mène chaque notification.
+ *
+ * Documents et Banque ne sont plus des onglets : ils vivent sous « Plus ».
+ * La cible est donc décrite en deux temps — l'onglet, puis l'écran de sa
+ * pile — sans quoi un clic sur « Nouvelle facture » ouvrirait l'accueil.
+ */
+const PAGE_TARGET: Record<
+  string,
+  { tab: TabName; screen?: keyof PlusStackParams; channel: ChannelName | null }
+> = {
+  taches: { tab: 'Tâches', channel: 'tasks:list' },
+  cahiers: { tab: 'Cahiers', channel: 'registers:list' },
+  documents: { tab: 'Plus', screen: 'Documents', channel: 'documents:list' },
+  banque: { tab: 'Plus', screen: 'Banque', channel: 'bank:list' },
 };
 
 function Gate() {
@@ -296,12 +333,17 @@ function Gate() {
     // s'il est visible pour ce rôle : le serveur ne pousse déjà rien
     // au-delà des droits, cette vérification est la ceinture.
     return onNotificationOpened((page) => {
-      const tab = PAGE_TAB[page];
-      if (!tab || !navigation.current) return;
-      const channel = TAB_CHANNEL[tab];
+      const target = PAGE_TARGET[page];
+      if (!target || !navigation.current) return;
+      // Ceinture : le serveur ne pousse déjà rien au-delà des droits.
       const identity = state.step === 'main' ? state.identity : null;
-      if (channel && identity && !mayCall(identity.role, channel)) return;
-      navigation.current.navigate(tab as never);
+      if (target.channel && identity && !mayCall(identity.role, target.channel)) return;
+      // La cible se décide à l'exécution (elle vient de la notification) :
+      // le typage nominal de React Navigation ne peut rien en dire.
+      const nav = navigation.current as unknown as {
+        navigate: (name: string, params?: object) => void;
+      };
+      nav.navigate(target.tab, target.screen ? { screen: target.screen } : undefined);
     });
   }, [state]);
 

@@ -1147,10 +1147,16 @@ qui finiraient par diverger.
 4. Accepter les notifications à la demande. **Réglages → Notifications**
    montre l'état et propose un essai.
 
-Dans l'**émulateur** Android Studio : `adb install chemin/vers/app-release.apk`.
-Attention, un émulateur sans les services Google ne recevra jamais de
-notification — l'application le dit dans ses Réglages plutôt que de laisser
-croire le contraire.
+Dans l'**émulateur** Android Studio : `adb install chemin/vers/app-release.apk`
+(ajoutez `-r` pour remplacer une version déjà installée sans perdre sa
+session). L'émulateur sort par le réseau du PC : l'adresse Tailscale du
+serveur n'y répond que si **Tailscale tourne sur le PC**.
+
+Les notifications y fonctionnent, à une condition : l'appareil virtuel doit
+avoir été créé avec une image système **« Google Play »**. Sans les services
+Google, Firebase ne délivre aucun jeton — l'application tente quand même, et
+dit dans **Réglages → Notifications** ce qui manque, plutôt que de laisser
+croire à une panne.
 
 ### Mettre à jour l'application
 

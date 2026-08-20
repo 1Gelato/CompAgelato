@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
-import { FlatList, ScrollView, View } from 'react-native';
+import { FlatList, RefreshControl, ScrollView, View } from 'react-native';
 import * as Sharing from 'expo-sharing';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EmailPreparation } from '@shared/api';
 import type { DocumentKind } from '@shared/types';
 import { dateFr, euro, KIND_LABEL, STATUS_LABEL } from '@shared/format';
 import { api, downloadFile } from '../lib/runtime';
-import { errorMessage, refreshAll, useClientIndex, useClients, useDocuments } from '../lib/data';
+import { errorMessage, refreshAll, useClientIndex, useClients, useDocuments, useRefresh } from '../lib/data';
 import { openMailto } from '../lib/nav';
 import {
   Badge,
@@ -42,6 +42,7 @@ export function DocumentsListScreen({
   navigation,
 }: NativeStackScreenProps<DocumentsStackParams, 'DocumentsList'>) {
   const { data: documents, loading } = useDocuments();
+  const { refreshing, onRefresh } = useRefresh();
   const { data: clients } = useClients();
   const clientIndex = useClientIndex(clients);
   const [query, setQuery] = useState('');
@@ -78,6 +79,7 @@ export function DocumentsListScreen({
       <FlatList
         data={filtered}
         keyExtractor={(doc) => doc.id}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={<EmptyState title="Aucun document ne correspond" />}
         renderItem={({ item: doc }) => {
           const client = doc.clientId

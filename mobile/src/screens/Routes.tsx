@@ -1,10 +1,18 @@
 import { useMemo, useState } from 'react';
-import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Linking, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DeliveryRoute, RouteStop } from '@shared/types';
 import { dateFr } from '@shared/format';
-import { api } from '../lib/runtime';
-import { errorMessage, refreshAll, useClientIndex, useClients, useRoutes, useSettings } from '../lib/data';
+import { api, isOffline } from '../lib/runtime';
+import {
+  errorMessage,
+  refreshAll,
+  useClientIndex,
+  useClients,
+  useRefresh,
+  useRoutes,
+  useSettings,
+} from '../lib/data';
 import { call, openNavigation } from '../lib/nav';
 import {
   Badge,
@@ -19,6 +27,13 @@ import {
 } from '../components/ui';
 import { colors, spacing } from '../theme';
 
+/** Le fournisseur de navigation, nommé comme l'utilisateur le connaît. */
+const PROVIDER_LABEL: Record<string, string> = {
+  google: 'Google Maps',
+  waze: 'Waze',
+  apple: 'Plans',
+};
+
 export type RoutesStackParams = {
   RoutesList: undefined;
   RouteDetail: { routeId: string };
@@ -32,8 +47,10 @@ export type RoutesStackParams = {
 export function RoutesListScreen({
   navigation,
 }: NativeStackScreenProps<RoutesStackParams, 'RoutesList'>) {
-  const { data: routes, loading, reload } = useRoutes();
-  const [refreshing, setRefreshing] = useState(false);
+  const { data: routes, loading } = useRoutes();
+  // Même geste que partout ailleurs : resynchroniser puis recharger. Le
+  // rafraîchissement local d'origine ne faisait que relire la copie locale.
+  const { refreshing, onRefresh } = useRefresh();
 
   if (loading) return <Loading />;
 
@@ -47,16 +64,7 @@ export function RoutesListScreen({
       style={{ backgroundColor: colors.bg }}
       data={routes}
       keyExtractor={(route) => route.id}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => {
-            setRefreshing(true);
-            reload();
-            setTimeout(() => setRefreshing(false), 600);
-          }}
-        />
-      }
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       ListEmptyComponent={
         <EmptyState
           title="Aucune tournée"
@@ -100,6 +108,7 @@ export function RouteDetailScreen({
   const toast = useToast();
   const [selected, setSelected] = useState<RouteStop | null>(null);
   const [saving, setSaving] = useState(false);
+  const [linking, setLinking] = useState(false);
 
   const tour = useMemo(() => routes.find((r) => r.id === routeId), [routes, routeId]);
 
@@ -135,6 +144,44 @@ export function RouteDetailScreen({
   const client = selected?.clientId ? clientIndex.get(selected.clientId) : undefined;
   const phone = client?.phone?.trim();
 
+  /**
+   * L'itinéraire de la **tournée entière**, ouvert dans l'application de
+   * navigation du téléphone.
+   *
+   * Le lien est construit par le serveur (`routes:link`, le même qui alimente
+   * le QR code du bureau). Ce QR existait justement pour faire passer ce lien
+   * du bureau au téléphone : depuis le téléphone, il n'a plus lieu d'être —
+   * on ouvre directement.
+   *
+   * Certains fournisseurs limitent le nombre de points par lien ; le serveur
+   * découpe alors la tournée en tronçons. On ouvre le premier et on dit
+   * combien il en reste, plutôt que de perdre silencieusement des arrêts.
+   */
+  const openWholeRoute = async () => {
+    setLinking(true);
+    try {
+      const link = await api.routes.link(tour, provider);
+      await Linking.openURL(link.url);
+      if (link.segments.length > 1) {
+        toast.push({
+          tone: 'warn',
+          title: `Tournée découpée en ${link.segments.length} liens`,
+          text: link.warning ?? 'Ouvrez les tronçons l’un après l’autre depuis cet écran.',
+        });
+      }
+    } catch (err) {
+      toast.push({
+        tone: 'danger',
+        title: 'Itinéraire indisponible',
+        text: isOffline()
+          ? 'Le trajet complet se calcule sur le serveur. Sans réseau, utilisez « Naviguer » arrêt par arrêt.'
+          : errorMessage(err),
+      });
+    } finally {
+      setLinking(false);
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <View style={styles.header}>
@@ -153,6 +200,21 @@ export function RouteDetailScreen({
             ]}
           />
         </View>
+        {tour.stops.length > 0 && (
+          <View style={{ marginTop: spacing.sm, gap: 4 }}>
+            <Button
+              title={`🧭  Ouvrir l’itinéraire (${PROVIDER_LABEL[provider]})`}
+              variant="primary"
+              onPress={openWholeRoute}
+              busy={linking}
+            />
+            {/*
+              La navigation arrêt par arrêt existait déjà, mais rien ne disait
+              qu'on pouvait toucher une ligne : on le dit.
+            */}
+            <Muted size={12}>Touchez un arrêt pour y naviguer, appeler ou pointer la livraison.</Muted>
+          </View>
+        )}
       </View>
 
       <FlatList
@@ -173,16 +235,21 @@ export function RouteDetailScreen({
               stop.notes ? `\n${stop.notes}` : ''
             }`}
             right={
-              stop.doneAt ? (
-                <Badge tone="success">
-                  {new Date(stop.doneAt).toLocaleTimeString('fr-FR', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </Badge>
-              ) : stop.legDurationMin !== undefined ? (
-                <Muted size={12}>{Math.round(stop.legDurationMin)} min</Muted>
-              ) : undefined
+              // Le chevron dit que la ligne s'ouvre — sans lui, la feuille
+              // d'actions (naviguer, appeler, pointer) reste introuvable.
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                {stop.doneAt ? (
+                  <Badge tone="success">
+                    {new Date(stop.doneAt).toLocaleTimeString('fr-FR', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </Badge>
+                ) : stop.legDurationMin !== undefined ? (
+                  <Muted size={12}>{Math.round(stop.legDurationMin)} min</Muted>
+                ) : null}
+                <Text style={{ color: colors.tertiary, fontSize: 18 }}>›</Text>
+              </View>
             }
             onPress={() => setSelected(stop)}
           />

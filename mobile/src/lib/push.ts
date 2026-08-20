@@ -72,17 +72,12 @@ async function ensureChannel(): Promise<void> {
  */
 export async function registerForPush(): Promise<PushState> {
   try {
-    // Un émulateur sans services Google ne recevra jamais rien : le dire vaut
-    // mieux que laisser croire que les notifications marchent.
-    if (!Device.isDevice) {
-      current = {
-        status: 'indisponible',
-        reason:
-          'Émulateur : les notifications exigent un téléphone réel, ou une image système avec les services Google.',
-      };
-      return current;
-    }
-
+    // On tente **partout**, émulateur compris : un appareil virtuel créé avec
+    // une image « Google Play » reçoit les notifications comme un vrai
+    // téléphone. Refuser d'office, comme on le faisait, privait d'un banc
+    // d'essai parfaitement valable — et laissait croire que c'était le
+    // logiciel qui ne marchait pas. On laisse donc Firebase répondre, et on
+    // explique son refus quand il vient.
     await ensureChannel();
 
     const existing = await Notifications.getPermissionsAsync();
@@ -97,9 +92,27 @@ export async function registerForPush(): Promise<PushState> {
 
     // Jeton **natif** (FCM), et non un jeton Expo : le serveur parle
     // directement à Firebase, sans passer par le service de push d'Expo.
-    const { data: token } = await Notifications.getDevicePushTokenAsync();
+    let token: unknown;
+    try {
+      ({ data: token } = await Notifications.getDevicePushTokenAsync());
+    } catch (err) {
+      // Le refus le plus courant : un appareil virtuel dépourvu des services
+      // Google. Le message d'origine est technique ; on dit quoi faire.
+      current = {
+        status: 'indisponible',
+        reason: Device.isDevice
+          ? `Firebase n’a pas délivré de jeton : ${(err as Error).message ?? String(err)}`
+          : 'Cet émulateur n’a pas les services Google. Recréez un appareil virtuel avec une image système « Google Play » pour recevoir les notifications.',
+      };
+      return current;
+    }
     if (typeof token !== 'string' || !token) {
-      current = { status: 'erreur', reason: 'Firebase n’a pas délivré de jeton pour cet appareil.' };
+      current = {
+        status: 'indisponible',
+        reason: Device.isDevice
+          ? 'Firebase n’a pas délivré de jeton pour cet appareil.'
+          : 'Cet émulateur n’a pas les services Google. Recréez un appareil virtuel avec une image système « Google Play ».',
+      };
       return current;
     }
 

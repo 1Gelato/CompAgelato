@@ -104,6 +104,56 @@ export function Routes() {
     }
   };
 
+  /* ---------------------------------------------------------------- */
+  /* Enregistrement automatique                                        */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * Une tournée qu'il faut penser à enregistrer n'existe nulle part ailleurs
+   * que sur cet écran.
+   *
+   * C'est ce qui s'est produit en vrai : quatre arrêts posés, le trajet
+   * optimisé, le coût calculé — et rien sur le téléphone du livreur, parce
+   * qu'aucun de ces gestes ne crée la tournée en base. Elle n'existait que
+   * dans cette fenêtre. Le bouton était là, mais un bouton qu'on peut oublier
+   * n'est pas une garantie : on écrit donc dès qu'il y a quelque chose à
+   * écrire, comme les sauvegardes se font sans qu'on y pense.
+   *
+   * Deux garde-fous :
+   *
+   * - **Un délai d'une seconde.** Sans lui, chaque frappe dans le nom de la
+   *   tournée déclencherait une écriture — et une synchronisation vers tous
+   *   les appareils.
+   * - **Au moins un arrêt.** Une tournée vide, ouverte puis abandonnée,
+   *   n'encombre pas la liste de tout le monde.
+   */
+  const [autoSaving, setAutoSaving] = useState(false);
+  useEffect(() => {
+    if (!route || !dirty || !route.stops.length) return;
+    const timer = setTimeout(async () => {
+      setAutoSaving(true);
+      try {
+        const saved = await window.api.routes.save(
+          savedRouteIds.has(route.id) ? route : { ...route, id: undefined },
+        );
+        // Seul l'identifiant attribué par le serveur nous intéresse ici : la
+        // saisie en cours reste celle de l'écran, sans quoi une frappe faite
+        // pendant l'écriture serait perdue.
+        setSavedRouteIds((known) => new Set(known).add(saved.id));
+        setRoute((current) => (current ? { ...current, id: saved.id } : current));
+        setDirty(false);
+        refreshAll();
+      } catch (err) {
+        // Serveur muet : on laisse `dirty` à vrai, la frappe suivante
+        // réessaiera. L'utilisateur garde son bouton pour forcer.
+        toast.push({ tone: 'error', title: 'Enregistrement impossible', text: errorMessage(err) });
+      } finally {
+        setAutoSaving(false);
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [route, dirty, savedRouteIds, toast]);
+
   const compute = async () => {
     if (!route) return;
     setComputing(true);
@@ -223,9 +273,29 @@ export function Routes() {
           {isSaved && (
             <Button variant="danger" icon={<Icons.trash size={14} />} onClick={() => setConfirmDelete(true)} />
           )}
-          <Button variant={dirty ? 'primary' : 'default'} onClick={save} disabled={!dirty && isSaved}>
-            {isSaved ? 'Enregistrer' : 'Enregistrer la tournée'}
-          </Button>
+          {/*
+            L'enregistrement se fait tout seul : ce qui reste ici n'est plus un
+            geste à faire, mais l'état de la tournée — enregistrée, en cours
+            d'écriture, ou pas encore parce qu'elle n'a aucun arrêt. Le bouton
+            demeure pour les cas où l'écriture automatique a échoué (serveur
+            muet), où il redevient la porte de sortie.
+          */}
+          {!route.stops.length ? (
+            <span className="tiny muted" title="Une tournée vide n’est pas enregistrée">
+              Brouillon — ajoutez un arrêt
+            </span>
+          ) : autoSaving || dirty ? (
+            <span className="tiny muted">Enregistrement…</span>
+          ) : (
+            <span className="tiny" style={{ color: 'var(--green)' }}>
+              Enregistrée ✓
+            </span>
+          )}
+          {dirty && !autoSaving && route.stops.length > 0 && (
+            <Button variant="primary" onClick={save} title="Forcer l’enregistrement maintenant">
+              Enregistrer
+            </Button>
+          )}
         </div>
       </div>
 
