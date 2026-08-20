@@ -787,6 +787,29 @@ export interface Session {
   expiresAt: string;
 }
 
+/**
+ * Un téléphone abonné aux notifications de l'application.
+ *
+ * Volontairement **hors des collections synchronisées** : comme les comptes et
+ * les sessions, ce registre appartient au serveur seul. Un jeton d'appareil
+ * permet de lui pousser des messages — il n'a rien à faire dans le miroir d'un
+ * poste, encore moins dans celui d'un téléphone.
+ */
+export interface PushDevice {
+  id: ID;
+  /** À qui appartient l'appareil : c'est ce qui décide de ce qu'il reçoit. */
+  userId: ID;
+  /** Session qui l'a enregistré : révoquée, l'abonnement part avec elle. */
+  sessionId?: ID;
+  /** Jeton remis par Firebase à cette installation de l'app. */
+  token: string;
+  /** « Pixel 7 de Hervé » — pour que le gérant sache quoi révoquer. */
+  label: string;
+  platform: string;
+  createdAt: string;
+  lastSeenAt: string;
+}
+
 /** Vue d'un compte destinée à l'interface : jamais d'empreinte de mot de passe. */
 export interface UserSummary {
   id: ID;
@@ -823,6 +846,8 @@ export interface Database {
    */
   users: User[];
   sessions: Session[];
+  /** Téléphones abonnés aux notifications. Jamais répliqué (voir PushDevice). */
+  pushDevices: PushDevice[];
 }
 
 /* ------------------------------------------------------------------ */

@@ -46,6 +46,7 @@ import {
   login,
   logout,
   removeUser,
+  resolveSession,
   revokeSession,
   saveUser,
   summarize,
@@ -128,6 +129,14 @@ import {
   upsertTask,
 } from './services/tasks';
 import { sendNotification, notifyEnabled } from './services/notify';
+import {
+  listDevices,
+  pushActivityToDevices,
+  registerDevice,
+  testPush,
+  unregisterDevice,
+} from './services/pushDevices';
+import { fcmEnabled } from './services/fcm';
 import { seedDemoData, wipeDemoData } from './services/demo';
 import { round2 } from './services/text';
 import {
@@ -172,7 +181,15 @@ export function send(channel: string, payload: unknown): void {
 
 // Les annonces d'arrivée empruntent le même chemin que les autres événements.
 // L'indirection évite que les services métier connaissent la diffusion.
-setActivityPublisher((event) => send('activity', event));
+//
+// Deux destinations pour une même annonce : les postes branchés, qui en font
+// une bulle du système, et les téléphones abonnés, qui reçoivent une vraie
+// notification — même application fermée. L'envoi n'est pas attendu : prévenir
+// un téléphone ne doit jamais retarder l'enregistrement qui l'a déclenché.
+setActivityPublisher((event) => {
+  send('activity', event);
+  void pushActivityToDevices(event);
+});
 
 /* ------------------------------------------------------------------ */
 /* Aides partagées                                                     */
@@ -1130,6 +1147,32 @@ export const coreHandlers: Registry = {
         );
       }
       return true;
+    },
+  },
+
+  /**
+   * Notifications natives des téléphones. Distinct de `notify` (ntfy), qui
+   * demande une application tierce : ici c'est CompaGelato qui sonne.
+   */
+  push: {
+    async register(input: { token: string; label?: string; platform?: string }) {
+      // L'abonnement est rattaché à la session en cours : la révoquer depuis
+      // les Réglages doit faire taire le téléphone qu'elle a servi à ouvrir.
+      const context = currentContext();
+      const session = context?.token ? resolveSession(context.token) : null;
+      registerDevice({ ...input, sessionId: session?.session.id });
+      store.flushSync();
+      return { registered: true, enabled: fcmEnabled() };
+    },
+    async unregister(token: string) {
+      unregisterDevice(token);
+      store.flushSync();
+    },
+    async devices() {
+      return listDevices();
+    },
+    async test() {
+      return testPush();
     },
   },
 

@@ -228,6 +228,10 @@ export function removeUser(id: ID): void {
     }
     db.users = db.users.filter((u) => u.id !== id);
     db.sessions = db.sessions.filter((s) => s.userId !== id);
+    // Un compte supprimé n'a plus de téléphone à prévenir : laisser
+    // l'abonnement continuerait d'envoyer les annonces de l'entreprise à
+    // l'appareil de quelqu'un qui n'en fait plus partie.
+    db.pushDevices = db.pushDevices.filter((d) => d.userId !== id);
   });
   store.flushSync();
 }
@@ -322,7 +326,11 @@ export function logout(token: string): void {
   if (!token) return;
   const hash = fingerprint(token);
   store.mutate((db) => {
+    // L'abonnement aux notifications ouvert sous cette session s'en va avec
+    // elle : se déconnecter doit faire taire le téléphone.
+    const closing = db.sessions.filter((s) => s.tokenHash === hash).map((s) => s.id);
     db.sessions = db.sessions.filter((s) => s.tokenHash !== hash);
+    db.pushDevices = db.pushDevices.filter((d) => !d.sessionId || !closing.includes(d.sessionId));
   });
   store.flushSync();
 }
@@ -338,6 +346,9 @@ export function listSessions(): (Session & { username: string })[] {
 export function revokeSession(id: ID): void {
   store.mutate((db) => {
     db.sessions = db.sessions.filter((s) => s.id !== id);
+    // Couper l'accès d'un appareil sans le faire taire serait à moitié fait :
+    // il continuerait d'annoncer les arrivées sans pouvoir rien afficher.
+    db.pushDevices = db.pushDevices.filter((d) => d.sessionId !== id);
   });
   store.flushSync();
 }

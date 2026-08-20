@@ -5,6 +5,7 @@ import { appVersion, projectRoot, restartPolicy } from './handlers';
 import { createCompaServer, lanAddresses } from './server';
 import { autoBackupOptionsFromEnv, backupNow, startAutoBackup } from './services/autoBackup';
 import { autoUpdateHourFromEnv, startAutoUpdate } from './services/autoUpdate';
+import { configureFcm, fcmFromEnv } from './services/fcm';
 
 /**
  * Point d'entrée du serveur CompaGelato — un simple processus Node, sans
@@ -61,6 +62,12 @@ async function main(): Promise<void> {
     },
   });
 
+  // Notifications natives des téléphones. Sans clé, le serveur fonctionne
+  // exactement comme avant — il le dit, plutôt que de rester muet sur une
+  // fonctionnalité qu'on croirait active.
+  const fcm = fcmFromEnv();
+  configureFcm(fcm);
+
   console.log(`CompaGelato serveur v${appVersion()}`);
   console.log(`  Données   : ${store.dbFile}`);
   console.log(`  Dossier   : ${store.settings.watchFolder}`);
@@ -78,6 +85,13 @@ async function main(): Promise<void> {
           ? `inactive (rien ne relancerait ce serveur — « Restart=always » manque à l’unité systemd)`
           : `automatique, chaque nuit vers ${String(updateHour).padStart(2, '0')} h`
         : 'désactivée'
+    }`,
+  );
+  console.log(
+    `  Notifs    : ${
+      fcm
+        ? `téléphones via Firebase (projet ${fcm.projectId})`
+        : 'désactivées (COMPAGELATO_FCM_KEY_FILE non renseigné)'
     }`,
   );
   console.log(`  Accès     : http://localhost:${running.port}`);

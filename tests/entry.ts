@@ -59,6 +59,27 @@ export {
 } from '../electron/services/tasks';
 // Le contexte d'appel, pour signer les gestes d'un utilisateur dans les tests.
 export { withContext } from '../electron/context';
+// Notifications natives : la signature du jeton Google, le cache, le tri des
+// destinataires et le traitement des appareils disparus — tout se vérifie sans
+// jamais appeler Firebase.
+export {
+  signAssertion,
+  accessToken,
+  sendPush,
+  configureFcm,
+  fcmEnabled,
+  readServiceAccount,
+  fcmFromEnv,
+} from '../electron/services/fcm';
+export {
+  registerDevice,
+  unregisterDevice,
+  listDevices,
+  recipientsFor,
+  pushActivityToDevices,
+  forgetDevicesOfSession,
+  forgetDevicesOfUser,
+} from '../electron/services/pushDevices';
 export { buildDashboard } from '../electron/services/dashboard';
 export { applyAllPending, applyDocumentToStock } from '../electron/services/stock';
 export { awaitsStock, DEFAULT_DESKTOP_NOTIFY } from '../shared/types';

@@ -22,6 +22,7 @@ import type {
   OptimizeResult,
   MachineAvailability,
   Product,
+  PushDevice,
   RegisterEntry,
   RegisterStatus,
   Role,
@@ -64,6 +65,7 @@ export const CHANNELS = {
   machines: ['list', 'save', 'remove'],
   tasks: ['list', 'save', 'remove', 'restore', 'purge', 'setStatus', 'people'],
   notify: ['test'],
+  push: ['register', 'unregister', 'devices', 'test'],
   bank: [
     'list', 'scan', 'pickAndImport', 'importFrom', 'update', 'remove', 'suggestions',
     'reconcile', 'autoReconcile', 'summary', 'exportCsv', 'openFolder', 'chooseFolder',
@@ -220,6 +222,17 @@ export const CHANNEL_ACCESS: Record<ChannelName, readonly Role[]> = {
 
   /* Divers ------------------------------------------------------------ */
   'notify:test': BUREAU,
+
+  /* Notifications natives des téléphones ------------------------------- */
+  // Chacun abonne **son propre** appareil, livreur compris : c'est lui qui a
+  // le plus besoin d'être prévenu. Ce que l'appareil reçoit ensuite dépend du
+  // rôle de son propriétaire, filtré à l'envoi.
+  'push:register': ALL,
+  'push:unregister': ALL,
+  // La liste des appareils abonnés nomme des personnes : réservée au gérant,
+  // comme les sessions.
+  'push:devices': GERANT,
+  'push:test': ALL,
   'geo:autocomplete': ALL,
   'geo:reverse': ALL,
   'geo:fuelPrice': ALL,
@@ -710,6 +723,30 @@ export interface Api {
   notify: {
     /** Envoie une notification d'essai sur le sujet configuré. */
     test(): Promise<boolean>;
+  };
+  /**
+   * Notifications natives des téléphones (Firebase Cloud Messaging).
+   *
+   * Distinct de `notify`, qui pousse vers ntfy — une application tierce à
+   * installer et à abonner. Ici c'est CompaGelato elle-même qui sonne, y
+   * compris fermée.
+   */
+  push: {
+    /**
+     * Abonne cet appareil. Rappelé à chaque ouverture : Firebase peut changer
+     * le jeton, et la date de dernière vue sert à repérer les abandonnés.
+     */
+    register(input: {
+      token: string;
+      label?: string;
+      platform?: string;
+    }): Promise<{ registered: boolean; enabled: boolean }>;
+    /** Désabonne cet appareil (déconnexion, refus des notifications). */
+    unregister(token: string): Promise<void>;
+    /** Appareils abonnés, pour que le gérant voie et révoque. */
+    devices(): Promise<(PushDevice & { username: string })[]>;
+    /** Envoie une notification d'essai sur les appareils de l'appelant. */
+    test(): Promise<{ sent: number; failed: number; reason?: string }>;
   };
   bank: {
     list(): Promise<BankTransaction[]>;

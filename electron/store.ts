@@ -174,6 +174,7 @@ function emptyDatabase(): Database {
     settings: { ...defaultSettings(), defaultVehicleId: vehicle.id },
     users: [],
     sessions: [],
+    pushDevices: [],
     sync: freshSyncMeta(),
   };
 }
@@ -333,6 +334,7 @@ export class Store {
       // partagé. Aucune bascule automatique vers une connexion obligatoire.
       users: parsed.users ?? [],
       sessions: parsed.sessions ?? [],
+      pushDevices: parsed.pushDevices ?? [],
       sync: parsed.sync ?? freshSyncMeta(),
     };
     if (!db.settings.defaultVehicleId && db.vehicles[0]) {
