@@ -21,7 +21,13 @@ export {
 export { cleanAddressLine, parseAddressLine, repairAddress } from '../electron/services/address';
 // Géolocalisation en tâche de fond : le lancement, l'avancement, l'attente —
 // jamais de vrai appel réseau dans la suite, le géocodeur est injecté.
-export { addressQuery, geocodeStatus, startGeocode, waitGeocode } from '../electron/services/geocode';
+export {
+  addressQuery,
+  addressQueries,
+  geocodeStatus,
+  startGeocode,
+  waitGeocode,
+} from '../electron/services/geocode';
 // Bons de livraison : numérotation annuelle, annonce au bureau, facturation.
 export {
   deliveryTotal,

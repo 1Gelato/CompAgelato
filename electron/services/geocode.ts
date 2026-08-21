@@ -1,6 +1,7 @@
 import type { Client } from '@shared/types';
 import type { GeocodeProgress } from '@shared/api';
 import { nowIso, store } from '../store';
+import { cleanAddressLine } from './address';
 import { geocodeOne } from './routing';
 
 /**
@@ -23,10 +24,39 @@ export interface GeocodeDeps {
 
 /** Ce qu'on envoie au service d'adresses : les morceaux sûrs d'abord. */
 export function addressQuery(client: Client): string {
+  return addressQueries(client)[0] ?? '';
+}
+
+/**
+ * Les tentatives, de la plus précise à la plus grossière.
+ *
+ * Une seule question ne suffisait pas. Les listes importées portent souvent un
+ * e-mail, un téléphone ou un prénom collés dans la rue — « 158 RUE DE BELGIQUE
+ * atonaise56@gmail.com JULIEN » —, et le service d'adresses ne reconnaît rien.
+ * La fiche restait alors sans coordonnées pour toujours : chaque passe la
+ * reprenait et échouait pareil, si bien que le compteur ne descendait jamais.
+ *
+ * On nettoie donc la question, puis on se replie sur le code postal et la
+ * ville. Le point tombe au centre de la commune plutôt que devant la porte —
+ * mais un client placé dans la bonne ville entre dans une tournée, alors
+ * qu'un client sans coordonnées n'y entre pas du tout.
+ */
+export function addressQueries(client: Client): string[] {
   const { address } = client;
-  const parts = [address.street, address.postcode, address.city].filter(Boolean);
-  const composed = parts.join(' ').trim();
-  return composed || (address.label ?? '').trim();
+  const precise = cleanAddressLine(
+    [address.street, address.postcode, address.city].filter(Boolean).join(' '),
+  );
+  const commune = [address.postcode, address.city].filter(Boolean).join(' ').trim();
+  const label = cleanAddressLine(address.label ?? '');
+
+  const attempts = [precise || label, label, commune];
+  const seen = new Set<string>();
+  return attempts.filter((query) => {
+    const clean = query.trim();
+    if (!clean || seen.has(clean)) return false;
+    seen.add(clean);
+    return true;
+  });
 }
 
 let state: GeocodeProgress = {
@@ -62,7 +92,15 @@ export function startGeocode(deps: GeocodeDeps = {}): GeocodeProgress {
   job = (async () => {
     for (const client of targets) {
       try {
-        const hit = await lookup(addressQuery(client));
+        // Chaque tentative est moins précise que la précédente : on s'arrête
+        // à la première qui répond.
+        let found: Awaited<ReturnType<typeof lookup>> = null;
+        for (const query of addressQueries(client)) {
+          found = await lookup(query);
+          if (found) break;
+          if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+        const hit = found;
         if (hit) {
           store.mutate(() => {
             client.address = {

@@ -472,6 +472,21 @@ Sur un serveur sans écran, préfixez les tests de bout en bout par
    dans les tournées. Le travail se fait **sur le serveur, en tâche de fond** :
    le bouton affiche l'avancement, vous pouvez continuer à travailler — et même
    fermer l'application, la passe continue.
+
+   Le compte affiché — « Géolocaliser 86 » — est celui des fiches qui ont une
+   **adresse** mais pas encore de position. Une fiche sans aucune adresse n'y
+   figure pas : il n'y a rien à chercher.
+
+   Les listes importées collent souvent un e-mail, un téléphone ou un prénom
+   dans la rue — « 158 RUE DE BELGIQUE atonaise56@gmail.com JULIEN ». Le
+   service d'adresses ne reconnaissait alors rien, la fiche restait sans
+   position, et chaque passe la reprenait pour échouer pareil : le compteur ne
+   descendait jamais. La question est désormais nettoyée avant d'être posée,
+   puis, si elle n'aboutit pas, **repliée sur le code postal et la ville**. Le
+   point tombe au centre de la commune plutôt que devant la porte — mais un
+   client placé dans la bonne ville entre dans une tournée, ce qu'une fiche
+   sans coordonnées ne pouvait pas faire. Ouvrez la fiche et choisissez une
+   proposition d'adresse pour le placer précisément.
 4. **Stock → Nouveau consommable** (ou Importer). Renseignez la référence, la
    quantité et le seuil d'alerte. L'export d'articles de MEG est compris tel
    quel : Code, Libellé, Description, État (un article inactif arrive archivé),

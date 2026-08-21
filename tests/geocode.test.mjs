@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
   dataStore,
   addressQuery,
+  addressQueries,
   geocodeStatus,
   startGeocode,
   waitGeocode,
@@ -129,4 +130,69 @@ test('rien à faire : la passe le dit sans se lancer', () => {
   const status = startGeocode({ geocode: async () => null, delayMs: 0 });
   assert.equal(status.total, 0);
   assert.equal(status.running, false);
+});
+
+/* ------------------------------------------------------------------ */
+/* Les adresses que le service public ne reconnaissait jamais            */
+/* ------------------------------------------------------------------ */
+
+test('la question est nettoyée, puis se replie sur la commune', () => {
+  // Telles qu'elles arrivent des listes importées : un e-mail, un téléphone
+  // ou un prénom collés dans la rue.
+  const sale = fiche('cli_e', 'A TON AISE', {
+    label: '158 RUE DE BELGIQUE atonaise56@gmail.com JULIEN 56100 LORIENT',
+    street: '158 RUE DE BELGIQUE atonaise56@gmail.com JULIEN',
+    postcode: '56100',
+    city: 'LORIENT',
+  });
+
+  const attempts = addressQueries(sale);
+  // L'e-mail part ; le prénom, lui, reste — rien ne permet de le distinguer
+  // d'un nom de rue à coup sûr. C'est précisément pourquoi le repli existe.
+  assert.equal(attempts[0], '158 RUE DE BELGIQUE JULIEN 56100 LORIENT');
+  assert.ok(!attempts.some((q) => q.includes('@')), 'aucune question ne porte l’e-mail');
+  assert.equal(
+    attempts[attempts.length - 1],
+    '56100 LORIENT',
+    'dernier recours : la commune seule',
+  );
+  // La première tentative reste celle que renvoie addressQuery.
+  assert.equal(addressQuery(sale), attempts[0]);
+});
+
+test('une rue introuvable ne condamne plus la fiche : la commune la sauve', async () => {
+  dataStore.mutate((db) => {
+    db.clients.push(
+      fiche('cli_f', 'ABBAYE DE VILLENEUVE', {
+        label: 'M DAVID FERRE 0683308109 ABBAYE DE VILLENEUVE 44840 Les Sorinières',
+        street: 'M DAVID FERRE 0683308109 ABBAYE DE VILLENEUVE',
+        postcode: '44840',
+        city: 'Les Sorinières',
+      }),
+    );
+  });
+
+  const interroge = [];
+  const fake = async (query) => {
+    interroge.push(query);
+    // Le service ne reconnaît que la commune : c'est le cas réel de ces
+    // adresses où le nom du contact tient lieu de rue.
+    if (query !== '44840 Les Sorinières') return null;
+    return { label: 'Les Sorinières', postcode: '44840', city: 'Les Sorinières', lat: 47.14, lon: -1.53, score: 0.6 };
+  };
+
+  const depart = startGeocode({ geocode: fake, delayMs: 0 });
+  assert.equal(depart.total, 1);
+  await waitGeocode();
+
+  const fin = geocodeStatus();
+  assert.equal(fin.located, 1, `tentatives : ${JSON.stringify(interroge)}`);
+  assert.equal(fin.failed, 0);
+  assert.ok(interroge.length > 1, 'la première question, trop précise, a bien été retentée');
+
+  const client = dataStore.db.clients.find((c) => c.id === 'cli_f');
+  assert.equal(client.address.lat, 47.14);
+  // Le point tombe au centre de la commune : suffisant pour entrer dans une
+  // tournée, ce qu'une fiche sans coordonnées ne pouvait pas faire.
+  assert.equal(client.address.lon, -1.53);
 });
