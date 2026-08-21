@@ -349,16 +349,18 @@ export interface DeliveryRoute extends Syncable {
 /* Cahiers (SAV, consommables, événementiel)                            */
 /* ------------------------------------------------------------------ */
 
-export type RegisterKind = 'sav' | 'consumables' | 'event';
+export type RegisterKind = 'sav' | 'consumables' | 'event' | 'purchase';
 
 /**
- * Statuts communs aux trois cahiers, avec des libellés propres à chacun :
- * - SAV :           open = À traiter,  confirmed = En cours,      done = Résolu
+ * Statuts communs aux cahiers, avec des libellés propres à chacun :
+ * - SAV :           open = À traiter,  confirmed = En cours,       done = Résolu
  * - Consommables :  open = À préparer, confirmed = En préparation, done = Livré
- * - Événementiel :  open = Demande,    confirmed = Devis validé,  done = Terminé
+ * - Événementiel :  open = Demande,    confirmed = Devis validé,   done = Terminé
+ * - Achats :        open = À acheter,  confirmed = Commandé,       done = Reçu
  *
  * Pour l'événementiel, seul « Devis validé » réserve les machines : une simple
- * demande ne retire rien du parc.
+ * demande ne retire rien du parc. Le cahier des achats note ce que l'entreprise
+ * doit se procurer : son « client » est un fournisseur.
  */
 export type RegisterStatus = 'open' | 'confirmed' | 'done' | 'cancelled';
 
@@ -382,7 +384,8 @@ export interface RegisterEntry extends Syncable {
   id: ID;
   kind: RegisterKind;
   clientId?: ID;
-  /** Nom noté à la volée quand le client n'a pas (encore) de fiche. */
+  /** Nom noté à la volée quand le client n'a pas (encore) de fiche.
+   *  Dans le cahier des achats, c'est le nom du fournisseur. */
   clientName?: string;
   /** Cause de la panne (SAV), objet de la commande, nom de l'événement. */
   title: string;

@@ -30,6 +30,7 @@ const KIND_LABEL: Record<RegisterKind, string> = {
   sav: 'SAV',
   consumables: 'Consommables',
   event: 'Événementiel',
+  purchase: 'Achats',
 };
 
 const STATUS_LABEL: Record<RegisterStatus, string> = {
@@ -125,6 +126,7 @@ export function CahiersScreen() {
             { value: 'sav', label: 'SAV' },
             { value: 'consumables', label: 'Consommables' },
             { value: 'event', label: 'Événementiel' },
+            { value: 'purchase', label: 'Achats' },
           ]}
         />
         <Button title="+ Nouvelle écriture" variant="primary" onPress={() => setCreating(true)} />
@@ -179,13 +181,30 @@ export function CahiersScreen() {
             { value: 'sav', label: 'SAV' },
             { value: 'consumables', label: 'Consommables' },
             { value: 'event', label: 'Événementiel' },
+            { value: 'purchase', label: 'Achats' },
           ]}
         />
         <Field label={draftKind === 'sav' ? 'Cause de la panne' : 'Objet'}>
-          <Input value={title} onChangeText={setTitle} placeholder="Machine en panne…" autoFocus />
+          <Input
+            value={title}
+            onChangeText={setTitle}
+            placeholder={draftKind === 'purchase' ? 'Gobelets, mix vanille…' : 'Machine en panne…'}
+            autoFocus
+          />
         </Field>
-        <Field label="Client" hint="Nom noté au vol — la fiche pourra être rattachée au bureau.">
-          <Input value={clientName} onChangeText={setClientName} placeholder="Glacier des Embruns" />
+        <Field
+          label={draftKind === 'purchase' ? 'Fournisseur' : 'Client'}
+          hint={
+            draftKind === 'purchase'
+              ? 'Nom libre — Metro, Promocash…'
+              : 'Nom noté au vol — la fiche pourra être rattachée au bureau.'
+          }
+        >
+          <Input
+            value={clientName}
+            onChangeText={setClientName}
+            placeholder={draftKind === 'purchase' ? 'Metro' : 'Glacier des Embruns'}
+          />
         </Field>
         <Field label="Commentaire">
           <Input value={details} onChangeText={setDetails} placeholder="Détails…" multiline />

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { DeliveryNote, Signature } from '@shared/types';
+import type { Client, DeliveryNote, RegisterItem, Signature } from '@shared/types';
 import {
   Badge,
   Button,
@@ -7,18 +7,26 @@ import {
   EmptyState,
   Field,
   Icons,
+  Input,
   Modal,
   SearchInput,
   Spinner,
+  Textarea,
   Th,
   useToast,
 } from '../components/ui';
+import { ClientPicker } from '../components/ClientPicker';
+import { ItemPicker } from '../components/ItemPicker';
+import { SignaturePad } from '../components/SignaturePad';
+import { BonPrintView } from '../components/printLayouts';
+import { printView } from '../lib/print';
 import {
   errorMessage,
   refreshAll,
   useClientIndex,
   useClients,
   useDeliveryNotes,
+  useSettings,
 } from '../lib/data';
 import { dateFr, matches } from '../lib/format';
 import { useSort } from '../lib/sort';
@@ -39,9 +47,11 @@ const STATUS_LABEL: Record<DeliveryNote['status'], string> = {
 export function Bons() {
   const { data: notes, loading } = useDeliveryNotes();
   const { data: clients } = useClients();
+  const { data: settings } = useSettings();
   const clientIndex = useClientIndex(clients);
   const [search, setSearch] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<DeliveryNote | 'new' | null>(null);
 
   const clientName = (note: DeliveryNote) =>
     (note.clientId && clientIndex.get(note.clientId)?.name) || note.clientName || 'Client sans fiche';
@@ -93,9 +103,10 @@ export function Bons() {
           style={{ width: 270 }}
         />
         <div className="spacer" />
-        <div className="tiny muted">
-          Les bons se créent sur le téléphone, en tournée — ici on les facture.
-        </div>
+        <div className="tiny muted">En tournée, le bon se fait sur le téléphone.</div>
+        <Button variant="primary" icon={<Icons.plus size={14} />} onClick={() => setEditing('new')}>
+          Nouveau bon
+        </Button>
       </div>
 
       {loading && !notes.length ? (
@@ -157,8 +168,184 @@ export function Bons() {
         </div>
       )}
 
-      {open && <BonDetail note={open} clientName={clientName(open)} onClose={() => setOpenId(null)} />}
+      {open && (
+        <BonDetail
+          note={open}
+          client={open.clientId ? clientIndex.get(open.clientId) : undefined}
+          clientName={clientName(open)}
+          companyName={settings?.companyName}
+          onEdit={() => {
+            setOpenId(null);
+            setEditing(open);
+          }}
+          onClose={() => setOpenId(null)}
+        />
+      )}
+
+      {editing && (
+        <BonEditor
+          note={editing === 'new' ? null : editing}
+          clients={clients}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </>
+  );
+}
+
+/* ================================================================== */
+/* Création / modification d'un bon, depuis le bureau                  */
+/* ================================================================== */
+
+function BonEditor({
+  note,
+  clients,
+  onClose,
+}: {
+  note: DeliveryNote | null;
+  clients: Client[];
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const [date, setDate] = useState(note?.date ?? new Date().toISOString().slice(0, 10));
+  const [clientId, setClientId] = useState<string | undefined>(note?.clientId);
+  const [clientName, setClientName] = useState(note?.clientName ?? '');
+  const [items, setItems] = useState<RegisterItem[]>(note?.items ?? []);
+  const [notes, setNotes] = useState(note?.notes ?? '');
+  const [driverName, setDriverName] = useState(note?.driverSignature?.name ?? '');
+  const [driverStrokes, setDriverStrokes] = useState<Signature['strokes']>(
+    note?.driverSignature?.strokes ?? [],
+  );
+  const [clientSigName, setClientSigName] = useState(note?.clientSignature?.name ?? '');
+  const [clientStrokes, setClientStrokes] = useState<Signature['strokes']>(
+    note?.clientSignature?.strokes ?? [],
+  );
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (!clientId && !clientName.trim()) {
+      toast.push({ tone: 'warn', title: 'Indiquez le client' });
+      return;
+    }
+    if (!items.some((item) => item.label.trim())) {
+      toast.push({ tone: 'warn', title: 'Ajoutez au moins un article livré' });
+      return;
+    }
+    setSaving(true);
+    try {
+      const now = new Date().toISOString();
+      // Une signature vide n'est pas envoyée : sur un bon existant, elle
+      // écraserait celle tracée en tournée.
+      const signature = (
+        strokes: Signature['strokes'],
+        name: string,
+        previous?: Signature,
+      ): Signature | undefined =>
+        strokes.length
+          ? { strokes, name: name.trim() || undefined, at: previous?.at ?? now }
+          : undefined;
+
+      await window.api.delivery.save({
+        id: note?.id,
+        date,
+        clientId,
+        clientName: clientId ? undefined : clientName.trim() || undefined,
+        items: items.filter((item) => item.label.trim()),
+        notes: notes.trim() || undefined,
+        ...(signature(driverStrokes, driverName, note?.driverSignature)
+          ? { driverSignature: signature(driverStrokes, driverName, note?.driverSignature) }
+          : {}),
+        ...(signature(clientStrokes, clientSigName, note?.clientSignature)
+          ? { clientSignature: signature(clientStrokes, clientSigName, note?.clientSignature) }
+          : {}),
+      });
+      refreshAll();
+      toast.push({
+        tone: 'success',
+        title: note ? 'Bon mis à jour' : 'Bon de livraison créé',
+        text: note ? undefined : 'Numéroté par le serveur — il apparaît aussi sur les téléphones.',
+      });
+      onClose();
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Enregistrement impossible', text: errorMessage(err) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      wide
+      title={note ? `Modifier ${note.number}` : 'Nouveau bon de livraison'}
+      subtitle={
+        note
+          ? undefined
+          : 'Le numéro est attribué à l’enregistrement. Les signatures peuvent se tracer à la souris — ou rester vides.'
+      }
+      onClose={onClose}
+      footer={
+        <>
+          <div className="spacer" />
+          <Button onClick={onClose}>Annuler</Button>
+          <Button variant="primary" onClick={save} loading={saving}>
+            Enregistrer
+          </Button>
+        </>
+      }
+    >
+      <div className="col" style={{ gap: 14 }}>
+        <div className="formgrid">
+          <Field label="Date de livraison">
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </Field>
+        </div>
+
+        <ClientPicker
+          clients={clients}
+          clientId={clientId}
+          clientName={clientName}
+          onChange={(patch) => {
+            setClientId(patch.clientId);
+            setClientName(patch.clientName ?? '');
+          }}
+        />
+
+        <ItemPicker
+          label="Articles livrés"
+          preferredType="consumable"
+          items={items}
+          onChange={setItems}
+        />
+
+        <Field label="Notes">
+          <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </Field>
+
+        <div className="formgrid">
+          <Field label="Signature du livreur">
+            <div className="col" style={{ gap: 6 }}>
+              <Input
+                placeholder="Nom du livreur"
+                value={driverName}
+                onChange={(e) => setDriverName(e.target.value)}
+              />
+              <SignaturePad strokes={driverStrokes} onChange={setDriverStrokes} height={120} />
+            </div>
+          </Field>
+          <Field label="Signature du client">
+            <div className="col" style={{ gap: 6 }}>
+              <Input
+                placeholder="Nom du signataire"
+                value={clientSigName}
+                onChange={(e) => setClientSigName(e.target.value)}
+              />
+              <SignaturePad strokes={clientStrokes} onChange={setClientStrokes} height={120} />
+            </div>
+          </Field>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -202,16 +389,30 @@ function SignatureSvg({ signature }: { signature: Signature }) {
 
 function BonDetail({
   note,
+  client,
   clientName,
+  companyName,
+  onEdit,
   onClose,
 }: {
   note: DeliveryNote;
+  client?: Client;
   clientName: string;
+  companyName?: string;
+  onEdit: () => void;
   onClose: () => void;
 }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // La version papier : à agrafer à la facture faite dans le logiciel de
+  // comptabilité — la traçabilité que le bon manuel offrait déjà.
+  const print = () =>
+    printView(
+      `Bon de livraison ${note.number}`,
+      <BonPrintView note={note} client={client} clientName={clientName} companyName={companyName} />,
+    );
 
   const setInvoiced = async (invoiced: boolean) => {
     setBusy(true);
@@ -242,7 +443,17 @@ function BonDetail({
             <Button variant="danger" icon={<Icons.trash size={14} />} onClick={() => setConfirmDelete(true)}>
               Supprimer
             </Button>
+            <Button icon={<Icons.edit size={14} />} onClick={onEdit}>
+              Modifier
+            </Button>
             <div className="spacer" />
+            <Button
+              icon={<Icons.print size={14} />}
+              onClick={print}
+              title="Imprimer le bon, signatures comprises — à agrafer à la facture"
+            >
+              Imprimer
+            </Button>
             <Button onClick={onClose}>Fermer</Button>
             {note.status === 'signed' ? (
               <Button variant="primary" icon={<Icons.check size={14} />} loading={busy} onClick={() => setInvoiced(true)}>

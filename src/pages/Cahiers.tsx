@@ -4,8 +4,6 @@ import type {
   DeliveryRoute,
   EventMachine,
   MachineAvailability,
-  Product,
-  ProductType,
   RegisterEntry,
   RegisterItem,
   RegisterKind,
@@ -33,20 +31,24 @@ import {
   useToast,
 } from '../components/ui';
 import { ClientPicker } from '../components/ClientPicker';
+import { ItemPicker } from '../components/ItemPicker';
+import { CahierPrintView } from '../components/printLayouts';
+import { printView } from '../lib/print';
 import {
   errorMessage,
   refreshAll,
   useClientIndex,
   useClients,
   useMachines,
-  useProducts,
   useRegisterEntries,
   useRoutes,
+  useSettings,
 } from '../lib/data';
 import {
   dateFr,
   dateTimeFr,
   matches,
+  REGISTER_KIND_LABEL,
   REGISTER_STATUS_LABEL,
   REGISTER_STATUS_TONE,
 } from '../lib/format';
@@ -58,6 +60,7 @@ const KIND_TITLE: Record<RegisterKind, string> = {
   sav: 'Cause de la panne',
   consumables: 'Objet de la commande',
   event: 'Nom de l’événement',
+  purchase: 'Objet de l’achat',
 };
 
 const KIND_EMPTY: Record<RegisterKind, string> = {
@@ -66,6 +69,8 @@ const KIND_EMPTY: Record<RegisterKind, string> = {
     'Aucune commande de consommables notée (mix, gobelets, pots…). « Nouvelle écriture » remplace le cahier papier.',
   event:
     'Aucune demande événementielle. Les machines ne sont réservées qu’au passage en « Devis validé ».',
+  purchase:
+    'Rien à acheter pour le moment. Notez ici ce que l’entreprise doit se procurer — la liste de courses, sans le papier.',
 };
 
 export function Cahiers() {
@@ -73,6 +78,7 @@ export function Cahiers() {
   const { data: machines } = useMachines();
   const { data: clients } = useClients();
   const { data: routes } = useRoutes();
+  const { data: settings } = useSettings();
   const clientIndex = useClientIndex(clients);
   const toast = useToast();
 
@@ -167,6 +173,7 @@ export function Cahiers() {
             { value: 'sav', label: 'SAV' },
             { value: 'consumables', label: 'Consommables' },
             { value: 'event', label: 'Événementiel' },
+            { value: 'purchase', label: 'Achats' },
           ]}
         />
         <SearchInput
@@ -184,6 +191,41 @@ export function Cahiers() {
           ]}
         />
         <div className="spacer" />
+        <Button
+          icon={<Icons.print size={14} />}
+          title="Imprimer ce cahier tel qu’il est affiché (filtres compris)"
+          onClick={() => {
+            // On imprime ce que l'écran montre : même cahier, mêmes filtres,
+            // même ordre — pas de surprise entre l'écran et le papier.
+            printView(
+              `Cahier ${REGISTER_KIND_LABEL[kind]}`,
+              <CahierPrintView
+                kind={kind}
+                kindLabel={REGISTER_KIND_LABEL[kind]}
+                companyName={settings?.companyName}
+                filterLabel={[
+                  statusFilter === 'active' ? 'Écritures en cours' : 'Toutes les écritures',
+                  search ? `recherche « ${search} »` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                rows={sorted.map((entry) => ({
+                  entry,
+                  who: clientLabel(entry),
+                  machines: (entry.machines ?? [])
+                    .map((m) => {
+                      const machine = machineIndex.get(m.machineId)?.machine;
+                      return machine ? `${m.qty} × ${machine.name}` : null;
+                    })
+                    .filter(Boolean)
+                    .join(', '),
+                }))}
+              />,
+            );
+          }}
+        >
+          Imprimer
+        </Button>
         <Button variant="primary" icon={<Icons.plus size={14} />} onClick={() => setEditing('new')}>
           Nouvelle écriture
         </Button>
@@ -219,7 +261,9 @@ export function Cahiers() {
                 {kind === 'event' && (
                   <Th sortKey="eventDate" sort={sort} onSort={toggle}>Prestation</Th>
                 )}
-                <Th sortKey="client" sort={sort} onSort={toggle}>Client</Th>
+                <Th sortKey="client" sort={sort} onSort={toggle}>
+                  {kind === 'purchase' ? 'Fournisseur' : 'Client'}
+                </Th>
                 <Th sortKey="title" sort={sort} onSort={toggle}>{KIND_TITLE[kind]}</Th>
                 {kind !== 'event' && <Th>{kind === 'sav' ? 'Pièces demandées' : 'Articles'}</Th>}
                 {kind === 'event' && <Th>Machines</Th>}
@@ -286,17 +330,20 @@ export function Cahiers() {
                   </td>
                   <td style={{ width: 78 }} onClick={(e) => e.stopPropagation()}>
                     <div className="row" style={{ gap: 2, justifyContent: 'flex-end' }}>
-                      <IconButton
-                        title={
-                          entry.routeId
-                            ? 'Déjà dans une tournée — cliquer pour l’ajouter à une autre'
-                            : 'Ajouter à une tournée de livraison'
-                        }
-                        active={Boolean(entry.routeId)}
-                        onClick={() => setRouting(entry)}
-                      >
-                        <Icons.routes size={15} />
-                      </IconButton>
+                      {/* Un achat ne se livre pas : pas de tournée pour ce cahier. */}
+                      {entry.kind !== 'purchase' && (
+                        <IconButton
+                          title={
+                            entry.routeId
+                              ? 'Déjà dans une tournée — cliquer pour l’ajouter à une autre'
+                              : 'Ajouter à une tournée de livraison'
+                          }
+                          active={Boolean(entry.routeId)}
+                          onClick={() => setRouting(entry)}
+                        >
+                          <Icons.routes size={15} />
+                        </IconButton>
+                      )}
                       <IconButton title="Supprimer" danger onClick={() => setRemoving(entry)}>
                         <Icons.trash size={15} />
                       </IconButton>
@@ -528,15 +575,22 @@ function EntryDialog({
       }
     >
       <div className="col" style={{ gap: 14 }}>
-        <ClientPicker
-          clients={clients}
-          clientId={clientId}
-          clientName={clientName}
-          onChange={(patch) => {
-            setClientId(patch.clientId);
-            setClientName(patch.clientName ?? '');
-          }}
-        />
+        {kind === 'purchase' ? (
+          // Un achat vient d'un fournisseur : pas de fiche client à rattacher.
+          <Field label="Fournisseur" hint="Nom libre — Metro, Promocash, le réparateur du coin…">
+            <Input value={clientName} onChange={(e) => setClientName(e.target.value)} />
+          </Field>
+        ) : (
+          <ClientPicker
+            clients={clients}
+            clientId={clientId}
+            clientName={clientName}
+            onChange={(patch) => {
+              setClientId(patch.clientId);
+              setClientName(patch.clientName ?? '');
+            }}
+          />
+        )}
 
         <div className="formgrid">
           <Field label={KIND_TITLE[kind]}>
@@ -561,7 +615,13 @@ function EntryDialog({
 
         {kind !== 'event' && (
           <ItemPicker
-            label={kind === 'sav' ? 'Pièces demandées' : 'Articles commandés'}
+            label={
+              kind === 'sav'
+                ? 'Pièces demandées'
+                : kind === 'purchase'
+                  ? 'Articles à acheter'
+                  : 'Articles commandés'
+            }
             preferredType={kind === 'sav' ? 'part' : 'consumable'}
             items={items}
             onChange={setItems}
@@ -604,156 +664,6 @@ function EntryDialog({
         </Field>
       </div>
     </Modal>
-  );
-}
-
-/* ================================================================== */
-/* Sélecteur d'articles, rattachés au stock                            */
-/* ================================================================== */
-
-const TYPE_LABEL: Record<ProductType, string> = {
-  consumable: 'Consommable',
-  mixLiquid: 'Mix liquide',
-  mixPowder: 'Mix poudre',
-  machine: 'Machine',
-  part: 'Pièce détachée',
-};
-
-/** Natures proposées en tête selon le cahier : pièces au SAV, mix et
- *  consommables dans les commandes. */
-const PREFERRED_TYPES: Record<'part' | 'consumable', ProductType[]> = {
-  part: ['part', 'machine'],
-  consumable: ['consumable', 'mixLiquid', 'mixPowder'],
-};
-
-function ItemPicker({
-  label,
-  preferredType,
-  items,
-  onChange,
-}: {
-  label: string;
-  /** Nature mise en avant : pièces détachées en SAV, consommables ailleurs. */
-  preferredType: ProductType;
-  items: RegisterItem[];
-  onChange: (items: RegisterItem[]) => void;
-}) {
-  const { data: products } = useProducts();
-  const [query, setQuery] = useState('');
-
-  const productIndex = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
-
-  // Les articles de la nature attendue d'abord, mais tout le stock reste
-  // accessible : une commande peut mélanger un consommable et une pièce.
-  const results = useMemo(() => {
-    if (!query.trim()) return [];
-    const taken = new Set(items.map((i) => i.productId).filter(Boolean));
-    return products
-      .filter((p) => !p.archived && !taken.has(p.id))
-      .filter((p) => matches(`${p.sku} ${p.name} ${p.category ?? ''}`, query))
-      .sort((a, b) => {
-        const preferred = PREFERRED_TYPES[preferredType as 'part' | 'consumable'] ?? [preferredType];
-        const rank = (p: Product) => (preferred.includes(p.type ?? 'consumable') ? 0 : 1);
-        return rank(a) - rank(b) || a.name.localeCompare(b.name, 'fr');
-      })
-      .slice(0, 6);
-  }, [products, query, items, preferredType]);
-
-  const add = (item: RegisterItem) => {
-    onChange([...items, item]);
-    setQuery('');
-  };
-
-  return (
-    <Field
-      label={label}
-      hint="Piochez dans le stock, ou tapez un libellé libre si l’article n’y figure pas encore"
-    >
-      <div className="col" style={{ gap: 8 }}>
-        {items.length > 0 && (
-          <div className="list">
-            {items.map((item, index) => {
-              const product = item.productId ? productIndex.get(item.productId) : undefined;
-              return (
-                <div key={`${item.productId ?? item.label}-${index}`} className="list__item">
-                  <NumberInput
-                    value={item.qty}
-                    onValueChange={(v) => {
-                      const next = [...items];
-                      next[index] = { ...item, qty: Math.max(1, Math.round(v)) };
-                      onChange(next);
-                    }}
-                    style={{ width: 76 }}
-                  />
-                  <span className="truncate">{item.label}</span>
-                  {product ? (
-                    <Badge tone="badge--blue">
-                      {TYPE_LABEL[product.type]} · {product.qtyOnHand} en stock
-                    </Badge>
-                  ) : (
-                    <Badge>hors stock</Badge>
-                  )}
-                  <div className="spacer" />
-                  <IconButton
-                    title="Retirer"
-                    danger
-                    onClick={() => onChange(items.filter((_, i) => i !== index))}
-                  >
-                    <Icons.close size={14} />
-                  </IconButton>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <Input
-          placeholder="Rechercher dans le stock…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-
-        {results.length > 0 && (
-          <div className="list">
-            {results.map((product) => (
-              <div
-                key={product.id}
-                className="list__item"
-                style={{ cursor: 'default' }}
-                onClick={() => add({ productId: product.id, label: product.name, qty: 1 })}
-              >
-                <span className="mono tiny muted" style={{ minWidth: 78 }}>
-                  {product.sku}
-                </span>
-                <span className="truncate">{product.name}</span>
-                <div className="spacer" />
-                <Badge tone={(PREFERRED_TYPES[preferredType as 'part' | 'consumable'] ?? []).includes(product.type ?? 'consumable') ? 'badge--blue' : ''}>
-                  {TYPE_LABEL[product.type]}
-                </Badge>
-                <span className="tiny muted">{product.qtyOnHand} en stock</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {query.trim() && !results.some((p) => p.name.toLowerCase() === query.trim().toLowerCase()) && (
-          <Button
-            size="sm"
-            icon={<Icons.plus size={13} />}
-            onClick={() => add({ label: query.trim(), qty: 1 })}
-          >
-            Ajouter « {query.trim()} » hors stock
-          </Button>
-        )}
-
-        {!products.length && (
-          <p className="tiny muted" style={{ margin: 0 }}>
-            Votre stock est vide : ajoutez vos consommables, machines et pièces depuis l’onglet
-            Stock pour les retrouver ici.
-          </p>
-        )}
-      </div>
-    </Field>
   );
 }
 

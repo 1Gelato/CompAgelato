@@ -948,6 +948,14 @@ attribué par le serveur ; un bon établi hors réseau part en file et prend son
 numéro à la reconnexion. Une fois la facture faite dans le logiciel de
 comptabilité, « Marquer facturé » clôt le bon.
 
+Les bons se créent et se modifient **aussi depuis le PC** (signatures à la
+souris, articles piochés dans le stock), et s'**impriment** — en-tête de
+l'entreprise, articles, signatures — pour être agrafés à la facture : la
+traçabilité papier du bon manuel, sans le carnet à souches. Les **cahiers**
+s'impriment de la même façon, tels qu'ils sont affichés (filtres compris).
+Quatrième cahier : **Achats** — la liste de courses de l'entreprise
+(fournisseur, articles, À acheter → Commandé → Reçu).
+
 **Notifications natives** : l'application prévient elle-même des arrivées,
 fermée et écran éteint — voir plus bas.
 
