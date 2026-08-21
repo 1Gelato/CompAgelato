@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { FlatList, RefreshControl, ScrollView, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProductType } from '@shared/types';
-import { dateFr, num } from '@shared/format';
+import { dateFr, euro, num, priceTtc } from '@shared/format';
 import { api } from '../lib/runtime';
 import { errorMessage, refreshAll, useProducts, useRefresh, useStockMoves } from '../lib/data';
 import {
@@ -150,7 +150,18 @@ export function ProductDetailScreen({
         {product.minQty > 0 ? (
           <InfoRow label="Seuil d’alerte" value={`${num(product.minQty)} ${product.unit}`} />
         ) : null}
+        {/* Le prix de vente sert en tournée : un client demande combien coûte
+            un bac, la réponse est sur l'écran. */}
+        {product.salePrice != null ? (
+          <InfoRow
+            label="Prix de vente"
+            value={`${euro(product.salePrice)} HT${
+              product.vatRate != null ? `  ·  ${euro(priceTtc(product.salePrice, product.vatRate) ?? 0)} TTC` : ''
+            }`}
+          />
+        ) : null}
         {product.supplier ? <InfoRow label="Fournisseur" value={product.supplier} /> : null}
+        {product.description ? <InfoRow label="Description" value={product.description} /> : null}
         <Button title="Ajuster le stock (inventaire)" onPress={() => setAdjusting(true)} />
       </Card>
 

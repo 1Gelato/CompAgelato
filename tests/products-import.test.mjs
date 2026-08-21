@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   dataStore,
+  marginRate,
   importProductsFile,
   guessMapping,
   PRODUCT_FIELDS,
@@ -149,6 +150,15 @@ test('les taux et les prix français sont lus tels qu’ils sont écrits', () =>
   // Sans prix HT, le TTC et le taux le retrouvent.
   assert.equal(saleHtFrom(undefined, '120,00', 20), 100);
   assert.equal(saleHtFrom(undefined, undefined, 20), null);
+});
+
+test('le taux de marge affiché est celui du logiciel de comptabilité', () => {
+  // La ligne réelle de l'export : 11,635 € achetés, revendus 19,39 € — MEG
+  // affiche 67 %. Rapporter la marge au prix de vente donnerait 40 % et
+  // ferait douter de l'un des deux logiciels.
+  assert.equal(Math.round(marginRate(11.635, 19.39)), 67);
+  assert.equal(marginRate(0, 19.39), null, 'sans prix d’achat, pas de marge à annoncer');
+  assert.equal(marginRate(10, undefined), null);
 });
 
 /* ------------------------------------------------------------------ */

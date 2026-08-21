@@ -207,12 +207,15 @@ export const FUEL_LABEL: Record<string, string> = {
 };
 
 /**
- * Marge commerciale en pourcentage, telle que la calculent les logiciels de
- * gestion : ce que la vente rapporte, rapporté au prix de vente.
+ * Taux de marge en pourcentage : la marge rapportée au **coût d'achat**,
+ * comme le calculent la comptabilité française et les logiciels de gestion
+ * (11,635 € achetés revendus 19,39 € donnent 67 %). Le rapporter au prix de
+ * vente serait le taux de *marque* — un autre nombre, qui contredirait celui
+ * lu dans le logiciel de comptabilité pour le même article.
  */
 export function marginRate(unitCost?: number, salePrice?: number): number | null {
-  if (!unitCost || !salePrice || salePrice <= 0) return null;
-  return Math.round(((salePrice - unitCost) / salePrice) * 10000) / 100;
+  if (!unitCost || !salePrice || unitCost <= 0) return null;
+  return Math.round(((salePrice - unitCost) / unitCost) * 10000) / 100;
 }
 
 /** Prix TTC à partir du HT et du taux, quand les deux sont connus. */

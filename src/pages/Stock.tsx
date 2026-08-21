@@ -94,6 +94,8 @@ export function Stock() {
           ) ||
           matchesAmount(search, [
             product.unitCost,
+            product.salePrice,
+            priceTtc(product.salePrice, product.vatRate),
             product.unitCost === undefined ? null : product.unitCost * product.qtyOnHand,
           ])
         );
@@ -112,6 +114,7 @@ export function Stock() {
         qtyOnHand: (p: Product) => p.qtyOnHand,
         minQty: (p: Product) => p.minQty,
         unitCost: (p: Product) => p.unitCost ?? null,
+        salePrice: (p: Product) => p.salePrice ?? null,
         value: (p: Product) => (p.unitCost === undefined ? null : p.unitCost * p.qtyOnHand),
       }),
       [],
@@ -247,8 +250,12 @@ export function Stock() {
                 <Th sortKey="category" sort={sort} onSort={toggle}>Catégorie</Th>
                 <Th sortKey="qtyOnHand" sort={sort} onSort={toggle} className="num">Stock</Th>
                 <Th sortKey="minQty" sort={sort} onSort={toggle} className="num">Seuil</Th>
-                <Th sortKey="unitCost" sort={sort} onSort={toggle} className="num">Prix unitaire</Th>
-                <Th sortKey="value" sort={sort} onSort={toggle} className="num">Valeur</Th>
+                {/* Deux prix, deux colonnes : la confusion venait de n'en
+                    montrer qu'un, l'achat, alors que les catalogues importés
+                    portent surtout des prix de vente. */}
+                <Th sortKey="unitCost" sort={sort} onSort={toggle} className="num">Prix d’achat</Th>
+                <Th sortKey="salePrice" sort={sort} onSort={toggle} className="num">Prix de vente</Th>
+                <Th sortKey="value" sort={sort} onSort={toggle} className="num">Valeur du stock</Th>
                 <Th />
               </tr>
             </thead>
@@ -284,7 +291,23 @@ export function Stock() {
                       <span className="muted"> {product.unit}</span>
                     </td>
                     <td className="num muted">{product.minQty > 0 ? num(product.minQty) : '—'}</td>
-                    <td className="num">{product.unitCost !== undefined ? euro(product.unitCost) : '—'}</td>
+                    <td className="num muted">
+                      {product.unitCost !== undefined ? euro(product.unitCost) : '—'}
+                    </td>
+                    <td className="num">
+                      {product.salePrice !== undefined ? (
+                        <>
+                          <span style={{ fontWeight: 500 }}>{euro(product.salePrice)}</span>
+                          {product.vatRate !== undefined && (
+                            <div className="tiny muted">
+                              {euro(priceTtc(product.salePrice, product.vatRate) ?? 0)} TTC
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                     <td className="num">
                       {product.unitCost !== undefined ? euro(product.unitCost * product.qtyOnHand) : '—'}
                     </td>

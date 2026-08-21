@@ -69,6 +69,9 @@ export * from '../electron/offline';
 export * from '../electron/folders';
 export { pendingFiles, uploadPending } from '../electron/services/uploadWatcher';
 export { CHANNELS } from '../shared/api';
+// Calculs partagés avec les écrans : marge et prix TTC, dont les définitions
+// doivent coïncider avec celles du logiciel de comptabilité.
+export { marginRate, priceTtc } from '../shared/format';
 // Le magasin lui-même : sans Electron, il se pilote en Node. C'est ainsi qu'on
 // vérifie la restauration d'une sauvegarde venue d'une autre machine.
 export { store as dataStore, isForeignPath, defaultWatchFolder } from '../electron/store';

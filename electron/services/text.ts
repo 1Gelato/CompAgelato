@@ -92,9 +92,19 @@ export function parseNumber(raw: unknown): number | null {
     if (lastComma > lastDot) s = s.replace(/\./g, '').replace(',', '.');
     else s = s.replace(/,/g, '');
   } else if (lastComma > -1) {
-    // « 1,234 » → millier si exactement 3 chiffres après et plusieurs groupes.
+    /*
+     * Une seule virgule et trois chiffres derrière : « 11,635 » vaut-il onze
+     * mille, ou onze euros et six cent trente-cinq millièmes ?
+     *
+     * Il faut **plusieurs** groupes pour parler de milliers (« 1,234,567 ») :
+     * dans un fichier français, les milliers s'écrivent avec des espaces —
+     * déjà retirés plus haut — et la virgule reste le séparateur décimal. Les
+     * logiciels de comptabilité écrivent d'ailleurs les prix d'achat à trois
+     * décimales (« 11,635 »), qui devenaient ici onze mille six cent
+     * trente-cinq euros : un prix multiplié par mille, une marge absurde.
+     */
     const after = s.length - lastComma - 1;
-    if (after === 3 && /^\d{1,3}(,\d{3})+$/.test(s)) s = s.replace(/,/g, '');
+    if (after === 3 && /^\d{1,3}(,\d{3}){2,}$/.test(s)) s = s.replace(/,/g, '');
     else s = s.replace(',', '.');
   }
   const n = Number(s);

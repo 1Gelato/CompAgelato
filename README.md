@@ -452,6 +452,12 @@ Sur un serveur sans écran, préfixez les tests de bout en bout par
    carton, unité de facturation, seuil d'alerte, libellés reconnus — sont lues
    quand le fichier les porte, et le récapitulatif liste toujours les colonnes
    laissées de côté (taux de marge recalculé, volume, poids…).
+   La liste du stock affiche **deux prix distincts** — d'achat et de vente
+   (avec le TTC dessous) : la plupart des catalogues ne renseignent que le
+   second, et n'afficher que le premier donnait des colonnes à 0,00 € pour des
+   articles pourtant tarifés. Le taux de marge est celui de la comptabilité
+   française — la marge rapportée au coût d'achat —, donc le même nombre que
+   dans MEG.
 5. **Déposez vos factures** dans `Documents\CompaGelato\Factures`. Elles
    apparaissent en quelques secondes.
 6. **Documents.** Vérifiez l'association des lignes au stock, puis

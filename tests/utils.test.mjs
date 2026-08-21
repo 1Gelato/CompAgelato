@@ -21,6 +21,12 @@ test('lecture des nombres au format français et anglais', () => {
   assert.equal(parseNumber('1 234,56'), 1234.56);
   assert.equal(parseNumber('1,234.56'), 1234.56);
   assert.equal(parseNumber('12,5'), 12.5);
+  // Trois décimales, comme les prix d'achat des logiciels de comptabilité :
+  // une virgule seule ne fait pas un séparateur de milliers.
+  assert.equal(parseNumber('11,635'), 11.635);
+  assert.equal(parseNumber('0,125'), 0.125);
+  // Plusieurs groupes, en revanche, ne peuvent être que des milliers.
+  assert.equal(parseNumber('1,234,567'), 1234567);
   assert.equal(parseNumber('12.5'), 12.5);
   assert.equal(parseNumber('-45,20'), -45.2);
   assert.equal(parseNumber('3'), 3);
