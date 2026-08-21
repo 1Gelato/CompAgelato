@@ -1052,6 +1052,27 @@ npm install --save-dev @expo/ngrok@^4.1.0
 npm run tunnel
 ```
 
+**« CommandError: TypeError: Cannot read properties of undefined (reading
+'body') »** au démarrage du tunnel : le service ngrok a répondu autre chose
+qu'un tunnel — compte désormais exigé, quota atteint, panne — et la couche
+d'Expo lit une réponse qu'elle n'attendait pas. Rien à réparer de notre côté,
+et **inutile d'insister** : le tunnel n'est qu'un pis-aller pour les réseaux
+qui isolent les appareils.
+
+**Le vrai contournement, c'est le tailnet.** Tailscale tourne déjà sur le PC
+et sur le téléphone pour joindre le serveur ; autant s'en servir aussi pour
+Metro, qui devient alors indifférent au Wi-Fi, à la 4G et au pare-feu de la
+box. Il suffit de dire à Metro quelle adresse annoncer dans son QR :
+
+```powershell
+tailscale ip -4                         # l'adresse 100.x.y.z du PC
+$env:REACT_NATIVE_PACKAGER_HOSTNAME = "100.x.y.z"
+npm start
+```
+
+Le QR porte désormais `exp://100.x.y.z:7879`. La variable ne vaut que pour
+cette fenêtre PowerShell — la rouvrir revient au mode Wi-Fi ordinaire.
+
 **Ce qu'Expo Go ne montrera pas**, et qu'il ne faut pas prendre pour une
 panne : les **notifications distantes** (retirées d'Expo Go depuis le SDK 53)
 et les **mises à jour par les airs** (inutiles ici, le code vient en direct de
