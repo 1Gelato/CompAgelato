@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { serverCall } from '../core/api';
+import { isExpoGo } from './environment';
 
 /**
  * Notifications natives de CompaGelato.
@@ -65,6 +66,24 @@ async function ensureChannel(): Promise<void> {
 }
 
 /**
+ * Pourquoi cet appareil ne recevra rien, dit dans l'ordre des causes réelles.
+ *
+ * Expo Go passe **avant** tout le reste : c'est lui qui refuse le jeton, et
+ * répéter l'erreur technique de Firebase ferait chercher une panne là où il
+ * n'y en a pas. Le message de repli, lui, reste celui de Firebase — quand
+ * l'application est bel et bien installée, c'est la vraie piste.
+ */
+function unavailableReason(technical: string): string {
+  if (isExpoGo()) {
+    return 'Expo Go ne reçoit pas les notifications distantes (retirées du SDK 53). Elles fonctionneront sur l’application installée.';
+  }
+  if (!Device.isDevice) {
+    return 'Cet émulateur n’a pas les services Google. Recréez un appareil virtuel avec une image système « Google Play » pour recevoir les notifications.';
+  }
+  return technical;
+}
+
+/**
  * Demande la permission, obtient le jeton, l'enregistre auprès du serveur.
  *
  * Appelée après chaque connexion et à chaque retour au premier plan. Ne lève
@@ -96,22 +115,21 @@ export async function registerForPush(): Promise<PushState> {
     try {
       ({ data: token } = await Notifications.getDevicePushTokenAsync());
     } catch (err) {
-      // Le refus le plus courant : un appareil virtuel dépourvu des services
-      // Google. Le message d'origine est technique ; on dit quoi faire.
+      // Les deux refus courants — un essai dans Expo Go, un appareil virtuel
+      // dépourvu des services Google — ont un message qui dit quoi faire ;
+      // l'erreur d'origine ne sert que si aucun des deux n'explique.
       current = {
         status: 'indisponible',
-        reason: Device.isDevice
-          ? `Firebase n’a pas délivré de jeton : ${(err as Error).message ?? String(err)}`
-          : 'Cet émulateur n’a pas les services Google. Recréez un appareil virtuel avec une image système « Google Play » pour recevoir les notifications.',
+        reason: unavailableReason(
+          `Firebase n’a pas délivré de jeton : ${(err as Error).message ?? String(err)}`,
+        ),
       };
       return current;
     }
     if (typeof token !== 'string' || !token) {
       current = {
         status: 'indisponible',
-        reason: Device.isDevice
-          ? 'Firebase n’a pas délivré de jeton pour cet appareil.'
-          : 'Cet émulateur n’a pas les services Google. Recréez un appareil virtuel avec une image système « Google Play ».',
+        reason: unavailableReason('Firebase n’a pas délivré de jeton pour cet appareil.'),
       };
       return current;
     }

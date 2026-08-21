@@ -5,6 +5,7 @@ import * as Application from 'expo-application';
 import type { AuthIdentity, SyncStatus } from '@shared/api';
 import { ROLE_LABEL } from '@shared/types';
 import { api, logout, serverUrl } from '../lib/runtime';
+import { isExpoGo } from '../lib/environment';
 import { pushState, registerForPush, type PushState } from '../lib/push';
 import { discardIntent, retryNow, syncStatus } from '../core/offline';
 import { errorMessage } from '../lib/data';
@@ -48,6 +49,8 @@ export function SettingsScreen({
   onSignedOut: () => void;
 }) {
   const toast = useToast();
+  // Ne change pas d'un rendu à l'autre : c'est la nature de l'installation.
+  const expoGo = isExpoGo();
   const [status, setStatus] = useState<SyncStatus>(syncStatus());
   const [busySync, setBusySync] = useState(false);
   const [current, setCurrent] = useState('');
@@ -255,13 +258,21 @@ export function SettingsScreen({
           }`}
         />
         {!Updates.isEnabled ? (
-          // APK construite localement, sans service de mises à jour par les
-          // airs : promettre un bouton qui ne peut rien faire serait pire que
-          // de ne rien afficher.
-          <Muted size={12}>
-            Cette installation se met à jour en réinstallant l’APK — il n’y a pas de mise à jour
-            par les airs. Demandez la nouvelle version à Quentin.
-          </Muted>
+          // Pas de service de mises à jour par les airs : promettre un bouton
+          // qui ne peut rien faire serait pire que de ne rien afficher. Reste
+          // à dire pourquoi, et la raison n'est pas la même dans les deux cas.
+          expoGo ? (
+            <Muted size={12}>
+              Essai dans Expo Go : le code arrive en direct du serveur de développement, et se
+              recharge en secouant l’appareil. Les mises à jour par les airs ne concernent que
+              l’application installée.
+            </Muted>
+          ) : (
+            <Muted size={12}>
+              Cette installation se met à jour en réinstallant l’application — il n’y a pas de
+              mise à jour par les airs. Demandez la nouvelle version à Quentin.
+            </Muted>
+          )
         ) : updateState === 'ready' ? (
           <>
             <Muted>Mise à jour téléchargée. L’application va se relancer.</Muted>
