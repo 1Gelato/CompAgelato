@@ -2,11 +2,20 @@ import { useMemo, useState } from 'react';
 import { FlatList, RefreshControl, ScrollView, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { Client } from '@shared/types';
-import { euro } from '@shared/format';
-import { useClients, useDocuments, useRefresh, useSettings } from '../lib/data';
+import { dateFr, euro, num } from '@shared/format';
+import { clientOrderHistory } from '@shared/orders';
+import {
+  useClients,
+  useDeliveryNotes,
+  useDocuments,
+  useProducts,
+  useRefresh,
+  useSettings,
+} from '../lib/data';
 import { call, openMailto, openNavigation } from '../lib/nav';
 import {
   Badge,
+  Button,
   Card,
   EmptyState,
   InfoRow,
@@ -78,12 +87,21 @@ export function ClientDetailScreen({
   const { clientId } = route.params;
   const { data: clients, loading } = useClients();
   const { data: documents } = useDocuments();
+  const { data: deliveryNotes } = useDeliveryNotes();
+  const { data: products } = useProducts();
   const { data: settings } = useSettings();
+  const [toutCommande, setToutCommande] = useState(false);
 
   const client = useMemo(() => clients.find((c) => c.id === clientId), [clients, clientId]);
   const clientDocs = useMemo(
     () => documents.filter((d) => d.clientId === clientId).slice(0, 8),
     [documents, clientId],
+  );
+  // Tout vient du miroir local : la question « qu'est-ce que j'avais pris ? »
+  // se pose devant le client, souvent sans réseau.
+  const commandes = useMemo(
+    () => clientOrderHistory({ clientId, documents, deliveryNotes, products }),
+    [clientId, documents, deliveryNotes, products],
   );
 
   if (loading) return <Loading />;
@@ -131,6 +149,44 @@ export function ClientDetailScreen({
           />
         ) : null}
       </Card>
+
+      {commandes.items.length > 0 && (
+        <Card style={{ padding: 0, gap: 0 }}>
+          <View style={{ padding: spacing.lg, paddingBottom: spacing.sm }}>
+            <SectionTitle>Déjà commandé</SectionTitle>
+            <Muted size={12}>
+              {commandes.items.length} article(s) relevé(s) sur {commandes.sourceCount} pièce(s).
+            </Muted>
+          </View>
+          {(toutCommande ? commandes.items : commandes.items.slice(0, 8)).map((item) => (
+            <ListItem
+              key={item.key}
+              title={item.ref ? `${item.ref} · ${item.label}` : item.label}
+              subtitle={`${dateFr(item.lastDate)} · ${item.lastSource}${
+                item.orderCount > 1 ? ` · ${item.orderCount} fois` : ''
+              }`}
+              right={
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Muted size={13}>× {num(item.lastQty, item.unit)}</Muted>
+                  {item.lastUnitPriceHT != null ? (
+                    <Muted size={11}>{euro(item.lastUnitPriceHT)}</Muted>
+                  ) : null}
+                </View>
+              }
+            />
+          ))}
+          {commandes.items.length > 8 && (
+            <View style={{ padding: spacing.md }}>
+              <Button
+                title={
+                  toutCommande ? 'Réduire' : `Voir les ${commandes.items.length} articles`
+                }
+                onPress={() => setToutCommande((v) => !v)}
+              />
+            </View>
+          )}
+        </Card>
+      )}
 
       {clientDocs.length > 0 && (
         <Card style={{ padding: 0, gap: 0 }}>

@@ -795,6 +795,30 @@ test('les fenêtres de saisie s’ouvrent et se ferment sans erreur', async () =
   assert.deepEqual(errors, [], `erreurs React : ${errors.join(' | ')}`);
 });
 
+test('la fiche client montre ce que le client a déjà commandé', async () => {
+  // Le client rappelle sans se souvenir de sa référence : elle doit être là,
+  // sous les yeux, sans ouvrir une seule facture.
+  await page.click('.navitem:has-text("Clients")');
+  await page.waitForSelector('table.data tbody tr');
+  await page.fill('.search input', 'COMPTOIR');
+  await page.waitForTimeout(300);
+  await page.click('table.data tbody tr');
+  await page.waitForSelector('.modal');
+
+  const encart = page.locator('.field:has-text("Déjà commandé")');
+  await encart.waitFor({ timeout: 5000 });
+
+  const texte = await encart.textContent();
+  assert.match(texte, /Coupelle/i, `article absent de l’encart : ${texte.slice(0, 300)}`);
+  // La référence vient de la fiche article, la facture n'en portant pas.
+  assert.match(texte, /CUP-100/, `référence absente : ${texte.slice(0, 300)}`);
+  assert.match(texte, /FA-2026-0142/, `pièce d’origine absente : ${texte.slice(0, 300)}`);
+
+  await page.click('.modal__header .iconbtn');
+  await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+  await page.fill('.search input', '');
+});
+
 /* ------------------------------------------------------------------ */
 /* Relevés bancaires                                                    */
 /* ------------------------------------------------------------------ */

@@ -176,6 +176,25 @@ seules à la bonne fiche — par SIRET, par nom exact, puis par ressemblance. Qu
 vous corrigez un rattachement, le nom lu sur la facture est mémorisé : la fois
 suivante, c'est automatique.
 
+**« Qu'est-ce que j'avais pris la dernière fois ? »**
+La fiche client porte un encart **Déjà commandé** : tous les articles que ce
+client a pris, **référence en tête** puisque c'est elle qu'il oublie, avec la
+date, la pièce d'origine, la quantité et le prix de la dernière fois — plus le
+nombre de fois et la quantité cumulée pour ce qui revient régulièrement. Il n'y
+a rien à tenir à jour : la liste se compose à partir des factures rattachées et
+des bons de livraison signés.
+
+Trois pièces n'y figurent jamais. Un **devis** n'engage rien, une pièce
+**annulée** n'a rien livré, et un **avoir** est un retour — le soustraire
+ferait disparaître de la liste un article que le client connaît pourtant bien,
+soit exactement l'inverse du service rendu. Un **bon de livraison déjà
+facturé** ne compte pas non plus : sa facture raconte la même livraison, et
+tout compter deux fois gonflerait les quantités.
+
+L'encart existe à l'identique sur le téléphone, sous la fiche client, et il se
+calcule sur la copie locale : la question se pose devant le client, souvent
+sans réseau.
+
 **Stock**
 Le stock ne contient pas que des consommables : chaque article porte une
 **nature** — consommable (mix, coupelles, cornets…), **machine** (glace,

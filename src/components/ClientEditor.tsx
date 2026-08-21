@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Address, Client } from '@shared/types';
 import { AddressInput } from './AddressInput';
+import { ClientOrders } from './ClientOrders';
 import {
   Badge,
   Button,
@@ -201,6 +202,10 @@ export function ClientEditor({
           <Field label="Notes">
             <Textarea value={draft.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
           </Field>
+
+          {/* Une fiche qui vient d'être ouverte n'a pas d'historique : la
+              section n'apparaît qu'une fois le client enregistré. */}
+          {client && <ClientOrders clientId={client.id} />}
 
           {client && client.aliases.length > 0 && (
             <Field
