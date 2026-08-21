@@ -484,6 +484,15 @@ export function LoadError({ error, onRetry }: { error: string; onRetry?: () => v
   );
 }
 
+/**
+ * Les fenêtres ouvertes, dans l'ordre : seule celle du dessus répond à Échap.
+ *
+ * Les fenêtres s'empilent depuis qu'une fiche client complète s'ouvre depuis
+ * un cahier ou une tâche. Sans cette pile, une seule frappe fermait les deux —
+ * et l'écriture en cours de saisie était perdue avec.
+ */
+const modalStack: symbol[] = [];
+
 export function Modal({
   open,
   title,
@@ -501,14 +510,31 @@ export function Modal({
   footer?: ReactNode;
   wide?: boolean;
 }) {
+  // La fermeture passe par une référence : `onClose` est presque toujours une
+  // fonction écrite sur place, donc différente à chaque rendu. En dépendance
+  // de l'effet, elle ferait défiler la fenêtre en haut de la pile à chaque
+  // frappe de clavier.
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  });
+
   useEffect(() => {
     if (!open) return;
+    const token = Symbol('modal');
+    modalStack.push(token);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      if (modalStack[modalStack.length - 1] !== token) return;
+      closeRef.current();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      const index = modalStack.indexOf(token);
+      if (index >= 0) modalStack.splice(index, 1);
+    };
+  }, [open]);
 
   if (!open) return null;
   return (
