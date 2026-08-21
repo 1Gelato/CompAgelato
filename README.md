@@ -1070,14 +1070,15 @@ s'il n'avait rien joint du tout. Saisir la bonne adresse à la main n'y change
 rien : c'est Metro qui réécrit ses URL internes.
 
 ```powershell
-tailscale ip -4                         # l'adresse 100.x.y.z du PC
-$env:REACT_NATIVE_PACKAGER_HOSTNAME = "100.x.y.z"
+tailscale ip -4                       # affiche l'adresse du PC, ex. 100.113.129.15
+$env:REACT_NATIVE_PACKAGER_HOSTNAME = "100.113.129.15"   # celle affichée ci-dessus
 npm start
 ```
 
-Puis, dans Expo Go, **saisir `exp://100.x.y.z:7879` à la main** plutôt que de
-scanner. La variable ne vaut que pour cette fenêtre PowerShell — la rouvrir
-revient au mode Wi-Fi ordinaire.
+La ligne `Metro:` doit alors annoncer `exp://100.113.129.15:7879` — c'est la
+vérification que la variable a bien été prise. Puis, dans Expo Go, **saisir
+cette adresse à la main** plutôt que de scanner. La variable ne vaut que pour
+cette fenêtre PowerShell : la rouvrir revient au mode Wi-Fi ordinaire.
 
 Deux confusions coûtent du temps ici. L'adresse à passer est celle de **la
 machine qui exécute Metro** (le PC de développement), et non celle du serveur
