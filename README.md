@@ -1059,10 +1059,15 @@ d'Expo lit une réponse qu'elle n'attendait pas. Rien à réparer de notre côt�
 et **inutile d'insister** : le tunnel n'est qu'un pis-aller pour les réseaux
 qui isolent les appareils.
 
-**Le vrai contournement, c'est le tailnet.** Tailscale tourne déjà sur le PC
-et sur le téléphone pour joindre le serveur ; autant s'en servir aussi pour
-Metro, qui devient alors indifférent au Wi-Fi, à la 4G et au pare-feu de la
-box. Il suffit de dire à Metro quelle adresse annoncer dans son QR :
+**Le vrai contournement, c'est le tailnet** — et il demande une variable
+d'environnement, sans quoi il échoue d'une façon parfaitement trompeuse.
+
+Metro inscrit dans son manifeste l'adresse **LAN** qu'il a détectée tout seul,
+et c'est cette adresse-là que le téléphone utilisera pour réclamer le bundle.
+Un iPhone arrivé par Tailscale obtient donc le manifeste, puis échoue sur le
+bundle — et Expo Go affiche le même « Could not connect to the server » que
+s'il n'avait rien joint du tout. Saisir la bonne adresse à la main n'y change
+rien : c'est Metro qui réécrit ses URL internes.
 
 ```powershell
 tailscale ip -4                         # l'adresse 100.x.y.z du PC
@@ -1070,8 +1075,29 @@ $env:REACT_NATIVE_PACKAGER_HOSTNAME = "100.x.y.z"
 npm start
 ```
 
-Le QR porte désormais `exp://100.x.y.z:7879`. La variable ne vaut que pour
-cette fenêtre PowerShell — la rouvrir revient au mode Wi-Fi ordinaire.
+Puis, dans Expo Go, **saisir `exp://100.x.y.z:7879` à la main** plutôt que de
+scanner. La variable ne vaut que pour cette fenêtre PowerShell — la rouvrir
+revient au mode Wi-Fi ordinaire.
+
+Deux confusions coûtent du temps ici. L'adresse à passer est celle de **la
+machine qui exécute Metro** (le PC de développement), et non celle du serveur
+CompaGelato — `100.100.53.66:4680`, l'oldpc, est ce qu'on saisit *dans* l'app
+une fois ouverte. Et le port de Metro reste **7879** : 4680 est celui du
+serveur.
+
+**Le Metro fantôme.** Un `expo start` garde son port après la fermeture du
+terminal ; le suivant demande « utiliser 7880 ? » et le téléphone continue de
+parler à l'ancien processus. Le symptôme est traître : l'application marche,
+elle sert simplement un bundle figé — les modifications semblent ne rien
+changer à l'écran. Avant chaque relance :
+
+```powershell
+netstat -ano | findstr :7879
+taskkill /PID <numéro-de-la-dernière-colonne> /F
+```
+
+Enfin, laissez **deux à trois minutes** au premier bundle avant de conclure à
+une panne : l'application reste en attente pendant sa construction.
 
 **Ce qu'Expo Go ne montrera pas**, et qu'il ne faut pas prendre pour une
 panne : les **notifications distantes** (retirées d'Expo Go depuis le SDK 53)
