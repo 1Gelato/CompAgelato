@@ -195,6 +195,19 @@ L'encart existe à l'identique sur le téléphone, sous la fiche client, et il s
 calcule sur la copie locale : la question se pose devant le client, souvent
 sans réseau.
 
+**Le récapitulatif de TVA n'est pas un article.** Le bas d'une facture porte
+une petite table « Base HT | Taux | Montant » dont chaque ligne commence par le
+nom du taux — « Normale », « Réduite ». Aucune ne commence par « Total », si
+bien que rien n'arrêtait la lecture du tableau d'articles : « Réduite 450,88 €
+5,50% 24,80 € » devenait un article de quantité 1 et d'unité « Total TTC ».
+CompaGelato reconnaît maintenant ces lignes à leur **forme** — un nom de taux
+suivi d'un pourcentage —, qu'un titre les annonce ou non. Une remise, qui porte
+elle aussi un pourcentage mais pas de nom de taux, reste bien un article.
+
+Les pièces lues **avant** ce correctif portent encore ces lignes fantômes :
+**Documents → Analyser le dossier** les relit et les nettoie. En attendant,
+l'encart « Déjà commandé » ne les propose pas.
+
 **Stock**
 Le stock ne contient pas que des consommables : chaque article porte une
 **nature** — consommable (mix, coupelles, cornets…), **machine** (glace,

@@ -201,3 +201,40 @@ test('une pièce plus ancienne n’écrase pas la dernière trace', () => {
   assert.equal(items[0].lastUnitPriceHT, 5);
   assert.equal(items[0].totalQty, 13);
 });
+
+test('les récapitulatifs de TVA déjà enregistrés ne sont pas proposés', () => {
+  // Les pièces lues avant que le lecteur n'apprenne à les reconnaître portent
+  // encore ces lignes : l'historique ne les montre pas pour autant.
+  const documents = [
+    facture('FAC00000802', '2026-07-15', [
+      { id: 'a', ref: 'CORNETSIMPLE', label: 'CORNETSIMPLE -CORNET SIMPLE', qty: 1, unitPriceHT: 52.3 },
+      { id: 'b', label: 'Normale 144,00 € 20,00%', qty: 28.8 },
+      { id: 'c', label: 'Réduite 104,60 € 5,50%', qty: 5.75 },
+      { id: 'd', label: 'Réduite 450,88 € 5,50% 24,80 €', qty: 1, unit: 'Total TTC' },
+    ]),
+  ];
+
+  const { items } = clientOrderHistory({ clientId: 'cli_1', documents });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].ref, 'CORNETSIMPLE');
+});
+
+test('la référence n’est pas répétée dans le libellé', () => {
+  // MEG imprime « CORNETSIMPLE » dans sa colonne et « CORNETSIMPLE -CORNET
+  // SIMPLE » dans le libellé : affiché tel quel, l'écran dit deux fois la
+  // même chose.
+  const documents = [
+    facture('FA-1', '2026-05-01', [
+      { id: 'a', ref: 'CORNETSIMPLE', label: 'CORNETSIMPLE -CORNET SIMPLE X100', qty: 1 },
+      // Une référence qui préfixe le libellé sans séparateur ne se coupe pas :
+      // « REM » ne doit pas amputer « REMISE ».
+      { id: 'b', ref: 'REM', label: 'REMISE FIN D’ANNÉE', qty: 1 },
+    ]),
+  ];
+
+  const { items } = clientOrderHistory({ clientId: 'cli_1', documents });
+  const cornet = items.find((i) => i.ref === 'CORNETSIMPLE');
+  const remise = items.find((i) => i.ref === 'REM');
+  assert.equal(cornet.label, 'CORNET SIMPLE X100');
+  assert.equal(remise.label, 'REMISE FIN D’ANNÉE');
+});

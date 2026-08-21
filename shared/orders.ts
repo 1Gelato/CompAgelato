@@ -1,4 +1,5 @@
 import type { AccountingDocument, DeliveryNote, ID, Product } from './types';
+import { cleanItemLabel, looksLikeVatRecapRow } from './invoiceLines';
 
 /**
  * Ce qu'un client a déjà commandé, regroupé par article.
@@ -105,10 +106,18 @@ export function clientOrderHistory({
     source: string,
     fromDeliveryNote: boolean,
   ) => {
-    const label = line.label.trim();
+    const brut = line.label.trim();
     const ref = line.ref?.trim() || (line.productId ? skuOf.get(line.productId)?.sku : undefined);
     // Une ligne sans libellé ni référence ne dit rien à personne.
-    if (!label && !ref) return;
+    if (!brut && !ref) return;
+    // Les récapitulatifs de TVA lus comme des articles avant que le lecteur
+    // n'apprenne à les reconnaître restent dans les pièces déjà enregistrées.
+    // « Réduite 450,88 € 5,50% » n'est pas un article : on ne le propose pas.
+    if (looksLikeVatRecapRow(brut)) return;
+
+    // « CORNETSIMPLE » et « CORNETSIMPLE -CORNET SIMPLE » côte à côte disent
+    // deux fois la même chose : la colonne référence suffit.
+    const label = cleanItemLabel(brut, ref);
 
     const key = ref ? `ref:${ref.toLowerCase()}` : `lib:${labelKey(label)}`;
     const existing = byKey.get(key);

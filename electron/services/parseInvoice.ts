@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { DocumentKind } from '@shared/types';
+import { looksLikeVatRecapRow } from '@shared/invoiceLines';
 import type { PdfExtract, PdfLine, PdfTextItem } from './pdf';
 import { looksLikeClientName, parseDate, parseNumber, normalize, round2 } from './text';
 
@@ -604,7 +605,7 @@ function toCell(items: PdfTextItem[]): Cell {
 }
 
 const STOP_ROW =
-  /^(total|sous[-\s]?total|montant\s*(ht|ttc)|d[ée]tail\s*(de\s*la\s*)?tva|tva|net\s*[àa]\s*payer|conditions?|mode\s*de\s*r|arr[êe]t[ée]e?\s*la|escompte|acompte|p[ée]nalit|r[èe]glement|coordonn[ée]es?\s*bancaires?|le\s*montant\s*total|page\s*\d+\s*(de|sur|\/)\s*\d+)/i;
+  /^(total|sous[-\s]?total|montant\s*(ht|ttc)|d[ée]tail\s*(de\s*la\s*)?tva|r[ée]capitulatif|base\s*ht|tva|net\s*[àa]\s*payer|conditions?|mode\s*de\s*r|arr[êe]t[ée]e?\s*la|escompte|acompte|p[ée]nalit|r[èe]glement|coordonn[ée]es?\s*bancaires?|le\s*montant\s*total|page\s*\d+\s*(de|sur|\/)\s*\d+)/i;
 
 /**
  * Pied de page légal, répété en bas de chaque page : il contient toujours
@@ -688,7 +689,13 @@ export function extractLinesFromPdf(extract: PdfExtract): { lines: ParsedLine[];
      * légal se répètent en bas de *chaque* page. S'arrêter là perdrait les
      * articles des pages suivantes ; on tente donc d'abord la reprise.
      */
-    if (STOP_ROW.test(text) || looksLikeLegalFooter(text)) {
+    /*
+     * Le récapitulatif de TVA n'annonce pas toujours son titre — ou l'annonce
+     * dans une colonne qui n'ouvre pas la ligne. Ses lignes, elles, se
+     * reconnaissent toujours : un nom de taux suivi d'un pourcentage. Sans
+     * cela, « Réduite 450,88 € 5,50% 24,80 € » devenait un article.
+     */
+    if (STOP_ROW.test(text) || looksLikeVatRecapRow(text) || looksLikeLegalFooter(text)) {
       const resume = resumeNextPage(extract.lines, i + 1, currentPage);
       if (!resume) break;
       currentPage = resume.page;

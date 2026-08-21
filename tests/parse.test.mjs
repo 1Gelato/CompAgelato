@@ -13,6 +13,8 @@ import {
   looksLikeClientName,
   matchClient,
   rememberClientAlias,
+  extractLinesFromPdf,
+  looksLikeVatRecapRow,
 } from './build/services.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -594,4 +596,72 @@ test('un alias qui ne peut pas être un nom n’est pas mémorisé', () => {
   // Le garde-fou vaut aussi à l'écriture : rien n'oblige à attendre la
   // relecture pour cesser de salir une fiche.
   assert.doesNotThrow(() => rememberClientAlias('cli_inexistant', 'Date et signature'));
+});
+
+/* ------------------------------------------------------------------ */
+/* Récapitulatif de TVA : une table qui n'est pas un tableau d'articles  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Compose une page à la main plutôt que de fabriquer un PDF : la mise en page
+ * qui pose problème se décrit en cinq colonnes et trois lignes.
+ */
+function page(rows) {
+  const lines = rows.map(({ y, cells }) => {
+    const items = cells.map(([str, x, width]) => ({
+      str,
+      x,
+      y,
+      width,
+      height: 10,
+      page: 1,
+    }));
+    return { page: 1, y, text: cells.map(([str]) => str).join(' '), items };
+  });
+  return { text: '', lines, pages: 1, attachments: [], info: {} };
+}
+
+const COLONNES = [40, 100, 300, 352, 432];
+
+function ligne(y, valeurs, largeurs) {
+  return { y, cells: valeurs.map((v, i) => [v, COLONNES[i], largeurs[i]]) };
+}
+
+test('le récapitulatif de TVA n’est pas lu comme des articles', () => {
+  // C'est la mise en page du bas de facture : à gauche le récapitulatif de
+  // TVA, à droite les totaux, sur les mêmes lignes visuelles. Aucune de ces
+  // lignes ne commence par « Total », donc rien n'arrêtait la lecture — et
+  // « Réduite 450,88 € 5,50% 24,80 € » devenait un article de quantité 1,
+  // d'unité « Total TTC ».
+  const extract = page([
+    ligne(700, ['Réf.', 'Désignation', 'Qté', 'PU HT', 'Montant HT'], [25, 70, 20, 30, 60]),
+    ligne(680, ['CUP-100', 'CUP-100 -Coupelle carton', '12', '8,90', '106,80'], [40, 120, 12, 25, 35]),
+    ligne(660, ['REM', 'REM -Remise 5%', '1', '-5,34', '-5,34'], [30, 120, 8, 28, 30]),
+    ligne(600, ['Réduite', '450,88 €', '5,50%', '24,80 €', 'Total TTC'], [40, 45, 30, 40, 50]),
+    ligne(580, ['Normale', '144,00 €', '20,00%', '28,80 €', '475,68 €'], [40, 45, 35, 40, 45]),
+  ]);
+
+  const { lines } = extractLinesFromPdf(extract);
+
+  assert.deepEqual(
+    lines.map((l) => l.label),
+    ['CUP-100 -Coupelle carton', 'REM -Remise 5%'],
+    `lignes lues : ${JSON.stringify(lines.map((l) => l.label))}`,
+  );
+  assert.equal(lines[0].qty, 12);
+  assert.equal(lines[0].unitPriceHT, 8.9);
+  // Une remise porte bien un pourcentage : elle appartient à la commande, et
+  // ne doit pas tomber avec le récapitulatif.
+  assert.equal(lines[1].totalHT, -5.34);
+});
+
+test('un nom de taux sans pourcentage reste un article', () => {
+  assert.equal(looksLikeVatRecapRow('Réduite 450,88 € 5,50% 24,80 €'), true);
+  assert.equal(looksLikeVatRecapRow('Normale 144,00 € 20,00%'), true);
+  assert.equal(looksLikeVatRecapRow('Taux normal 20 %'), true);
+  // Un pourcentage seul, ou un intitulé seul, ne suffit pas.
+  assert.equal(looksLikeVatRecapRow('Remise 5%'), false);
+  assert.equal(looksLikeVatRecapRow('Réduction commerciale'), false);
+  assert.equal(looksLikeVatRecapRow('Coupelle carton 100 ml'), false);
+  assert.equal(looksLikeVatRecapRow(''), false);
 });
