@@ -1100,6 +1100,14 @@ taskkill /PID <numéro-de-la-dernière-colonne> /F
 Enfin, laissez **deux à trois minutes** au premier bundle avant de conclure à
 une panne : l'application reste en attente pendant sa construction.
 
+**« Project is incompatible with this version of Expo Go »** est au contraire
+une bonne nouvelle : le téléphone a joint Metro, et c'est Expo Go qui est plus
+ancien que le SDK du projet. Une mise à jour depuis l'App Store ou le Play
+Store suffit — au besoin en supprimant puis réinstallant l'application, le
+magasin gardant parfois une version en cache. Inutile de lancer
+`npx expo install --check` : Expo Go regarde le numéro de SDK majeur, pas les
+correctifs.
+
 **Ce qu'Expo Go ne montrera pas**, et qu'il ne faut pas prendre pour une
 panne : les **notifications distantes** (retirées d'Expo Go depuis le SDK 53)
 et les **mises à jour par les airs** (inutiles ici, le code vient en direct de
