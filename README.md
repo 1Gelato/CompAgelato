@@ -477,11 +477,17 @@ Sur un serveur sans écran, préfixez les tests de bout en bout par
    **adresse** mais pas encore de position. Une fiche sans aucune adresse n'y
    figure pas : il n'y a rien à chercher.
 
-   Les listes importées collent souvent un e-mail, un téléphone ou un prénom
-   dans la rue — « 158 RUE DE BELGIQUE atonaise56@gmail.com JULIEN ». Le
-   service d'adresses ne reconnaissait alors rien, la fiche restait sans
-   position, et chaque passe la reprenait pour échouer pareil : le compteur ne
-   descendait jamais. La question est désormais nettoyée avant d'être posée,
+   Les adresses saisies à la main portent parfois un e-mail ou un téléphone au
+   milieu — « 158 RUE DE BELGIQUE atonaise56@gmail.com 09 54 93 49 90 ». Ces
+   scories sont **retirées des fiches au premier chargement** : elles
+   s'affichaient dans le carnet et empêchaient le service d'adresses de
+   reconnaître la rue. Le nettoyage ne retire que ce qui n'est jamais une
+   adresse — un e-mail, un numéro à dix chiffres — et laisse le reste
+   intact ; une fiche déjà propre n'est pas réécrite.
+
+   Un prénom collé dans la rue, lui, reste : rien ne permet de le distinguer à
+   coup sûr d'un nom de rue. La question est donc aussi nettoyée avant d'être
+   posée au service d'adresses,
    puis, si elle n'aboutit pas, **repliée sur le code postal et la ville**. Le
    point tombe au centre de la commune plutôt que devant la porte — mais un
    client placé dans la bonne ville entre dans une tournée, ce qu'une fiche

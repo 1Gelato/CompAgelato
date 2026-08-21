@@ -69,23 +69,41 @@ export function parseAddressLine(line: string): Partial<Address> {
 }
 
 /**
- * Complète une adresse dont seule la ligne complète est renseignée.
- * Retourne null quand il n'y a rien à réparer — la fiche reste intacte.
+ * Complète et nettoie une adresse. Retourne null quand il n'y a rien à
+ * réparer — la fiche reste alors intacte, jusqu'à l'octet près.
+ *
+ * Deux réparations, indépendantes l'une de l'autre :
+ *
+ * - **le découpage**, quand tout est resté dans la ligne complète ;
+ * - **le nettoyage**, quand un e-mail ou un téléphone a été saisi au milieu de
+ *   l'adresse. Celui-ci vaut même pour une fiche déjà découpée : ces scories
+ *   s'affichent dans le carnet et empêchent le service d'adresses de
+ *   reconnaître la rue.
  */
 export function repairAddress(address: Address): Address | null {
-  if (!address.label || (address.postcode && address.city)) return null;
-  const parsed = parseAddressLine(address.label);
-  if (!parsed.postcode && !parsed.city && !parsed.street) return null;
+  if (!address.label) return null;
+
+  const split = Boolean(address.postcode && address.city);
+  const label = cleanAddressLine(address.label);
+  const street = address.street ? cleanAddressLine(address.street) : address.street;
+
+  // Déjà découpée et déjà propre : on ne touche à rien.
+  if (split && label === address.label && street === address.street) return null;
+
+  const parsed = split ? {} : parseAddressLine(address.label);
+  // Rien d'exploitable et rien à nettoyer : on n'invente pas une adresse.
+  if (!split && !parsed.postcode && !parsed.city && !parsed.street) return null;
 
   const repaired: Address = {
     ...address,
-    street: address.street ?? parsed.street,
+    label,
+    street: street ?? parsed.street,
     postcode: address.postcode ?? parsed.postcode,
     city: address.city ?? parsed.city,
     country: address.country ?? parsed.country ?? 'France',
   };
   // Quand tout a pu être isolé, la ligne se réécrit proprement — sans le pays
-  // ni les scories (e-mail, téléphone) qui gênaient la géolocalisation.
+  // ni les scories qui gênaient la géolocalisation.
   if (repaired.street && repaired.postcode && repaired.city) {
     repaired.label = `${repaired.street}, ${repaired.postcode} ${repaired.city}`;
   }

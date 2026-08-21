@@ -282,3 +282,38 @@ test('ré-importer un fichier plus pauvre n’efface rien', async () => {
   assert.equal(apres.mobile, '07 87 51 56 47');
   assert.equal(apres.address.city, 'PENMARCH');
 });
+
+test('un e-mail saisi dans l’adresse est retiré, même sur une fiche déjà découpée', () => {
+  // Saisie héritée : une collègue notait le contact au milieu de l'adresse.
+  // Le code postal et la ville étant renseignés, la réparation s'arrêtait là
+  // et la scorie restait — affichée dans le carnet, et posée telle quelle au
+  // service d'adresses, qui ne reconnaissait alors plus rien.
+  const repaired = repairAddress({
+    label: '158 RUE DE BELGIQUE atonaise56@gmail.com 09 54 93 49 90 56100 LORIENT',
+    street: '158 RUE DE BELGIQUE atonaise56@gmail.com 09 54 93 49 90',
+    postcode: '56100',
+    city: 'LORIENT',
+    country: 'France',
+  });
+
+  assert.equal(repaired.street, '158 RUE DE BELGIQUE');
+  assert.equal(repaired.label, '158 RUE DE BELGIQUE, 56100 LORIENT');
+  // Ce qui était juste ne bouge pas.
+  assert.equal(repaired.postcode, '56100');
+  assert.equal(repaired.city, 'LORIENT');
+});
+
+test('une adresse propre n’est jamais réécrite', () => {
+  // Le carnet ne doit pas se réordonner tout seul au premier chargement venu :
+  // une fiche sans scorie et déjà découpée sort de la réparation intacte.
+  assert.equal(
+    repairAddress({
+      label: '9 rue Jean de la Bruyère, 44300 Nantes',
+      street: '9 rue Jean de la Bruyère',
+      postcode: '44300',
+      city: 'Nantes',
+      country: 'France',
+    }),
+    null,
+  );
+});
