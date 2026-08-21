@@ -441,7 +441,17 @@ Sur un serveur sans écran, préfixez les tests de bout en bout par
    le bouton affiche l'avancement, vous pouvez continuer à travailler — et même
    fermer l'application, la passe continue.
 4. **Stock → Nouveau consommable** (ou Importer). Renseignez la référence, la
-   quantité et le seuil d'alerte.
+   quantité et le seuil d'alerte. L'export d'articles de MEG est compris tel
+   quel : Code, Libellé, Description, État (un article inactif arrive archivé),
+   Famille, Compte comptable, Prix d'achat moyen, Prix de vente HT (retrouvé du
+   TTC quand le HT est vide), TVA, Unité et Disponibilité en jours — celle-ci
+   étant un **délai de réapprovisionnement**, elle n'est jamais prise pour une
+   quantité en stock. La nature (consommable, mix, machine, pièce) se devine du
+   libellé faute de colonne qui la nomme, et reste modifiable d'un clic. Les
+   colonnes que CompaGelato connaît en propre — contenu d'une unité, unités par
+   carton, unité de facturation, seuil d'alerte, libellés reconnus — sont lues
+   quand le fichier les porte, et le récapitulatif liste toujours les colonnes
+   laissées de côté (taux de marge recalculé, volume, poids…).
 5. **Déposez vos factures** dans `Documents\CompaGelato\Factures`. Elles
    apparaissent en quelques secondes.
 6. **Documents.** Vérifiez l'association des lignes au stock, puis

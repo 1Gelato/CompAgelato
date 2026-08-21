@@ -206,6 +206,21 @@ export const FUEL_LABEL: Record<string, string> = {
   electrique: 'Électrique',
 };
 
+/**
+ * Marge commerciale en pourcentage, telle que la calculent les logiciels de
+ * gestion : ce que la vente rapporte, rapporté au prix de vente.
+ */
+export function marginRate(unitCost?: number, salePrice?: number): number | null {
+  if (!unitCost || !salePrice || salePrice <= 0) return null;
+  return Math.round(((salePrice - unitCost) / salePrice) * 10000) / 100;
+}
+
+/** Prix TTC à partir du HT et du taux, quand les deux sont connus. */
+export function priceTtc(salePrice?: number, vatRate?: number): number | null {
+  if (salePrice == null) return null;
+  return Math.round(salePrice * (1 + (vatRate ?? 0) / 100) * 100) / 100;
+}
+
 /** Recherche insensible aux accents et à la casse. */
 export function matches(haystack: string, needle: string): boolean {
   if (!needle) return true;

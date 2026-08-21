@@ -5,7 +5,18 @@ export {
   rememberClientAlias,
   forgetLearnedAliases,
   importClientsFile,
+  importProductsFile,
 } from '../electron/services/clients';
+// Lecture d'un catalogue d'articles : état, nature, taux, prix de vente —
+// chaque interprétation se vérifie valeur par valeur.
+export {
+  parseActive,
+  explicitProductType,
+  guessProductType,
+  parseInvoicedAs,
+  parseVatRate,
+  saleHtFrom,
+} from '../electron/services/productFields';
 // Adresses en une ligne : découpage, nettoyage et réparation des fiches.
 export { cleanAddressLine, parseAddressLine, repairAddress } from '../electron/services/address';
 // Géolocalisation en tâche de fond : le lancement, l'avancement, l'attente —

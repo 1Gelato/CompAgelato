@@ -224,6 +224,16 @@ export interface Product extends Syncable {
   minQty: number;
   unitCost?: number;
   supplier?: string;
+  /** Description libre, telle que la porte la fiche article de la comptabilité. */
+  description?: string;
+  /** Prix de vente HT. Le TTC se recalcule du taux, il n'est donc pas stocké. */
+  salePrice?: number;
+  /** Taux de TVA de la vente, en pourcentage (20 pour 20 %). */
+  vatRate?: number;
+  /** Compte comptable de l'article (707…), pour le dialogue avec la comptabilité. */
+  accountingCode?: string;
+  /** Délai de réapprovisionnement annoncé, en jours. */
+  leadTimeDays?: number;
   /** Libellés rencontrés sur les factures qui désignent ce produit. */
   aliases: string[];
   archived: boolean;

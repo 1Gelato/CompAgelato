@@ -15,11 +15,12 @@ import {
   Select,
   Spinner,
   Stat,
+  Textarea,
   Th,
   useToast,
 } from '../components/ui';
 import { errorMessage, refreshAll, useProducts, useStockMoves } from '../lib/data';
-import { dateFr, euro, matches, num } from '../lib/format';
+import { dateFr, euro, marginRate, matches, num, priceTtc } from '../lib/format';
 import { useSort } from '../lib/sort';
 import { matchesAmount } from '../lib/search';
 
@@ -472,10 +473,59 @@ function ProductEditor({ product, onClose }: { product: Product | null; onClose:
                 suffix="€"
               />
             </Field>
+            <Field
+              label="Prix de vente HT"
+              hint={(() => {
+                const margin = marginRate(draft.unitCost, draft.salePrice);
+                const ttc = priceTtc(draft.salePrice, draft.vatRate);
+                return [
+                  ttc != null ? `${ttc.toFixed(2)} € TTC` : '',
+                  margin != null ? `marge ${margin.toFixed(1)} %` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ');
+              })()}
+            >
+              <NumberInput
+                value={draft.salePrice}
+                onValueChange={(v) => set('salePrice', v)}
+                step={0.01}
+                suffix="€"
+              />
+            </Field>
+            <Field label="TVA">
+              <NumberInput
+                value={draft.vatRate}
+                onValueChange={(v) => set('vatRate', v)}
+                step={0.1}
+                suffix="%"
+              />
+            </Field>
             <Field label="Fournisseur">
               <Input value={draft.supplier ?? ''} onChange={(e) => set('supplier', e.target.value)} />
             </Field>
+            <Field label="Délai de réappro" hint="Jours annoncés par le fournisseur">
+              <NumberInput
+                value={draft.leadTimeDays}
+                onValueChange={(v) => set('leadTimeDays', v || undefined)}
+                suffix="j"
+              />
+            </Field>
+            <Field label="Compte comptable" hint="Repris de votre logiciel de comptabilité">
+              <Input
+                value={draft.accountingCode ?? ''}
+                onChange={(e) => set('accountingCode', e.target.value)}
+              />
+            </Field>
           </div>
+
+          <Field label="Description">
+            <Textarea
+              rows={2}
+              value={draft.description ?? ''}
+              onChange={(e) => set('description', e.target.value)}
+            />
+          </Field>
 
           <Field
             label="Libellés reconnus sur les factures"

@@ -1,6 +1,14 @@
 import type { Address, Client, ID, ImportClientsReport, Product } from '@shared/types';
 import { newId, nowIso, store } from '../store';
 import { parseAddressLine } from './address';
+import {
+  explicitProductType,
+  guessProductType,
+  parseActive,
+  parseInvoicedAs,
+  parseVatRate,
+  saleHtFrom,
+} from './productFields';
 import { looksLikeClientName, normalize, parseNumber, round2, similarity } from './text';
 import { CLIENT_FIELDS, PRODUCT_FIELDS, guessMapping, readTable } from './tabular';
 import { adjustStock, registerOpeningStock } from './stock';
@@ -452,6 +460,11 @@ export async function importProductsFile(
     return v && v.trim() ? v.trim() : undefined;
   };
 
+  // Comme pour les clients : une colonne absente du fichier ne doit jamais
+  // effacer ce que la fiche porte déjà.
+  const present = <T extends object>(obj: T): Partial<T> =>
+    Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as Partial<T>;
+
   store.mutate((db) => {
     for (const [index, row] of table.rows.entries()) {
       const sku = value(row, 'sku');
@@ -465,51 +478,70 @@ export async function importProductsFile(
       const aliasesRaw = value(row, 'aliases');
       const aliases = aliasesRaw ? aliasesRaw.split(/[;|]/).map((a) => a.trim()).filter(Boolean) : [];
 
-      const payload = {
-        sku: sku ?? existing?.sku ?? nextProductSku(),
-        name,
-        category: value(row, 'category'),
-        unit: value(row, 'unit') ?? 'pièce',
-        qtyOnHand: parseNumber(value(row, 'qtyOnHand')) ?? 0,
-        minQty: parseNumber(value(row, 'minQty')) ?? 0,
-        unitCost: parseNumber(value(row, 'unitCost')) ?? undefined,
-        supplier: value(row, 'supplier'),
+      const category = value(row, 'category');
+      const vatRate = parseVatRate(value(row, 'vatRate'));
+      const salePrice = saleHtFrom(value(row, 'salePrice'), value(row, 'salePriceTtc'), vatRate);
+      const active = parseActive(value(row, 'state'));
+      const declaredType = explicitProductType(value(row, 'type'));
+      const numberOf = (field: string): number | undefined => {
+        const parsed = parseNumber(value(row, field));
+        return parsed == null ? undefined : round2(parsed);
       };
+
+      // Champs repris tels quels quand le fichier les porte.
+      const fields = {
+        name,
+        description: value(row, 'description'),
+        category,
+        unit: value(row, 'unit'),
+        packSize: numberOf('packSize'),
+        packMeasure: value(row, 'packMeasure'),
+        unitsPerCase: numberOf('unitsPerCase'),
+        invoicedAs: parseInvoicedAs(value(row, 'invoicedAs')) ?? undefined,
+        accountingCode: value(row, 'accountingCode'),
+        unitCost: numberOf('unitCost'),
+        salePrice: salePrice ?? undefined,
+        vatRate: vatRate ?? undefined,
+        leadTimeDays: numberOf('leadTimeDays'),
+        minQty: numberOf('minQty'),
+        supplier: value(row, 'supplier'),
+        archived: active == null ? undefined : !active,
+      };
+
+      const stockInFile = mapping.qtyOnHand ? numberOf('qtyOnHand') : undefined;
 
       try {
         if (existing) {
-          Object.assign(existing, {
-            ...payload,
-            sku: existing.sku,
-            qtyOnHand: existing.qtyOnHand,
+          Object.assign(existing, present(fields), {
+            // La nature n'est réécrite que si le fichier la nomme : sinon une
+            // devinette effacerait un classement fait à la main.
+            ...(declaredType ? { type: declaredType } : {}),
             aliases: [...new Set([...existing.aliases, ...aliases])],
             updatedAt: nowIso(),
           });
           // La quantité passe par un mouvement : le total repart toujours de
           // la somme du journal, jamais d'un nombre écrit directement.
-          if (mapping.qtyOnHand && round2(payload.qtyOnHand) !== round2(existing.qtyOnHand)) {
-            adjustStock(existing.id, round2(payload.qtyOnHand), 'Import du stock');
+          if (stockInFile !== undefined && stockInFile !== round2(existing.qtyOnHand)) {
+            adjustStock(existing.id, stockInFile, 'Import du stock');
           }
           updated++;
         } else {
           const product: Product = {
             id: newId('prd'),
-            sku: payload.sku,
-            name: payload.name,
-            type: 'consumable',
-            category: payload.category,
-            unit: payload.unit,
+            sku: sku?.trim() || nextProductSku(),
+            name,
+            type: declaredType ?? guessProductType(name, category),
+            unit: 'pièce',
             qtyOnHand: 0,
-            minQty: round2(payload.minQty),
-            unitCost: payload.unitCost,
-            supplier: payload.supplier,
+            minQty: 0,
+            ...present(fields),
+            archived: active === false,
             aliases,
-            archived: false,
             createdAt: nowIso(),
             updatedAt: nowIso(),
           };
           db.products.push(product);
-          registerOpeningStock(product, round2(payload.qtyOnHand), 'Import du stock');
+          registerOpeningStock(product, stockInFile ?? 0, 'Import du stock');
           created++;
         }
       } catch (err) {

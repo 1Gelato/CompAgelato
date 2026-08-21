@@ -93,15 +93,20 @@ export function exportDocumentsCsv(): string {
 
 export function exportProductsCsv(): string {
   const rows = store.db.products.map((p) => [
-    p.sku, p.name, p.category ?? '', p.unit, p.qtyOnHand, p.minQty,
-    p.unitCost ?? '', p.unitCost ? (p.unitCost * p.qtyOnHand).toFixed(2) : '',
-    p.supplier ?? '', p.aliases.join(' | '), p.archived ? 'oui' : 'non',
+    p.sku, p.name, p.description ?? '', p.category ?? '', p.unit, p.qtyOnHand, p.minQty,
+    p.unitCost ?? '', p.salePrice ?? '', p.vatRate ?? '',
+    p.unitCost ? (p.unitCost * p.qtyOnHand).toFixed(2) : '',
+    p.accountingCode ?? '', p.leadTimeDays ?? '',
+    p.supplier ?? '', p.aliases.join(' | '), p.archived ? 'Inactif' : 'Actif',
   ]);
   return write(
     'stock',
     toCsv(
-      ['Référence', 'Désignation', 'Catégorie', 'Unité', 'Stock', 'Stock mini',
-       'Prix unitaire', 'Valeur stock', 'Fournisseur', 'Libellés reconnus', 'Archivé'],
+      // Mêmes intitulés que ceux que l'import reconnaît : le fichier exporté se
+      // réimporte tel quel, ici comme dans le logiciel de comptabilité.
+      ['Code article', 'Libellé', 'Description', 'Famille', 'Unité', 'Stock', 'Stock mini',
+       'Prix d’achat moyen', 'Prix de vente HT', 'TVA', 'Valeur stock',
+       'Compte comptable', 'Disponibilité (jours)', 'Fournisseur', 'Libellés reconnus', 'Etat'],
       rows,
     ),
   );

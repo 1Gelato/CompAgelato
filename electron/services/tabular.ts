@@ -316,16 +316,47 @@ export const CLIENT_FIELDS: FieldDictionary = {
   tags: ['tags', 'categorie', 'famille', 'type client', 'segment'],
 };
 
+/**
+ * Colonnes d'un catalogue d'articles.
+ *
+ * L'ordre compte : un champ déclaré plus haut se sert le premier. C'est ce qui
+ * permet à un export MEG — dont les colonnes portent des noms proches
+ * (« Libellé » et « Description », trois colonnes de prix, « Disponibilité
+ * (jours) » qui n'a rien d'un stock) — d'atterrir au bon endroit.
+ *
+ * `description` reste **après** `name`, qui garde « description » en dernier
+ * synonyme : un fichier qui n'a qu'une colonne « Description » y trouve encore
+ * sa désignation, tandis qu'un fichier qui a les deux les distingue.
+ */
 export const PRODUCT_FIELDS: FieldDictionary = {
-  sku: ['reference', 'ref', 'code article', 'code', 'sku', 'code produit', 'ean', 'article'],
-  name: ['designation', 'libelle', 'nom', 'produit', 'description', 'intitule', 'name'],
-  category: ['categorie', 'famille', 'rayon', 'type', 'groupe'],
-  unit: ['unite', 'conditionnement', 'uv', 'unit', 'cond'],
-  qtyOnHand: ['stock', 'quantite', 'qte', 'stock actuel', 'quantite en stock', 'qte stock', 'disponible'],
-  minQty: ['stock mini', 'seuil', 'stock minimum', 'alerte', 'seuil alerte', 'mini', 'stock alerte'],
-  unitCost: ['prix achat', 'cout', 'prix unitaire', 'pu', 'prix', 'cout unitaire', 'pa'],
+  sku: ['code article', 'reference', 'ref', 'code', 'sku', 'code produit', 'ean', 'article'],
+  name: ['libelle', 'designation', 'nom', 'produit', 'intitule', 'name', 'description'],
+  description: ['description', 'commentaire', 'detail', 'notes'],
+  /** « Actif / Inactif » : un article retiré du catalogue arrive archivé. */
+  state: ['etat', 'statut', 'actif', 'state'],
+  type: ['type article', 'nature', 'type'],
+  category: ['famille', 'categorie', 'rayon', 'groupe'],
+  unit: ['unite de stock', 'unite', 'conditionnement', 'uv', 'unit', 'cond'],
+  packSize: ['contenu', 'contenance', 'contenu unite'],
+  packMeasure: ['mesure', 'unite de mesure', 'unite du contenu'],
+  unitsPerCase: ['unites par carton', 'par carton', 'colisage', 'nb par carton'],
+  invoicedAs: ['facture par', 'facture comme', 'unite de facturation'],
+  accountingCode: ['compte comptable', 'compte de vente', 'compte'],
+  unitCost: ['prix d achat moyen', 'prix achat', 'prix d achat', 'cout unitaire', 'cout', 'prix unitaire', 'pa'],
+  salePrice: ['prix de vente ht', 'prix vente ht', 'prix de vente', 'prix vente', 'pv ht'],
+  /** Sert de repli : sans prix HT, il se retrouve à partir du taux de TVA. */
+  salePriceTtc: ['prix de vente ttc', 'prix vente ttc', 'pv ttc'],
+  vatRate: ['taux de tva', 'taux tva', 'tva'],
+  // Avant `qtyOnHand` : « Disponibilité (jours) » est un délai, pas un stock —
+  // sans cette ligne, l'import inscrivait « 5 jours » comme cinq unités en
+  // stock, et fabriquait un mouvement d'inventaire pour cette quantité.
+  leadTimeDays: ['disponibilite jours', 'disponibilite', 'delai appro', 'delai livraison', 'delai'],
+  qtyOnHand: ['quantite en stock', 'stock actuel', 'qte stock', 'stock reel', 'stock', 'quantite', 'qte'],
+  minQty: ['stock mini', 'stock minimum', 'seuil alerte', 'stock alerte', 'seuil', 'alerte'],
   supplier: ['fournisseur', 'supplier', 'marque'],
-  aliases: ['alias', 'synonymes', 'autres libelles', 'libelles factures'],
+  // « Libellés reconnus » est l'intitulé de notre propre export : le fichier
+  // sorti de CompaGelato doit pouvoir y rentrer sans rien perdre.
+  aliases: ['libelles reconnus', 'alias', 'synonymes', 'autres libelles', 'libelles factures'],
 };
 
 export const DOCUMENT_FIELDS: FieldDictionary = {
