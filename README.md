@@ -1100,13 +1100,22 @@ taskkill /PID <numéro-de-la-dernière-colonne> /F
 Enfin, laissez **deux à trois minutes** au premier bundle avant de conclure à
 une panne : l'application reste en attente pendant sa construction.
 
-**« Project is incompatible with this version of Expo Go »** est au contraire
-une bonne nouvelle : le téléphone a joint Metro, et c'est Expo Go qui est plus
-ancien que le SDK du projet. Une mise à jour depuis l'App Store ou le Play
-Store suffit — au besoin en supprimant puis réinstallant l'application, le
-magasin gardant parfois une version en cache. Inutile de lancer
-`npx expo install --check` : Expo Go regarde le numéro de SDK majeur, pas les
-correctifs.
+**« Project is incompatible with this version of Expo Go »** est d'abord une
+bonne nouvelle : le téléphone a joint Metro, et il ne reste qu'un écart de
+version. Inutile de lancer `npx expo install --check` — Expo Go regarde le
+numéro de SDK majeur (57 ici), pas les correctifs.
+
+Sur **Android**, une mise à jour depuis le Play Store règle l'affaire. Sur
+**iPhone, non** : Expo ne publie plus les nouveaux SDK sur l'App Store — 55,
+56 et 57 en sont absents. Le seul chemin qu'Expo propose est `eas go`, qui
+construit un Expo Go sur EAS et le distribue par **TestFlight** : il exige une
+adhésion au programme développeur Apple (99 $/an), soit la même barrière qu'un
+build iOS ordinaire. **Tester sur iPhone n'est donc pas possible
+gratuitement**, quel que soit l'âge de l'appareil.
+
+Ce n'est pas gênant : la cible du projet est Android — le téléphone du livreur
+et l'APK. L'émulateur Android décrit plus bas rend exactement le même service
+pour essayer une nouveauté sans téléphone sous la main.
 
 **Ce qu'Expo Go ne montrera pas**, et qu'il ne faut pas prendre pour une
 panne : les **notifications distantes** (retirées d'Expo Go depuis le SDK 53)
