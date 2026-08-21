@@ -16,6 +16,7 @@ export const REGISTER_KIND_LABEL: Record<RegisterKind, string> = {
   consumables: 'Consommables',
   event: 'Événementiel',
   purchase: 'Achats',
+  wintering: 'Hivernage',
 };
 
 /** Libellés de statut propres à chaque cahier. */
@@ -23,7 +24,8 @@ export const REGISTER_STATUS_LABEL: Record<RegisterKind, Record<RegisterStatus, 
   sav: { open: 'À traiter', confirmed: 'En cours', done: 'Résolu', cancelled: 'Annulé' },
   consumables: { open: 'À préparer', confirmed: 'En préparation', done: 'Livré', cancelled: 'Annulé' },
   event: { open: 'Demande', confirmed: 'Devis validé', done: 'Terminé', cancelled: 'Annulé' },
-  purchase: { open: 'À acheter', confirmed: 'Commandé', done: 'Reçu', cancelled: 'Annulé' },
+  purchase: { open: 'Demande', confirmed: 'En discussion', done: 'Vendu', cancelled: 'Sans suite' },
+  wintering: { open: 'Annoncée', confirmed: 'Au dépôt', done: 'Restituée', cancelled: 'Annulée' },
 };
 
 /**
@@ -107,7 +109,8 @@ const KIND_TAGS: Record<RegisterKind, string> = {
   sav: 'wrench',
   consumables: 'package',
   event: 'tada',
-  purchase: 'shopping_cart',
+  purchase: 'moneybag',
+  wintering: 'snowflake',
 };
 
 /** « 2026-08-12 » → « 12/08/2026 » (sans dépendre du code de l'interface). */
@@ -127,11 +130,7 @@ export function notificationFor(
   occasion: 'created' | 'confirmed' = 'created',
 ): NotificationPayload {
   const kind = REGISTER_KIND_LABEL[entry.kind];
-  // Le cahier des achats parle d'un fournisseur, pas d'un client.
-  const who =
-    clientName ??
-    entry.clientName ??
-    (entry.kind === 'purchase' ? 'fournisseur à choisir' : 'Client inconnu');
+  const who = clientName ?? entry.clientName ?? 'Client inconnu';
   const date = entry.eventDate ? ` — le ${frDate(entry.eventDate)}` : '';
   const items = (entry.items ?? []).map((i) => `${i.qty} × ${i.label}`).join(', ');
 

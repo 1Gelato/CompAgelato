@@ -144,6 +144,7 @@ export const REGISTER_KIND_LABEL: Record<string, string> = {
   consumables: 'Consommables',
   event: 'Événementiel',
   purchase: 'Achats',
+  wintering: 'Hivernage',
 };
 
 /** Libellés de statut propres à chaque cahier. */
@@ -151,7 +152,8 @@ export const REGISTER_STATUS_LABEL: Record<string, Record<string, string>> = {
   sav: { open: 'À traiter', confirmed: 'En cours', done: 'Résolu', cancelled: 'Annulé' },
   consumables: { open: 'À préparer', confirmed: 'En préparation', done: 'Livré', cancelled: 'Annulé' },
   event: { open: 'Demande', confirmed: 'Devis validé', done: 'Terminé', cancelled: 'Annulé' },
-  purchase: { open: 'À acheter', confirmed: 'Commandé', done: 'Reçu', cancelled: 'Annulé' },
+  purchase: { open: 'Demande', confirmed: 'En discussion', done: 'Vendu', cancelled: 'Sans suite' },
+  wintering: { open: 'Annoncée', confirmed: 'Au dépôt', done: 'Restituée', cancelled: 'Annulée' },
 };
 
 export const REGISTER_STATUS_TONE: Record<string, string> = {

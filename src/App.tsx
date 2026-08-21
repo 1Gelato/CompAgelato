@@ -84,7 +84,7 @@ const PAGES: {
     label: 'Cahiers',
     icon: Icons.book,
     title: 'Cahiers',
-    subtitle: 'SAV, consommables et événementiel — vos trois cahiers, au même endroit',
+    subtitle: 'SAV, consommables, événementiel, achats, hivernage — vos cahiers, au même endroit',
   },
   {
     id: 'taches',

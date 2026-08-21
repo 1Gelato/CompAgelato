@@ -60,7 +60,8 @@ const KIND_TITLE: Record<RegisterKind, string> = {
   sav: 'Cause de la panne',
   consumables: 'Objet de la commande',
   event: 'Nom de l’événement',
-  purchase: 'Objet de l’achat',
+  purchase: 'Ce que le client veut acheter',
+  wintering: 'Machine gardée',
 };
 
 const KIND_EMPTY: Record<RegisterKind, string> = {
@@ -70,7 +71,33 @@ const KIND_EMPTY: Record<RegisterKind, string> = {
   event:
     'Aucune demande événementielle. Les machines ne sont réservées qu’au passage en « Devis validé ».',
   purchase:
-    'Rien à acheter pour le moment. Notez ici ce que l’entreprise doit se procurer — la liste de courses, sans le papier.',
+    'Aucune demande d’achat. Quand un client veut acheter une machine, notez sa demande ici — le devis ou la facture viendront plus tard, s’ils viennent.',
+  wintering:
+    'Aucune machine à l’hivernage. Quand un client confie sa machine pour l’hiver, notez-la ici : « Au dépôt » à son arrivée, « Restituée » quand il la reprend.',
+};
+
+/** Colonne et champ des articles, propres à chaque cahier. */
+const KIND_ITEMS_LABEL: Record<RegisterKind, string | null> = {
+  sav: 'Pièces demandées',
+  consumables: 'Articles commandés',
+  event: null,
+  purchase: 'Matériel souhaité',
+  wintering: 'Accessoires laissés avec',
+};
+
+/** Nature du stock mise en avant dans le sélecteur d'articles. */
+const KIND_ITEMS_TYPE: Record<RegisterKind, 'part' | 'consumable' | 'machine'> = {
+  sav: 'part',
+  consumables: 'consumable',
+  event: 'consumable',
+  purchase: 'machine',
+  wintering: 'part',
+};
+
+/** Libellé de la colonne de date propre au cahier (vide : pas de colonne). */
+const KIND_DATE_LABEL: Partial<Record<RegisterKind, string>> = {
+  event: 'Prestation',
+  wintering: 'Restitution prévue',
 };
 
 export function Cahiers() {
@@ -174,6 +201,7 @@ export function Cahiers() {
             { value: 'consumables', label: 'Consommables' },
             { value: 'event', label: 'Événementiel' },
             { value: 'purchase', label: 'Achats' },
+            { value: 'wintering', label: 'Hivernage' },
           ]}
         />
         <SearchInput
@@ -231,6 +259,17 @@ export function Cahiers() {
         </Button>
       </div>
 
+      {kind === 'wintering' && (
+        <div className="infobox">
+          {(() => {
+            const stored = entries.filter((e) => e.kind === 'wintering' && e.status === 'confirmed');
+            return stored.length
+              ? `${stored.length} machine${stored.length > 1 ? 's' : ''} actuellement au dépôt. Le bouton « Imprimer » sort l'inventaire tel qu'affiché.`
+              : 'Aucune machine au dépôt en ce moment. « Annoncée » quand le client prévient, « Au dépôt » à l’arrivée de la machine, « Restituée » quand il la reprend.';
+          })()}
+        </div>
+      )}
+
       {!sorted.length ? (
         <div className="card">
           <EmptyState
@@ -258,14 +297,12 @@ export function Cahiers() {
             <thead>
               <tr>
                 <Th sortKey="createdAt" sort={sort} onSort={toggle}>Noté le</Th>
-                {kind === 'event' && (
-                  <Th sortKey="eventDate" sort={sort} onSort={toggle}>Prestation</Th>
+                {KIND_DATE_LABEL[kind] && (
+                  <Th sortKey="eventDate" sort={sort} onSort={toggle}>{KIND_DATE_LABEL[kind]}</Th>
                 )}
-                <Th sortKey="client" sort={sort} onSort={toggle}>
-                  {kind === 'purchase' ? 'Fournisseur' : 'Client'}
-                </Th>
+                <Th sortKey="client" sort={sort} onSort={toggle}>Client</Th>
                 <Th sortKey="title" sort={sort} onSort={toggle}>{KIND_TITLE[kind]}</Th>
-                {kind !== 'event' && <Th>{kind === 'sav' ? 'Pièces demandées' : 'Articles'}</Th>}
+                {KIND_ITEMS_LABEL[kind] && <Th>{KIND_ITEMS_LABEL[kind]}</Th>}
                 {kind === 'event' && <Th>Machines</Th>}
                 <Th sortKey="status" sort={sort} onSort={toggle}>Statut</Th>
                 <Th />
@@ -275,8 +312,19 @@ export function Cahiers() {
               {sorted.map((entry) => (
                 <tr key={entry.id} onClick={() => setEditing(entry)} style={{ cursor: 'default' }}>
                   <td className="muted">{dateFr(entry.createdAt.slice(0, 10))}</td>
-                  {kind === 'event' && (
-                    <td style={{ fontWeight: 500 }}>{entry.eventDate ? dateFr(entry.eventDate) : '—'}</td>
+                  {KIND_DATE_LABEL[kind] && (
+                    <td style={{ fontWeight: 500 }}>
+                      {entry.eventDate ? dateFr(entry.eventDate) : '—'}
+                      {/* Une machine encore au dépôt après la date convenue : à rappeler. */}
+                      {kind === 'wintering' &&
+                        entry.status === 'confirmed' &&
+                        entry.eventDate &&
+                        entry.eventDate < new Date().toISOString().slice(0, 10) && (
+                          <div>
+                            <Badge tone="badge--orange">restitution dépassée</Badge>
+                          </div>
+                        )}
+                    </td>
                   )}
                   <td>
                     <span className="truncate" style={{ fontWeight: 500 }}>
@@ -290,7 +338,7 @@ export function Cahiers() {
                     <span className="truncate">{entry.title}</span>
                     {entry.details && <div className="tiny muted truncate">{entry.details}</div>}
                   </td>
-                  {kind !== 'event' && (
+                  {KIND_ITEMS_LABEL[kind] && (
                     <td className="tiny">
                       {entry.items?.length ? (
                         entry.items.map((i) => `${i.qty} × ${i.label}`).join(', ')
@@ -330,20 +378,19 @@ export function Cahiers() {
                   </td>
                   <td style={{ width: 78 }} onClick={(e) => e.stopPropagation()}>
                     <div className="row" style={{ gap: 2, justifyContent: 'flex-end' }}>
-                      {/* Un achat ne se livre pas : pas de tournée pour ce cahier. */}
-                      {entry.kind !== 'purchase' && (
-                        <IconButton
-                          title={
-                            entry.routeId
-                              ? 'Déjà dans une tournée — cliquer pour l’ajouter à une autre'
-                              : 'Ajouter à une tournée de livraison'
-                          }
-                          active={Boolean(entry.routeId)}
-                          onClick={() => setRouting(entry)}
-                        >
-                          <Icons.routes size={15} />
-                        </IconButton>
-                      )}
+                      {/* Une machine vendue se livre, une machine hivernée se
+                          restitue : la tournée sert à tous les cahiers. */}
+                      <IconButton
+                        title={
+                          entry.routeId
+                            ? 'Déjà dans une tournée — cliquer pour l’ajouter à une autre'
+                            : 'Ajouter à une tournée de livraison'
+                        }
+                        active={Boolean(entry.routeId)}
+                        onClick={() => setRouting(entry)}
+                      >
+                        <Icons.routes size={15} />
+                      </IconButton>
                       <IconButton title="Supprimer" danger onClick={() => setRemoving(entry)}>
                         <Icons.trash size={15} />
                       </IconButton>
@@ -530,9 +577,9 @@ function EntryDialog({
         clientId,
         clientName: clientId ? undefined : clientName.trim() || undefined,
         title,
-        items: kind === 'event' ? undefined : items,
+        items: KIND_ITEMS_LABEL[kind] ? items : undefined,
         details,
-        eventDate: kind === 'event' ? eventDate || undefined : undefined,
+        eventDate: KIND_DATE_LABEL[kind] ? eventDate || undefined : undefined,
         machines:
           kind === 'event'
             ? Object.entries(qty)
@@ -575,22 +622,15 @@ function EntryDialog({
       }
     >
       <div className="col" style={{ gap: 14 }}>
-        {kind === 'purchase' ? (
-          // Un achat vient d'un fournisseur : pas de fiche client à rattacher.
-          <Field label="Fournisseur" hint="Nom libre — Metro, Promocash, le réparateur du coin…">
-            <Input value={clientName} onChange={(e) => setClientName(e.target.value)} />
-          </Field>
-        ) : (
-          <ClientPicker
-            clients={clients}
-            clientId={clientId}
-            clientName={clientName}
-            onChange={(patch) => {
-              setClientId(patch.clientId);
-              setClientName(patch.clientName ?? '');
-            }}
-          />
-        )}
+        <ClientPicker
+          clients={clients}
+          clientId={clientId}
+          clientName={clientName}
+          onChange={(patch) => {
+            setClientId(patch.clientId);
+            setClientName(patch.clientName ?? '');
+          }}
+        />
 
         <div className="formgrid">
           <Field label={KIND_TITLE[kind]}>
@@ -606,23 +646,24 @@ function EntryDialog({
             </Select>
           </Field>
 
-          {kind === 'event' && (
-            <Field label="Date de la prestation">
+          {KIND_DATE_LABEL[kind] && (
+            <Field
+              label={kind === 'wintering' ? 'Restitution prévue' : 'Date de la prestation'}
+              hint={
+                kind === 'wintering'
+                  ? 'Vers quand le client reprend sa machine — au printemps, souvent. Passée sans restitution, la ligne le signale.'
+                  : undefined
+              }
+            >
               <Input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} />
             </Field>
           )}
         </div>
 
-        {kind !== 'event' && (
+        {KIND_ITEMS_LABEL[kind] && (
           <ItemPicker
-            label={
-              kind === 'sav'
-                ? 'Pièces demandées'
-                : kind === 'purchase'
-                  ? 'Articles à acheter'
-                  : 'Articles commandés'
-            }
-            preferredType={kind === 'sav' ? 'part' : 'consumable'}
+            label={KIND_ITEMS_LABEL[kind]!}
+            preferredType={KIND_ITEMS_TYPE[kind]}
             items={items}
             onChange={setItems}
           />

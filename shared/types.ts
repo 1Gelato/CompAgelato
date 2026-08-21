@@ -349,18 +349,21 @@ export interface DeliveryRoute extends Syncable {
 /* Cahiers (SAV, consommables, événementiel)                            */
 /* ------------------------------------------------------------------ */
 
-export type RegisterKind = 'sav' | 'consumables' | 'event' | 'purchase';
+export type RegisterKind = 'sav' | 'consumables' | 'event' | 'purchase' | 'wintering';
 
 /**
  * Statuts communs aux cahiers, avec des libellés propres à chacun :
- * - SAV :           open = À traiter,  confirmed = En cours,       done = Résolu
- * - Consommables :  open = À préparer, confirmed = En préparation, done = Livré
- * - Événementiel :  open = Demande,    confirmed = Devis validé,   done = Terminé
- * - Achats :        open = À acheter,  confirmed = Commandé,       done = Reçu
+ * - SAV :           open = À traiter,  confirmed = En cours,        done = Résolu
+ * - Consommables :  open = À préparer, confirmed = En préparation,  done = Livré
+ * - Événementiel :  open = Demande,    confirmed = Devis validé,    done = Terminé
+ * - Achats :        open = Demande,    confirmed = En discussion,   done = Vendu
+ * - Hivernage :     open = Annoncée,   confirmed = Au dépôt,        done = Restituée
  *
  * Pour l'événementiel, seul « Devis validé » réserve les machines : une simple
- * demande ne retire rien du parc. Le cahier des achats note ce que l'entreprise
- * doit se procurer : son « client » est un fournisseur.
+ * demande ne retire rien du parc. Le cahier des achats note les envies d'achat
+ * des **clients** (une machine, le plus souvent) avant tout devis ou facture ;
+ * l'hivernage suit les machines que les clients confient pour l'hiver, du
+ * dépôt à la restitution.
  */
 export type RegisterStatus = 'open' | 'confirmed' | 'done' | 'cancelled';
 
@@ -384,8 +387,7 @@ export interface RegisterEntry extends Syncable {
   id: ID;
   kind: RegisterKind;
   clientId?: ID;
-  /** Nom noté à la volée quand le client n'a pas (encore) de fiche.
-   *  Dans le cahier des achats, c'est le nom du fournisseur. */
+  /** Nom noté à la volée quand le client n'a pas (encore) de fiche. */
   clientName?: string;
   /** Cause de la panne (SAV), objet de la commande, nom de l'événement. */
   title: string;
@@ -398,7 +400,7 @@ export interface RegisterEntry extends Syncable {
   details?: string;
   /** Tournée de livraison à laquelle cette écriture a été rattachée. */
   routeId?: ID;
-  /** Événementiel : date de la prestation. */
+  /** Événementiel : date de la prestation. Hivernage : restitution prévue. */
   eventDate?: string;
   /** Événementiel : machines demandées. */
   machines?: RegisterMachineLine[];

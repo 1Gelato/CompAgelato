@@ -195,7 +195,8 @@ export function CahierPrintView({
           <tr>
             <th style={{ width: 78 }}>Noté le</th>
             {kind === 'event' && <th style={{ width: 78 }}>Prestation</th>}
-            <th>{kind === 'purchase' ? 'Fournisseur' : 'Client'}</th>
+            {kind === 'wintering' && <th style={{ width: 90 }}>Restitution</th>}
+            <th>Client</th>
             <th>Objet</th>
             <th>{kind === 'event' ? 'Machines' : 'Articles'}</th>
             <th style={{ width: 92 }}>Statut</th>
@@ -205,7 +206,9 @@ export function CahierPrintView({
           {rows.map(({ entry, who, machines }) => (
             <tr key={entry.id}>
               <td>{dateFr(entry.createdAt.slice(0, 10))}</td>
-              {kind === 'event' && <td>{entry.eventDate ? dateFr(entry.eventDate) : '—'}</td>}
+              {(kind === 'event' || kind === 'wintering') && (
+                <td>{entry.eventDate ? dateFr(entry.eventDate) : '—'}</td>
+              )}
               <td>{who || '—'}</td>
               <td>
                 {entry.title}
@@ -221,7 +224,7 @@ export function CahierPrintView({
           ))}
           {!rows.length && (
             <tr>
-              <td colSpan={kind === 'event' ? 6 : 5} className="muted">
+              <td colSpan={kind === 'event' || kind === 'wintering' ? 6 : 5} className="muted">
                 Rien à imprimer avec ces filtres.
               </td>
             </tr>

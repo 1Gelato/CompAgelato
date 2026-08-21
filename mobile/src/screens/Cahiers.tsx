@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { FlatList, RefreshControl, View } from 'react-native';
 import type { RegisterEntry, RegisterKind, RegisterStatus } from '@shared/types';
-import { dateFr } from '@shared/format';
+import { dateFr, REGISTER_STATUS_LABEL } from '@shared/format';
 import { api } from '../lib/runtime';
 import { errorMessage, refreshAll, useClients, useRefresh, useRegisterEntries } from '../lib/data';
 import {
@@ -31,14 +31,13 @@ const KIND_LABEL: Record<RegisterKind, string> = {
   consumables: 'Consommables',
   event: 'Événementiel',
   purchase: 'Achats',
+  wintering: 'Hivernage',
 };
 
-const STATUS_LABEL: Record<RegisterStatus, string> = {
-  open: 'À traiter',
-  confirmed: 'Confirmée',
-  done: 'Terminée',
-  cancelled: 'Annulée',
-};
+/** Libellé du statut, dans les mots du cahier concerné — comme sur le bureau. */
+function statusLabel(entry: Pick<RegisterEntry, 'kind' | 'status'>): string {
+  return REGISTER_STATUS_LABEL[entry.kind]?.[entry.status] ?? entry.status;
+}
 
 const STATUS_TONE: Record<RegisterStatus, Tone> = {
   open: 'warn',
@@ -127,6 +126,7 @@ export function CahiersScreen() {
             { value: 'consumables', label: 'Consommables' },
             { value: 'event', label: 'Événementiel' },
             { value: 'purchase', label: 'Achats' },
+            { value: 'wintering', label: 'Hivernage' },
           ]}
         />
         <Button title="+ Nouvelle écriture" variant="primary" onPress={() => setCreating(true)} />
@@ -140,10 +140,17 @@ export function CahiersScreen() {
         renderItem={({ item: entry }) => (
           <ListItem
             title={entry.title}
-            subtitle={[KIND_LABEL[entry.kind], clientLabel(entry), dateFr(entry.createdAt.slice(0, 10))]
+            subtitle={[
+              KIND_LABEL[entry.kind],
+              clientLabel(entry),
+              dateFr(entry.createdAt.slice(0, 10)),
+              entry.kind === 'wintering' && entry.eventDate
+                ? `restitution ${dateFr(entry.eventDate)}`
+                : '',
+            ]
               .filter(Boolean)
               .join(' · ')}
-            right={<Badge tone={STATUS_TONE[entry.status]}>{STATUS_LABEL[entry.status]}</Badge>}
+            right={<Badge tone={STATUS_TONE[entry.status]}>{statusLabel(entry)}</Badge>}
             onPress={() => setSelected(entry)}
           />
         )}
@@ -165,7 +172,7 @@ export function CahiersScreen() {
             .map((status) => (
               <SheetAction
                 key={status}
-                title={STATUS_LABEL[status]}
+                title={statusLabel({ kind: selected.kind, status })}
                 tone={status === 'done' ? 'success' : status === 'cancelled' ? 'danger' : 'default'}
                 onPress={() => void setStatus(selected, status)}
               />
@@ -182,29 +189,35 @@ export function CahiersScreen() {
             { value: 'consumables', label: 'Consommables' },
             { value: 'event', label: 'Événementiel' },
             { value: 'purchase', label: 'Achats' },
+            { value: 'wintering', label: 'Hivernage' },
           ]}
         />
-        <Field label={draftKind === 'sav' ? 'Cause de la panne' : 'Objet'}>
-          <Input
-            value={title}
-            onChangeText={setTitle}
-            placeholder={draftKind === 'purchase' ? 'Gobelets, mix vanille…' : 'Machine en panne…'}
-            autoFocus
-          />
-        </Field>
         <Field
-          label={draftKind === 'purchase' ? 'Fournisseur' : 'Client'}
-          hint={
-            draftKind === 'purchase'
-              ? 'Nom libre — Metro, Promocash…'
-              : 'Nom noté au vol — la fiche pourra être rattachée au bureau.'
+          label={
+            draftKind === 'sav'
+              ? 'Cause de la panne'
+              : draftKind === 'purchase'
+                ? 'Ce que le client veut acheter'
+                : draftKind === 'wintering'
+                  ? 'Machine gardée'
+                  : 'Objet'
           }
         >
           <Input
-            value={clientName}
-            onChangeText={setClientName}
-            placeholder={draftKind === 'purchase' ? 'Metro' : 'Glacier des Embruns'}
+            value={title}
+            onChangeText={setTitle}
+            placeholder={
+              draftKind === 'purchase'
+                ? 'Machine à glace italienne…'
+                : draftKind === 'wintering'
+                  ? 'Carpigiani 2 parfums…'
+                  : 'Machine en panne…'
+            }
+            autoFocus
           />
+        </Field>
+        <Field label="Client" hint="Nom noté au vol — la fiche pourra être rattachée au bureau.">
+          <Input value={clientName} onChangeText={setClientName} placeholder="Glacier des Embruns" />
         </Field>
         <Field label="Commentaire">
           <Input value={details} onChangeText={setDetails} placeholder="Détails…" multiline />
