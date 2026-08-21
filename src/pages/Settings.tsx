@@ -577,6 +577,22 @@ export function Settings({
         </Card>
 
         <Card
+          title="Bons de livraison"
+          subtitle="Ce que le client voit sur le bon qu'il signe"
+        >
+          <Switch
+            checked={settings.deliveryNotePrices ?? false}
+            onChange={(v) => patch({ deliveryNotePrices: v })}
+            label="Afficher les prix par défaut sur les bons"
+          />
+          <p className="tiny muted" style={{ margin: '6px 0 0' }}>
+            Chaque bon garde le dernier mot : la case se coche ou se décoche à la livraison,
+            avant de tendre le téléphone au client. Le montant, lui, reste toujours visible
+            au bureau — même quand le bon remis au client n'affiche pas les prix.
+          </p>
+        </Card>
+
+        <Card
           title="Notifications sur téléphone"
           subtitle="Chaque ajout dans les cahiers ou dans les tâches prévient toute l'équipe"
         >

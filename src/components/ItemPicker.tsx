@@ -31,12 +31,19 @@ export function ItemPicker({
   preferredType,
   items,
   onChange,
+  withPrices,
 }: {
   label: string;
   /** Nature mise en avant : pièces détachées en SAV, consommables ailleurs. */
   preferredType: ProductType;
   items: RegisterItem[];
   onChange: (items: RegisterItem[]) => void;
+  /**
+   * Colonne de prix unitaire, préremplie du prix de vente de l'article.
+   * Réservée aux bons de livraison : un cahier note ce qu'on doit faire, pas
+   * ce qu'on facture.
+   */
+  withPrices?: boolean;
 }) {
   const { data: products } = useProducts();
   const [query, setQuery] = useState('');
@@ -94,6 +101,25 @@ export function ItemPicker({
                     <Badge>hors stock</Badge>
                   )}
                   <div className="spacer" />
+                  {withPrices && (
+                    <>
+                      <NumberInput
+                        value={item.unitPrice}
+                        step={0.01}
+                        suffix="€"
+                        title="Prix unitaire HT"
+                        onValueChange={(v) => {
+                          const next = [...items];
+                          next[index] = { ...item, unitPrice: v };
+                          onChange(next);
+                        }}
+                        style={{ width: 104 }}
+                      />
+                      <span className="tiny muted" style={{ minWidth: 74, textAlign: 'right' }}>
+                        {((item.unitPrice ?? 0) * item.qty).toFixed(2)} €
+                      </span>
+                    </>
+                  )}
                   <IconButton
                     title="Retirer"
                     danger
@@ -120,7 +146,16 @@ export function ItemPicker({
                 key={product.id}
                 className="list__item"
                 style={{ cursor: 'default' }}
-                onClick={() => add({ productId: product.id, label: product.name, qty: 1 })}
+                onClick={() =>
+                  add({
+                    productId: product.id,
+                    label: product.name,
+                    qty: 1,
+                    // Le prix est copié maintenant : le bon signé garde le
+                    // tarif du jour, même si le catalogue change ensuite.
+                    ...(withPrices ? { unitPrice: product.salePrice } : {}),
+                  })
+                }
               >
                 <span className="mono tiny muted" style={{ minWidth: 78 }}>
                   {product.sku}

@@ -76,6 +76,8 @@ export function BonPrintView({
   clientName: string;
   companyName?: string;
 }) {
+  const withPrices = Boolean(note.showPrices);
+  const total = note.items.reduce((sum, item) => sum + (item.unitPrice ?? 0) * item.qty, 0);
   return (
     <div>
       <div className="entete">
@@ -112,6 +114,18 @@ export function BonPrintView({
             <th className="num" style={{ width: 90 }}>
               Quantité
             </th>
+            {/* Les prix ne s'impriment que si le bon les porte : c'est la case
+                cochée au moment de la livraison qui décide, pas l'impression. */}
+            {withPrices && (
+              <>
+                <th className="num" style={{ width: 90 }}>
+                  P.U. HT
+                </th>
+                <th className="num" style={{ width: 90 }}>
+                  Total HT
+                </th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -120,12 +134,32 @@ export function BonPrintView({
               <tr key={index}>
                 <td>{item.label}</td>
                 <td className="num">{item.qty}</td>
+                {withPrices && (
+                  <>
+                    <td className="num">
+                      {item.unitPrice != null ? `${item.unitPrice.toFixed(2)} €` : ''}
+                    </td>
+                    <td className="num">
+                      {item.unitPrice != null ? `${(item.unitPrice * item.qty).toFixed(2)} €` : ''}
+                    </td>
+                  </>
+                )}
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan={2} className="muted">
+              <td colSpan={withPrices ? 4 : 2} className="muted">
                 Aucun article détaillé.
+              </td>
+            </tr>
+          )}
+          {withPrices && total > 0 && (
+            <tr>
+              <td colSpan={3} className="num" style={{ fontWeight: 700 }}>
+                Total HT
+              </td>
+              <td className="num" style={{ fontWeight: 700 }}>
+                {total.toFixed(2)} €
               </td>
             </tr>
           )}

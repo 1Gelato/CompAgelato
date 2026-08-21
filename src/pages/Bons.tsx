@@ -11,6 +11,7 @@ import {
   Modal,
   SearchInput,
   Spinner,
+  Switch,
   Textarea,
   Th,
   useToast,
@@ -28,7 +29,7 @@ import {
   useDeliveryNotes,
   useSettings,
 } from '../lib/data';
-import { dateFr, matches } from '../lib/format';
+import { dateFr, euro, matches } from '../lib/format';
 import { useSort } from '../lib/sort';
 
 /**
@@ -43,6 +44,11 @@ const STATUS_LABEL: Record<DeliveryNote['status'], string> = {
   signed: 'À facturer',
   invoiced: 'Facturé',
 };
+
+/** Montant HT du bon : ce que valent les lignes qui portent un prix. */
+function noteTotal(note: DeliveryNote): number {
+  return note.items.reduce((sum, item) => sum + (item.unitPrice ?? 0) * item.qty, 0);
+}
 
 export function Bons() {
   const { data: notes, loading } = useDeliveryNotes();
@@ -83,6 +89,7 @@ export function Bons() {
         client: (n: DeliveryNote) => clientName(n),
         by: (n: DeliveryNote) => n.createdByName ?? null,
         items: (n: DeliveryNote) => n.items.length,
+        total: (n: DeliveryNote) => noteTotal(n) || null,
         status: (n: DeliveryNote) => n.status,
       }),
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,6 +141,7 @@ export function Bons() {
                 <Th sortKey="date" sort={sort} onSort={toggle}>Date</Th>
                 <Th sortKey="client" sort={sort} onSort={toggle}>Client</Th>
                 <Th sortKey="items" sort={sort} onSort={toggle} className="num">Articles</Th>
+                <Th sortKey="total" sort={sort} onSort={toggle} className="num">Montant HT</Th>
                 <Th sortKey="by" sort={sort} onSort={toggle}>Livreur</Th>
                 <Th>Signatures</Th>
                 <Th sortKey="status" sort={sort} onSort={toggle}>Statut</Th>
@@ -147,6 +155,23 @@ export function Bons() {
                   <td>{dateFr(note.date)}</td>
                   <td style={{ fontWeight: 500 }}>{clientName(note)}</td>
                   <td className="num">{note.items.length}</td>
+                  <td className="num">
+                    {noteTotal(note) ? (
+                      <>
+                        {euro(noteTotal(note))}
+                        {/* Le bureau voit toujours le montant ; l'œil averti
+                            sait si le client l'a vu, lui aussi. */}
+                        {!note.showPrices && (
+                          <span className="tiny muted" title="Prix masqués sur le bon du client">
+                            {' '}
+                            ·
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
+                  </td>
                   <td className="tiny muted">{note.createdByName ?? '—'}</td>
                   <td className="tiny muted">
                     {[note.driverSignature && 'livreur', note.clientSignature && 'client']
@@ -211,7 +236,15 @@ function BonEditor({
   const [clientId, setClientId] = useState<string | undefined>(note?.clientId);
   const [clientName, setClientName] = useState(note?.clientName ?? '');
   const [items, setItems] = useState<RegisterItem[]>(note?.items ?? []);
+  const { data: settings } = useSettings();
+  const [showPrices, setShowPrices] = useState(
+    note?.showPrices ?? settings?.deliveryNotePrices ?? false,
+  );
   const [notes, setNotes] = useState(note?.notes ?? '');
+  const total = useMemo(
+    () => items.reduce((sum, item) => sum + (item.unitPrice ?? 0) * (item.qty || 0), 0),
+    [items],
+  );
   const [driverName, setDriverName] = useState(note?.driverSignature?.name ?? '');
   const [driverStrokes, setDriverStrokes] = useState<Signature['strokes']>(
     note?.driverSignature?.strokes ?? [],
@@ -251,6 +284,7 @@ function BonEditor({
         clientId,
         clientName: clientId ? undefined : clientName.trim() || undefined,
         items: items.filter((item) => item.label.trim()),
+        showPrices,
         notes: notes.trim() || undefined,
         ...(signature(driverStrokes, driverName, note?.driverSignature)
           ? { driverSignature: signature(driverStrokes, driverName, note?.driverSignature) }
@@ -316,7 +350,23 @@ function BonEditor({
           preferredType="consumable"
           items={items}
           onChange={setItems}
+          withPrices
         />
+
+        <div className="row" style={{ gap: 12, alignItems: 'center' }}>
+          <Switch
+            checked={showPrices}
+            onChange={setShowPrices}
+            label="Afficher les prix sur le bon"
+          />
+          <span className="tiny muted">
+            {showPrices
+              ? 'Le client verra le détail et le total.'
+              : 'Le client ne verra que les quantités ; le total reste visible ici et au bureau.'}
+          </span>
+          <div className="spacer" />
+          <strong>{total.toFixed(2)} € HT</strong>
+        </div>
 
         <Field label="Notes">
           <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -405,6 +455,7 @@ function BonDetail({
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const total = note.items.reduce((sum, item) => sum + (item.unitPrice ?? 0) * item.qty, 0);
 
   // La version papier : à agrafer à la facture faite dans le logiciel de
   // comptabilité — la traçabilité que le bon manuel offrait déjà.
@@ -468,7 +519,14 @@ function BonDetail({
         }
       >
         <div className="col" style={{ gap: 15 }}>
-          <Field label="Articles livrés">
+          <Field
+            label="Articles livrés"
+            hint={
+              note.showPrices
+                ? 'Les prix figurent sur le bon remis au client.'
+                : 'Le bon remis au client ne porte pas les prix — le montant reste visible ici.'
+            }
+          >
             {note.items.length ? (
               <table className="data">
                 <tbody>
@@ -476,8 +534,26 @@ function BonDetail({
                     <tr key={index}>
                       <td>{item.label}</td>
                       <td className="num" style={{ width: 80 }}>× {item.qty}</td>
+                      <td className="num tiny muted" style={{ width: 90 }}>
+                        {item.unitPrice != null ? `${item.unitPrice.toFixed(2)} €` : ''}
+                      </td>
+                      <td className="num" style={{ width: 90 }}>
+                        {item.unitPrice != null
+                          ? `${(item.unitPrice * item.qty).toFixed(2)} €`
+                          : ''}
+                      </td>
                     </tr>
                   ))}
+                  {total > 0 && (
+                    <tr>
+                      <td colSpan={3} className="num" style={{ fontWeight: 600 }}>
+                        Total HT
+                      </td>
+                      <td className="num" style={{ fontWeight: 600 }}>
+                        {total.toFixed(2)} €
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             ) : (

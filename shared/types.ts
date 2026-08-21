@@ -391,6 +391,12 @@ export interface RegisterItem {
   productId?: ID;
   label: string;
   qty: number;
+  /**
+   * Prix unitaire HT, repris du prix de vente de l'article au moment où on
+   * l'ajoute. Il est **copié**, jamais lu à la volée : un bon signé garde le
+   * prix du jour même si le tarif change ensuite.
+   */
+  unitPrice?: number;
 }
 
 export interface RegisterEntry extends Syncable {
@@ -519,6 +525,12 @@ export interface DeliveryNote extends Syncable {
   clientName?: string;
   /** Ce qui a été livré — mêmes lignes libres que les cahiers. */
   items: RegisterItem[];
+  /**
+   * Le bon montre-t-il les prix ? Décidé bon par bon, avant de tendre le
+   * téléphone : certaines livraisons se valorisent, d'autres attendent la
+   * facture. La valeur par défaut vient des réglages.
+   */
+  showPrices?: boolean;
   notes?: string;
   /** Tournée pendant laquelle le bon a été établi, si c'est le cas. */
   routeId?: ID;
@@ -758,6 +770,11 @@ export interface Settings {
   emailBodyTemplate?: string;
   /** Notifications du système sur le poste. */
   desktopNotify?: DesktopNotifySettings;
+  /**
+   * Les bons de livraison affichent-ils les prix par défaut ? Chaque bon garde
+   * le dernier mot ; ce réglage évite de cocher la case à chaque livraison.
+   */
+  deliveryNotePrices?: boolean;
 }
 
 /**

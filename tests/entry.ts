@@ -24,6 +24,7 @@ export { cleanAddressLine, parseAddressLine, repairAddress } from '../electron/s
 export { addressQuery, geocodeStatus, startGeocode, waitGeocode } from '../electron/services/geocode';
 // Bons de livraison : numérotation annuelle, annonce au bureau, facturation.
 export {
+  deliveryTotal,
   listDeliveryNotes,
   markDeliveryInvoiced,
   nextDeliveryNumber,

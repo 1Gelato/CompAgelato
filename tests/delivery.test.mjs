@@ -10,6 +10,7 @@ import {
   registerDevice,
   recipientsFor,
   nextDeliveryNumber,
+  deliveryTotal,
   upsertDeliveryNote,
   listDeliveryNotes,
   markDeliveryInvoiced,
@@ -185,6 +186,74 @@ test('marquer facturé, revenir en arrière, supprimer', () => {
   const avant = listDeliveryNotes().length;
   removeDeliveryNote(note.id);
   assert.equal(listDeliveryNotes().length, avant - 1);
+});
+
+/* ------------------------------------------------------------------ */
+/* Les prix : montrés au client, ou gardés pour le bureau               */
+/* ------------------------------------------------------------------ */
+
+test('le total ne compte que les lignes chiffrées', () => {
+  assert.equal(
+    deliveryTotal([
+      { label: 'Bac vanille', qty: 2, unitPrice: 24.5 },
+      { label: 'Cornets', qty: 3, unitPrice: 10 },
+      // Une ligne sans prix ne fausse pas le total.
+      { label: 'Échantillon', qty: 1 },
+    ]),
+    79,
+  );
+  assert.equal(deliveryTotal([]), 0);
+});
+
+test('l’affichage des prix suit le réglage, et chaque bon garde le dernier mot', () => {
+  dataStore.mutate((db) => {
+    db.settings.deliveryNotePrices = true;
+  });
+  const suitLeReglage = enTantQue(HERVE, () =>
+    upsertDeliveryNote({ clientName: 'Réglage', items: [{ label: 'x', qty: 1 }] }),
+  );
+  assert.equal(suitLeReglage.showPrices, true);
+
+  const decoche = enTantQue(HERVE, () =>
+    upsertDeliveryNote({ clientName: 'Décoché', showPrices: false, items: [{ label: 'x', qty: 1 }] }),
+  );
+  assert.equal(decoche.showPrices, false, 'la case du bon prime sur le réglage');
+
+  dataStore.mutate((db) => {
+    db.settings.deliveryNotePrices = false;
+  });
+  const sansReglage = enTantQue(HERVE, () =>
+    upsertDeliveryNote({ clientName: 'Sans prix', items: [{ label: 'x', qty: 1 }] }),
+  );
+  assert.equal(sansReglage.showPrices, false);
+});
+
+test('le montant part au bureau même quand le client ne l’a pas vu', () => {
+  const avant = annonces.length;
+  enTantQue(HERVE, () =>
+    upsertDeliveryNote({
+      clientName: 'Camping du Bord de Mer',
+      showPrices: false,
+      items: [{ label: 'Bac vanille 5 L', qty: 2, unitPrice: 24.5 }],
+    }),
+  );
+  assert.equal(annonces.length, avant + 1);
+  const annonce = annonces.at(-1);
+  // Prix masqués côté client, montant annoncé côté bureau : c'est lui qui
+  // fera la facture.
+  assert.ok(annonce.text.includes('49.00 € HT'), `annonce sans montant : ${annonce.text}`);
+});
+
+test('le prix copié sur la ligne reste celui du jour de la livraison', () => {
+  const note = enTantQue(HERVE, () =>
+    upsertDeliveryNote({
+      clientName: 'Tarif du jour',
+      items: [{ label: 'Bac vanille 5 L', qty: 1, unitPrice: 24.5 }],
+    }),
+  );
+  // Le prix est porté par la ligne du bon, pas lu dans le catalogue : changer
+  // le tarif demain ne réécrit pas un bon déjà signé.
+  assert.equal(note.items[0].unitPrice, 24.5);
 });
 
 test('la liste vient du plus récent au plus ancien', () => {

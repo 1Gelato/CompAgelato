@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FlatList, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { FlatList, Modal, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DeliveryNote, RegisterItem } from '@shared/types';
 import { dateFr } from '@shared/format';
@@ -11,6 +12,7 @@ import {
   useClients,
   useDeliveryNotes,
   useRefresh,
+  useSettings,
 } from '../lib/data';
 import { loadMySignature, saveMySignature } from '../lib/signature';
 import { SignaturePad, SignatureView, type Strokes } from '../components/SignaturePad';
@@ -50,6 +52,11 @@ const STATUS_LABEL: Record<DeliveryNote['status'], string> = {
   signed: 'À facturer',
   invoiced: 'Facturé',
 };
+
+/** Montant HT du bon : ce que valent les lignes qui portent un prix. */
+function noteTotal(note: DeliveryNote): number {
+  return note.items.reduce((sum, item) => sum + (item.unitPrice ?? 0) * item.qty, 0);
+}
 
 /* ------------------------------------------------------------------ */
 /* Liste                                                               */
@@ -151,9 +158,33 @@ export function BonDetailScreen({
             style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md }}
           >
             <Text style={{ color: colors.text, fontSize: 14, flexShrink: 1 }}>{item.label}</Text>
-            <Text style={{ color: colors.secondary, fontSize: 14 }}>× {item.qty}</Text>
+            <Text style={{ color: colors.secondary, fontSize: 14 }}>
+              × {item.qty}
+              {item.unitPrice != null ? `   ${(item.unitPrice * item.qty).toFixed(2)} €` : ''}
+            </Text>
           </View>
         ))}
+        {noteTotal(note) > 0 && (
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              borderTopWidth: 1,
+              borderTopColor: colors.separator,
+              paddingTop: 6,
+            }}
+          >
+            <Text style={{ fontWeight: '700', color: colors.text }}>Total HT</Text>
+            <Text style={{ fontWeight: '700', color: colors.text }}>
+              {noteTotal(note).toFixed(2)} €
+            </Text>
+          </View>
+        )}
+        <Muted size={12}>
+          {note.showPrices
+            ? 'Les prix figuraient sur le bon signé par le client.'
+            : 'Les prix n’ont pas été montrés au client.'}
+        </Muted>
       </Card>
 
       {note.driverSignature && (
@@ -179,6 +210,12 @@ export function BonDetailScreen({
 interface DraftItem {
   label: string;
   qty: string;
+  /** Prix unitaire HT, saisi au clavier — vide quand la ligne n'est pas chiffrée. */
+  price: string;
+}
+
+function lineTotal(item: DraftItem): number {
+  return (Number(item.price.replace(',', '.')) || 0) * (Number(item.qty) || 0);
 }
 
 /**
@@ -201,14 +238,17 @@ export function BonNouveauScreen({
   const [clientName, setClientName] = useState(params.clientName ?? '');
   const [clientQuery, setClientQuery] = useState('');
   const [pickingClient, setPickingClient] = useState(!params.clientId && !params.clientName);
-  const [items, setItems] = useState<DraftItem[]>([{ label: '', qty: '1' }]);
+  const [items, setItems] = useState<DraftItem[]>([{ label: '', qty: '1', price: '' }]);
+  const [showPrices, setShowPrices] = useState(false);
   const [notes, setNotes] = useState('');
   const [driverName, setDriverName] = useState('');
   const [driverStrokes, setDriverStrokes] = useState<Strokes>([]);
   const [savedSignature, setSavedSignature] = useState<Strokes | null>(null);
   const [clientSigName, setClientSigName] = useState('');
   const [clientStrokes, setClientStrokes] = useState<Strokes>([]);
+  const [signing, setSigning] = useState(false);
   const [saving, setSaving] = useState(false);
+  const { data: settings } = useSettings();
 
   // Le nom du livreur et sa signature enregistrée se proposent d'eux-mêmes.
   useEffect(() => {
@@ -220,6 +260,11 @@ export function BonNouveauScreen({
       .catch(() => {});
     void loadMySignature().then(setSavedSignature);
   }, []);
+
+  // L'habitude de la maison, réglée au bureau — modifiable ici, bon par bon.
+  useEffect(() => {
+    if (settings) setShowPrices(settings.deliveryNotePrices ?? false);
+  }, [settings]);
 
   const selectedClient = clientId ? clients.find((c) => c.id === clientId) : undefined;
   const displayedClient = selectedClient?.name ?? clientName;
@@ -237,13 +282,21 @@ export function BonNouveauScreen({
 
   const validItems: RegisterItem[] = items
     .filter((item) => item.label.trim())
-    .map((item) => ({ label: item.label.trim(), qty: Math.max(1, Number(item.qty) || 1) }));
+    .map((item) => {
+      const price = Number(item.price.replace(',', '.'));
+      return {
+        label: item.label.trim(),
+        qty: Math.max(1, Number(item.qty) || 1),
+        ...(Number.isFinite(price) && price > 0 ? { unitPrice: Math.round(price * 100) / 100 } : {}),
+      };
+    });
 
-  const ready =
-    Boolean(displayedClient.trim()) &&
-    validItems.length > 0 &&
-    driverStrokes.length > 0 &&
-    clientStrokes.length > 0;
+  const total = items.reduce((sum, item) => sum + lineTotal(item), 0);
+
+  /** De quoi tendre le téléphone : un client, des articles, ma signature. */
+  const readyToSign =
+    Boolean(displayedClient.trim()) && validItems.length > 0 && driverStrokes.length > 0;
+  const ready = readyToSign && clientStrokes.length > 0;
 
   const save = async () => {
     setSaving(true);
@@ -254,6 +307,7 @@ export function BonNouveauScreen({
         clientId,
         clientName: selectedClient ? undefined : clientName.trim() || undefined,
         items: validItems,
+        showPrices,
         notes: notes.trim() || undefined,
         routeId: params.routeId,
         driverSignature: { strokes: driverStrokes, name: driverName.trim() || undefined, at: now },
@@ -341,36 +395,79 @@ export function BonNouveauScreen({
       <Card>
         <SectionTitle>Articles livrés</SectionTitle>
         {items.map((item, index) => (
-          <View key={index} style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-            <View style={{ flex: 1 }}>
-              <Input
-                value={item.label}
-                onChangeText={(label) => setItem(index, { label })}
-                placeholder="Article (ex. bac vanille 5 L)"
-              />
+          <View key={index} style={{ gap: 6 }}>
+            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+              <View style={{ flex: 1 }}>
+                <Input
+                  value={item.label}
+                  onChangeText={(label) => setItem(index, { label })}
+                  placeholder="Article (ex. bac vanille 5 L)"
+                />
+              </View>
+              <View style={{ width: 64 }}>
+                <Input
+                  value={item.qty}
+                  onChangeText={(qty) => setItem(index, { qty })}
+                  keyboardType="number-pad"
+                  placeholder="Qté"
+                />
+              </View>
+              {items.length > 1 && (
+                <Text
+                  style={{ color: colors.red, fontSize: 18, paddingHorizontal: 2 }}
+                  onPress={() => setItems((current) => current.filter((_, i) => i !== index))}
+                >
+                  ✕
+                </Text>
+              )}
             </View>
-            <View style={{ width: 64 }}>
-              <Input
-                value={item.qty}
-                onChangeText={(qty) => setItem(index, { qty })}
-                keyboardType="number-pad"
-                placeholder="Qté"
-              />
+            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+              <View style={{ width: 110 }}>
+                <Input
+                  value={item.price}
+                  onChangeText={(price) => setItem(index, { price })}
+                  keyboardType="decimal-pad"
+                  placeholder="P.U. HT €"
+                />
+              </View>
+              {lineTotal(item) > 0 && <Muted size={12}>= {lineTotal(item).toFixed(2)} €</Muted>}
             </View>
-            {items.length > 1 && (
-              <Text
-                style={{ color: colors.red, fontSize: 18, paddingHorizontal: 2 }}
-                onPress={() => setItems((current) => current.filter((_, i) => i !== index))}
-              >
-                ✕
-              </Text>
-            )}
           </View>
         ))}
         <Button
           title="＋ Ajouter un article"
-          onPress={() => setItems((current) => [...current, { label: '', qty: '1' }])}
+          onPress={() => setItems((current) => [...current, { label: '', qty: '1', price: '' }])}
         />
+        {total > 0 && (
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Muted size={13}>Total</Muted>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text }}>
+              {total.toFixed(2)} € HT
+            </Text>
+          </View>
+        )}
+      </Card>
+
+      {/*
+        Le choix se fait ICI, avant de tendre le téléphone : l'écran de
+        signature qui suit ne montre aucun réglage, seulement ce que le client
+        doit lire. Décochée, la case laisse le montant visible au bureau —
+        c'est le bon remis au client qui n'en porte pas.
+      */}
+      <Card>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontWeight: '600', color: colors.text }}>
+              Montrer les prix au client
+            </Text>
+            <Muted size={12}>
+              {showPrices
+                ? 'Le client verra le détail et le total en signant.'
+                : 'Le client ne verra que les quantités. Le bureau garde le montant.'}
+            </Muted>
+          </View>
+          <Switch value={showPrices} onValueChange={setShowPrices} />
+        </View>
       </Card>
 
       <Card>
@@ -396,16 +493,55 @@ export function BonNouveauScreen({
         )}
       </Card>
 
+      {/*
+        La signature du client se prend dans un écran à part. C'est le moment
+        où le téléphone change de mains : il ne doit rien y avoir d'autre à
+        l'écran que ce que le client doit lire et l'endroit où signer.
+      */}
       <Card>
         <SectionTitle>Signature du client</SectionTitle>
-        <Input
-          value={clientSigName}
-          onChangeText={setClientSigName}
-          placeholder="Nom du signataire (facultatif)"
-        />
-        <SignaturePad strokes={clientStrokes} onChange={setClientStrokes} height={170} />
-        <Muted size={12}>Tendez le téléphone au client pour qu’il signe.</Muted>
+        {clientStrokes.length > 0 ? (
+          <>
+            <SignatureView strokes={clientStrokes} height={90} />
+            <Muted size={12}>
+              Signé{clientSigName.trim() ? ` par ${clientSigName.trim()}` : ''}.
+            </Muted>
+            <Button title="Refaire signer" onPress={() => setSigning(true)} />
+          </>
+        ) : (
+          <>
+            <Muted size={12}>
+              Vérifiez les articles, puis tendez le téléphone au client.
+            </Muted>
+            <Button
+              title="✍️  Faire signer le client"
+              variant="primary"
+              onPress={() => setSigning(true)}
+              disabled={!readyToSign}
+            />
+            {!readyToSign && (
+              <Muted size={12}>
+                Il faut d’abord un client, au moins un article, et votre signature.
+              </Muted>
+            )}
+          </>
+        )}
       </Card>
+
+      <ClientSignatureScreen
+        open={signing}
+        clientName={displayedClient}
+        items={items}
+        showPrices={showPrices}
+        total={total}
+        signerName={clientSigName}
+        onSignerName={setClientSigName}
+        onCancel={() => setSigning(false)}
+        onDone={(strokes) => {
+          setClientStrokes(strokes);
+          setSigning(false);
+        }}
+      />
 
       <Button
         title="Enregistrer le bon"
@@ -421,5 +557,128 @@ export function BonNouveauScreen({
       )}
       <View style={{ height: spacing.xl }} />
     </ScrollView>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* L'écran tendu au client                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Le moment où le téléphone change de mains.
+ *
+ * Rien d'autre à l'écran que ce que le client doit lire — ce qu'il reçoit,
+ * le montant s'il a été décidé de le montrer — et l'endroit où signer. Aucun
+ * réglage, aucune case à cocher : ces choix-là se prennent avant, dans le
+ * formulaire du livreur. Le bouton « Annuler » rend la main sans rien signer.
+ */
+function ClientSignatureScreen({
+  open,
+  clientName,
+  items,
+  showPrices,
+  total,
+  signerName,
+  onSignerName,
+  onCancel,
+  onDone,
+}: {
+  open: boolean;
+  clientName: string;
+  items: DraftItem[];
+  showPrices: boolean;
+  total: number;
+  signerName: string;
+  onSignerName: (name: string) => void;
+  onCancel: () => void;
+  onDone: (strokes: Strokes) => void;
+}) {
+  const [strokes, setStrokes] = useState<Strokes>([]);
+  const insets = useSafeAreaInsets();
+
+  // Chaque passation repart d'une ardoise vierge.
+  useEffect(() => {
+    if (open) setStrokes([]);
+  }, [open]);
+
+  const listed = items.filter((item) => item.label.trim());
+
+  return (
+    <Modal visible={open} animationType="slide" onRequestClose={onCancel} statusBarTranslucent>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: colors.bg,
+          paddingTop: insets.top + spacing.md,
+          paddingBottom: insets.bottom + spacing.md,
+          paddingHorizontal: spacing.md,
+          gap: spacing.md,
+        }}
+      >
+        <View>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>
+            Bon de livraison
+          </Text>
+          <Muted size={13}>{clientName}</Muted>
+        </View>
+
+        <Card style={{ maxHeight: 230 }}>
+          <ScrollView>
+            {listed.map((item, index) => (
+              <View
+                key={index}
+                style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, paddingVertical: 3 }}
+              >
+                <Text style={{ color: colors.text, fontSize: 14.5, flexShrink: 1 }}>
+                  {item.label}
+                </Text>
+                <Text style={{ color: colors.secondary, fontSize: 14.5 }}>
+                  × {item.qty}
+                  {showPrices && lineTotal(item) > 0 ? `   ${lineTotal(item).toFixed(2)} €` : ''}
+                </Text>
+              </View>
+            ))}
+          </ScrollView>
+          {showPrices && total > 0 && (
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                borderTopWidth: 1,
+                borderTopColor: colors.separator,
+                paddingTop: 6,
+              }}
+            >
+              <Text style={{ fontWeight: '700', color: colors.text }}>Total HT</Text>
+              <Text style={{ fontWeight: '700', color: colors.text }}>{total.toFixed(2)} €</Text>
+            </View>
+          )}
+        </Card>
+
+        <Input
+          value={signerName}
+          onChangeText={onSignerName}
+          placeholder="Votre nom (facultatif)"
+        />
+
+        <View style={{ flex: 1 }}>
+          <SignaturePad strokes={strokes} onChange={setStrokes} height={200} />
+        </View>
+
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+          <View style={{ flex: 1 }}>
+            <Button title="Annuler" onPress={onCancel} />
+          </View>
+          <View style={{ flex: 2 }}>
+            <Button
+              title="Valider la signature"
+              variant="primary"
+              onPress={() => onDone(strokes)}
+              disabled={strokes.length === 0}
+            />
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }

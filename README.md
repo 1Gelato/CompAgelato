@@ -961,7 +961,18 @@ comptabilité, « Marquer facturé » clôt le bon.
 Les bons se créent et se modifient **aussi depuis le PC** (signatures à la
 souris, articles piochés dans le stock), et s'**impriment** — en-tête de
 l'entreprise, articles, signatures — pour être agrafés à la facture : la
-traçabilité papier du bon manuel, sans le carnet à souches. Les **cahiers**
+traçabilité papier du bon manuel, sans le carnet à souches.
+
+**Les prix, montrés ou non.** Chaque ligne peut porter un prix unitaire HT,
+repris du prix de vente de l'article et **copié** sur le bon — un bon signé
+garde le tarif du jour même si le catalogue change après. Une case décide si
+le client les voit, à l'écran comme à l'impression ; son état par défaut se
+règle dans **Réglages → Bons de livraison**. Le choix se fait **avant** de
+tendre le téléphone : sur mobile, la signature du client se prend dans un
+écran dédié qui ne montre que ce qu'il doit lire (articles, total si affiché)
+et l'endroit où signer — aucune case, aucun réglage sous ses yeux. Décochée,
+elle ne cache le montant qu'au client : le bureau le voit toujours dans la
+liste, dans le détail et dans la notification, puisque c'est lui qui facture. Les **cahiers**
 s'impriment de la même façon, tels qu'ils sont affichés (filtres compris).
 Deux cahiers s'ajoutent aux trois d'origine : **Achats** — les envies d'achat
 des clients (« il voudrait une machine à glace italienne »), notées avant tout
