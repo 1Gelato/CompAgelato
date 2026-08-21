@@ -254,6 +254,38 @@ test('ré-importer un fichier plus pauvre n’efface rien', async () => {
   assert.equal(apres.accountingCode, '707100');
 });
 
+test('un catalogue importé avant la mise à jour se complète en le réimportant', async () => {
+  // La situation réelle : des articles créés par une version qui ne lisait ni
+  // le prix de vente ni la TVA. Mettre à jour le logiciel n'invente pas la
+  // donnée — il faut repasser le fichier.
+  let ancienId = '';
+  dataStore.mutate((db) => {
+    const fiche = db.products.find((p) => p.sku === 'ART0002');
+    ancienId = fiche.id;
+    // Ce que l'ancienne version savait écrire : ni prix de vente, ni TVA, ni
+    // compte comptable, ni délai.
+    delete fiche.salePrice;
+    delete fiche.vatRate;
+    delete fiche.accountingCode;
+    delete fiche.leadTimeDays;
+  });
+  const avant = dataStore.db.products.length;
+
+  const file = path.join(dir, 'articles-reimport.csv');
+  writeMeg(file);
+  const report = await importProductsFile(file);
+
+  const fiche = dataStore.db.products.find((p) => p.sku === 'ART0002');
+  assert.equal(fiche.id, ancienId, 'la fiche existante est complétée, pas remplacée');
+  assert.equal(fiche.salePrice, 6000);
+  assert.equal(fiche.vatRate, 20);
+  assert.equal(fiche.accountingCode, '707200');
+  assert.equal(fiche.leadTimeDays, 21);
+  // Retrouvées par leur code : aucune fiche en double.
+  assert.equal(dataStore.db.products.length, avant);
+  assert.equal(report.created, 0);
+});
+
 test('une colonne de stock, elle, crée bien le mouvement d’inventaire', async () => {
   const file = path.join(dir, 'articles-stock.csv');
   fs.writeFileSync(file, 'Code;Libellé;Stock\nART0001;Mix vanille poudre 2,5 kg;14\n', 'utf8');
