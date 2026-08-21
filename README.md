@@ -1012,15 +1012,54 @@ npm install
 npm start
 ```
 
-Scannez le QR code avec Expo Go. Le serveur de dev et le téléphone doivent
-être sur le même réseau (ou le tailnet) ; sinon `npm run tunnel`, plus lent
-mais indifférent au réseau.
+Scannez le QR code avec Expo Go. **Sur iPhone, le scan se fait avec
+l'appareil photo** : Expo Go n'a plus de lecteur de QR intégré sur iOS. Le
+serveur de dev et le téléphone doivent être sur le même réseau (ou le
+tailnet) ; sinon `npm run tunnel`, plus lent mais indifférent au réseau.
 
 **Le port de développement est 7879**, et non le 8081 par défaut de Metro :
 celui-ci est très demandé, et le trouver occupé par un autre projet arrête le
 démarrage sans que la cause saute aux yeux. Il est inscrit dans les scripts de
 `mobile/package.json` — d'où `npm start` plutôt que `npx expo start`, qui
 reprendrait le 8081.
+
+**« Could not connect to the server » au scan** — le téléphone n'atteint pas
+Metro, et non CompaGelato. Pour trancher en cinq secondes : ouvrez
+`http://<ip-du-pc>:7879` dans le navigateur du téléphone. S'il ne charge pas,
+c'est le réseau, dans cet ordre de probabilité :
+
+1. **Le pare-feu Windows** bloque les connexions entrantes. Une règle suffit,
+   dans un PowerShell **administrateur** :
+
+   ```powershell
+   New-NetFirewallRule -DisplayName "Expo Metro 7879" -Direction Inbound -Protocol TCP -LocalPort 7879 -Action Allow -Profile Any
+   ```
+
+   (À retirer quand on n'en a plus besoin :
+   `Remove-NetFirewallRule -DisplayName "Expo Metro 7879"`.)
+2. Le téléphone est sur un **autre réseau** que le PC — Wi-Fi invité, bande
+   séparée, ou simplement resté en 4G.
+3. La box **isole les appareils entre eux** (mode invité). Là, seul le tunnel
+   passe.
+
+**« CommandError: Install @expo/ngrok and try again »** alors qu'Expo vient de
+l'installer : il le pose en **global**, où il ne sait pas le retrouver ensuite.
+Il faut l'installer dans le projet —
+
+```bash
+cd mobile
+npm install --save-dev @expo/ngrok@^4.1.0
+npm run tunnel
+```
+
+**Ce qu'Expo Go ne montrera pas**, et qu'il ne faut pas prendre pour une
+panne : les **notifications distantes** (retirées d'Expo Go depuis le SDK 53)
+et les **mises à jour par les airs** (inutiles ici, le code vient en direct de
+Metro). Tout le reste fonctionne, pad de signature compris — il est écrit en
+JavaScript pur, sans module natif, précisément pour cela. Une fois l'app
+ouverte, il reste à joindre **le serveur** : Tailscale actif sur le téléphone
+pour `100.100.53.66:4680`, ou `192.168.1.99:4680` sur le même Wi-Fi que
+l'oldpc.
 
 ### Tester dans l'émulateur Android (PC Windows)
 
