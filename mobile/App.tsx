@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { LayoutAnimation, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { NavigationContainer, type NavigationContainerRef } from '@react-navigation/native';
+import {
+  DefaultTheme,
+  NavigationContainer,
+  type NavigationContainerRef,
+} from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import {
+  createNativeStackNavigator,
+  type NativeStackNavigationOptions,
+} from '@react-navigation/native-stack';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { AuthIdentity, AuthStatus, ChannelName } from '@shared/api';
@@ -48,6 +55,39 @@ import { SettingsScreen } from './src/screens/Settings';
  */
 
 /* ------------------------------------------------------------------ */
+/* Thème de la navigation                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Sans thème, React Navigation peint sa chrome avec ses propres couleurs —
+ * un bleu #007AFF qui n'est pas l'accent de l'app, un fond #F2F2F2 qui n'est
+ * pas le nôtre. Trois bleus coexistaient dans le produit ; celui-ci n'était
+ * même pas choisi. Le spread de `DefaultTheme` est obligatoire : le type v7
+ * exige aussi `fonts`, qu'on n'a aucune raison de redéfinir.
+ */
+const NAV_THEME = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    primary: colors.accent,
+    background: colors.bg,
+    card: colors.card,
+    text: colors.text,
+    border: colors.separator,
+    notification: colors.red,
+  },
+};
+
+/** En-têtes plats, partagés par les six piles : fond de l'app, titre 17/700. */
+const STACK_OPTIONS: NativeStackNavigationOptions = {
+  headerShadowVisible: false,
+  headerStyle: { backgroundColor: colors.bg },
+  headerTitleStyle: { fontSize: 17, fontWeight: '700', color: colors.text },
+  headerTintColor: colors.accent,
+  contentStyle: { backgroundColor: colors.bg },
+};
+
+/* ------------------------------------------------------------------ */
 /* Piles de navigation                                                 */
 /* ------------------------------------------------------------------ */
 
@@ -59,7 +99,7 @@ const StockStack = createNativeStackNavigator<StockStackParams>();
 
 function RoutesFlow() {
   return (
-    <RoutesStack.Navigator>
+    <RoutesStack.Navigator screenOptions={STACK_OPTIONS}>
       <RoutesStack.Screen name="RoutesList" component={RoutesListScreen} options={{ title: 'Tournées' }} />
       <RoutesStack.Screen name="RouteDetail" component={RouteDetailScreen} options={{ title: 'Tournée' }} />
       <RoutesStack.Screen
@@ -79,7 +119,7 @@ function RoutesFlow() {
 
 function BonsFlow() {
   return (
-    <BonsStack.Navigator>
+    <BonsStack.Navigator screenOptions={STACK_OPTIONS}>
       <BonsStack.Screen name="BonsList" component={BonsListScreen} options={{ title: 'Bons de livraison' }} />
       <BonsStack.Screen name="BonDetail" component={BonDetailScreen} options={{ title: 'Bon de livraison' }} />
       <BonsStack.Screen
@@ -93,7 +133,7 @@ function BonsFlow() {
 
 function ClientsFlow() {
   return (
-    <ClientsStack.Navigator>
+    <ClientsStack.Navigator screenOptions={STACK_OPTIONS}>
       <ClientsStack.Screen name="ClientsList" component={ClientsListScreen} options={{ title: 'Clients' }} />
       <ClientsStack.Screen name="ClientDetail" component={ClientDetailScreen} options={{ title: 'Client' }} />
     </ClientsStack.Navigator>
@@ -102,7 +142,7 @@ function ClientsFlow() {
 
 function DocumentsFlow() {
   return (
-    <DocumentsStack.Navigator>
+    <DocumentsStack.Navigator screenOptions={STACK_OPTIONS}>
       <DocumentsStack.Screen
         name="DocumentsList"
         component={DocumentsListScreen}
@@ -119,7 +159,7 @@ function DocumentsFlow() {
 
 function StockFlow() {
   return (
-    <StockStack.Navigator>
+    <StockStack.Navigator screenOptions={STACK_OPTIONS}>
       <StockStack.Screen name="StockList" component={StockListScreen} options={{ title: 'Stock' }} />
       <StockStack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ title: 'Article' }} />
     </StockStack.Navigator>
@@ -164,12 +204,20 @@ const TAB_CHANNEL: Record<TabName, ChannelName | null> = {
   Plus: null,
 };
 
-const TAB_ICON: Record<TabName, keyof typeof Ionicons.glyphMap> = {
-  Tournées: 'navigate-outline',
-  Tâches: 'checkbox-outline',
-  Cahiers: 'book-outline',
-  Clients: 'people-outline',
-  Plus: 'ellipsis-horizontal',
+/**
+ * L'onglet actif porte l'icône pleine, l'inactif le contour : l'état se lit
+ * à la forme, pas seulement à la couleur. « Plus » n'a pas de variante
+ * pleine, et c'est normal.
+ */
+const TAB_ICON: Record<
+  TabName,
+  { focused: keyof typeof Ionicons.glyphMap; unfocused: keyof typeof Ionicons.glyphMap }
+> = {
+  Tournées: { focused: 'navigate', unfocused: 'navigate-outline' },
+  Tâches: { focused: 'checkbox', unfocused: 'checkbox-outline' },
+  Cahiers: { focused: 'book', unfocused: 'book-outline' },
+  Clients: { focused: 'people', unfocused: 'people-outline' },
+  Plus: { focused: 'ellipsis-horizontal', unfocused: 'ellipsis-horizontal' },
 };
 
 const Tabs = createBottomTabNavigator();
@@ -187,7 +235,7 @@ function PlusFlow({
   onSignedOut: () => void;
 }) {
   return (
-    <PlusStack.Navigator>
+    <PlusStack.Navigator screenOptions={STACK_OPTIONS}>
       <PlusStack.Screen name="PlusIndex" options={{ title: 'Plus' }}>
         {({ navigation }) => (
           <PlusScreen
@@ -226,11 +274,23 @@ function MainTabs({
         // Les piles portent leur propre en-tête ; les écrans simples ont
         // besoin de celui de l'onglet.
         headerShown: route.name === 'Cahiers' || route.name === 'Tâches',
+        headerShadowVisible: false,
+        headerStyle: { backgroundColor: colors.bg },
+        headerTitleStyle: { fontSize: 17, fontWeight: '700', color: colors.text },
         tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: colors.tertiary,
-        tabBarLabelStyle: { fontSize: 11 },
-        tabBarIcon: ({ color, size }) => (
-          <Ionicons name={TAB_ICON[route.name as TabName]} size={size - 2} color={color} />
+        // `secondary`, pas `tertiary` : un onglet inactif se lit quand même.
+        tabBarInactiveTintColor: colors.secondary,
+        tabBarStyle: {
+          backgroundColor: colors.card,
+          borderTopColor: colors.separator,
+        },
+        tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
+        tabBarIcon: ({ color, size, focused }) => (
+          <Ionicons
+            name={TAB_ICON[route.name as TabName][focused ? 'focused' : 'unfocused']}
+            size={size - 2}
+            color={color}
+          />
         ),
       })}
     >
@@ -252,19 +312,36 @@ function MainTabs({
 function OfflineBanner() {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState(() => syncStatus());
+  const visibleRef = useRef(false);
+
+  const refresh = useCallback(() => {
+    const next = syncStatus();
+    const nextVisible = !(next.online && next.pending.length === 0);
+    if (nextVisible !== visibleRef.current) {
+      visibleRef.current = nextVisible;
+      // Le bandeau pousse toute l'app vers le bas — c'est voulu, le décalage
+      // *est* l'information. L'animation adoucit seulement le mouvement.
+      // (Pas de setLayoutAnimationEnabledExperimental : rite de l'ancienne
+      // architecture, inutile sous Fabric.)
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    }
+    setState(next);
+  }, []);
 
   useEffect(() => {
-    const off = onOfflineChange(() => setState(syncStatus()));
-    const timer = setInterval(() => setState(syncStatus()), 10_000);
+    const off = onOfflineChange(refresh);
+    const timer = setInterval(refresh, 10_000);
+    refresh();
     return () => {
       off();
       clearInterval(timer);
     };
-  }, []);
+  }, [refresh]);
 
   if (state.online && state.pending.length === 0) return null;
   return (
     <View style={[styles.banner, { paddingTop: insets.top + 4 }]}>
+      <Ionicons name="cloud-offline-outline" size={15} color="#fff" />
       <Text style={styles.bannerText}>
         {state.online
           ? `${state.pending.length} modification(s) en attente d’envoi`
@@ -405,7 +482,7 @@ function Gate() {
   return (
     <View style={{ flex: 1 }}>
       <OfflineBanner />
-      <NavigationContainer ref={navigation}>
+      <NavigationContainer ref={navigation} theme={NAV_THEME}>
         <MainTabs
           identity={state.identity}
           onSignedOut={() => {
@@ -435,5 +512,5 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
     paddingHorizontal: 16,
   },
-  bannerText: { color: '#fff', fontWeight: '600', fontSize: 12.5, textAlign: 'center' },
+  bannerText: { color: '#fff', fontWeight: '600', fontSize: 13.5, textAlign: 'center' },
 });
