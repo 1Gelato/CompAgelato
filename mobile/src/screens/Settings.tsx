@@ -32,7 +32,7 @@ function pushLabel(state: PushState | null): string {
   if (!state) return 'Vérification…';
   switch (state.status) {
     case 'active':
-      return state.serverReady ? 'Actives ✓' : 'Abonné — serveur non configuré';
+      return state.serverReady ? 'Actives' : 'Abonné — serveur non configuré';
     case 'refusée':
       return 'Refusées sur ce téléphone';
     case 'indisponible':
@@ -222,7 +222,27 @@ export function SettingsScreen({
       {/* ------------------------------------------------ Notifications */}
       <Card>
         <SectionTitle>Notifications</SectionTitle>
-        <InfoRow label="État" value={pushLabel(push)} />
+        <InfoRow
+          label="État"
+          value={
+            <Badge
+              tone={
+                push?.status === 'active'
+                  ? push.serverReady
+                    ? 'success'
+                    : 'warn'
+                  : push?.status === 'refusée'
+                    ? 'warn'
+                    : push
+                      ? 'danger'
+                      : 'default'
+              }
+              icon={push?.status === 'active' && push.serverReady ? 'checkmark' : undefined}
+            >
+              {pushLabel(push)}
+            </Badge>
+          }
+        />
         {push?.status === 'active' && !push.serverReady && (
           <Muted size={12}>
             Ce téléphone est abonné, mais le serveur n’a pas encore sa clé Firebase : rien ne
@@ -290,7 +310,7 @@ export function SettingsScreen({
                 : updateState === 'downloading'
                   ? 'Téléchargement…'
                   : updateState === 'none'
-                    ? 'Déjà à jour ✓ — revérifier'
+                    ? 'Déjà à jour — revérifier'
                     : 'Vérifier les mises à jour'
             }
             onPress={checkUpdate}

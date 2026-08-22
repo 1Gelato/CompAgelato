@@ -4,7 +4,7 @@ import type { AuthIdentity } from '@shared/api';
 import { login } from '../lib/runtime';
 import { errorMessage } from '../lib/data';
 import { Button, Card, Field, Input, Muted } from '../components/ui';
-import { colors, spacing } from '../theme';
+import { colors, font, spacing } from '../theme';
 
 /** Connexion à un compte. La session d'appareil dure 180 jours. */
 export function LoginScreen({
@@ -87,5 +87,5 @@ const styles = StyleSheet.create({
   },
   brand: { alignItems: 'center', gap: 6 },
   logo: { width: 76, height: 76, borderRadius: 18, marginBottom: 6 },
-  title: { fontSize: 24, fontWeight: '700', color: colors.text },
+  title: { ...font.title, color: colors.text },
 });
