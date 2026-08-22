@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { FlatList, RefreshControl, ScrollView, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { Client } from '@shared/types';
 import { dateFr, euro, num } from '@shared/format';
@@ -17,16 +17,18 @@ import {
   Badge,
   Button,
   Card,
+  CardList,
   EmptyState,
+  Icon,
   InfoRow,
   ListItem,
   Loading,
   Muted,
   SearchBar,
-  SheetAction,
   SectionTitle,
+  type IconName,
 } from '../components/ui';
-import { colors, spacing } from '../theme';
+import { colors, font, radius, spacing, toneColors, touch } from '../theme';
 
 export type ClientsStackParams = {
   ClientsList: undefined;
@@ -56,8 +58,6 @@ export function ClientsListScreen({
     );
   }, [clients, query]);
 
-  if (loading) return <Loading />;
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <View style={{ padding: spacing.md }}>
@@ -67,17 +67,65 @@ export function ClientsListScreen({
         data={filtered}
         keyExtractor={(client) => client.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        ListEmptyComponent={<EmptyState title="Aucun client ne correspond" />}
+        ListEmptyComponent={
+          loading ? (
+            <Loading />
+          ) : (
+            <EmptyState icon="people-outline" title="Aucun client ne correspond" />
+          )
+        }
         renderItem={({ item: client }) => (
           <ListItem
             title={client.name}
             subtitle={client.address.label || client.address.city || client.code}
-            right={client.phone || client.mobile ? <Muted size={12}>📞</Muted> : undefined}
+            right={
+              client.phone || client.mobile ? (
+                <Icon name="call-outline" size={15} color={colors.secondary} />
+              ) : undefined
+            }
+            chevron
             onPress={() => navigation.navigate('ClientDetail', { clientId: client.id })}
           />
         )}
       />
     </View>
+  );
+}
+
+/**
+ * Une action de la fiche : icône au-dessus du libellé, en part égale de la
+ * rangée. Appeler et naviguer sont les gestes de la tournée — ils méritent
+ * des boutons à hauteur de pouce, pas des lignes de texte grises.
+ */
+function ClientAction({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          flex: 1,
+          minHeight: touch.minHeight,
+          borderRadius: radius.md,
+          backgroundColor: toneColors.info.bg,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 2,
+          paddingVertical: 6,
+        },
+        pressed && { opacity: 0.7 },
+      ]}
+    >
+      <Icon name={icon} size={18} color={toneColors.info.fg} />
+      <Text style={{ fontSize: 11.5, fontWeight: '600', color: toneColors.info.fg }}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -113,11 +161,45 @@ export function ClientDetailScreen({
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}>
+      {/* Le nom est le titre de l'écran — plus un intitulé de section gris. */}
       <Card>
-        <SectionTitle>{client.name}</SectionTitle>
-        <InfoRow label="Code" value={client.code} />
+        <Text style={{ ...font.title, color: colors.text }}>{client.name}</Text>
+        <Muted size={13}>
+          {client.code}
+          {client.address.label ? ` · ${client.address.label}` : ''}
+        </Muted>
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+          {client.address.label ? (
+            <ClientAction
+              icon="navigate"
+              label="Itinéraire"
+              onPress={() =>
+                openNavigation(
+                  { id: 'nav', label: client.name, address: client.address, pinned: false, serviceMinutes: 0 },
+                  settings?.mapProvider ?? 'google',
+                )
+              }
+            />
+          ) : null}
+          {phone ? <ClientAction icon="call" label="Appeler" onPress={() => call(phone)} /> : null}
+          {mobile ? (
+            <ClientAction icon="phone-portrait" label="Portable" onPress={() => call(mobile)} />
+          ) : null}
+          {email ? (
+            <ClientAction
+              icon="mail"
+              label="E-mail"
+              onPress={() => openMailto(email, '', 'Bonjour,\n\n')}
+            />
+          ) : null}
+        </View>
+        {!client.address.label && !phone && !mobile && !email ? (
+          <Muted size={12}>Aucune coordonnée sur cette fiche — complétez-la depuis le bureau.</Muted>
+        ) : null}
+      </Card>
+
+      <Card>
         {client.contact ? <InfoRow label="Contact" value={client.contact} /> : null}
-        <InfoRow label="Adresse" value={client.address.label || '—'} />
         {phone ? <InfoRow label="Téléphone" value={phone} /> : null}
         {mobile ? <InfoRow label="Portable" value={mobile} /> : null}
         {email ? <InfoRow label="E-mail" value={email} /> : null}
@@ -125,34 +207,9 @@ export function ClientDetailScreen({
         {client.notes ? <InfoRow label="Notes" value={client.notes} /> : null}
       </Card>
 
-      <Card style={{ gap: 2, padding: spacing.sm }}>
-        {client.address.label ? (
-          <SheetAction
-            title="🧭  Itinéraire vers ce client"
-            onPress={() =>
-              openNavigation(
-                { id: 'nav', label: client.name, address: client.address, pinned: false, serviceMinutes: 0 },
-                settings?.mapProvider ?? 'google',
-              )
-            }
-          />
-        ) : null}
-        {phone ? <SheetAction title="📞  Appeler" subtitle={phone} onPress={() => call(phone)} /> : null}
-        {mobile ? (
-          <SheetAction title="📱  Appeler le portable" subtitle={mobile} onPress={() => call(mobile)} />
-        ) : null}
-        {email ? (
-          <SheetAction
-            title="✉️  Écrire un e-mail"
-            subtitle={email}
-            onPress={() => openMailto(email, '', 'Bonjour,\n\n')}
-          />
-        ) : null}
-      </Card>
-
       {commandes.items.length > 0 && (
-        <Card style={{ padding: 0, gap: 0 }}>
-          <View style={{ padding: spacing.lg, paddingBottom: spacing.sm }}>
+        <CardList>
+          <View style={{ padding: spacing.lg, paddingBottom: spacing.sm, gap: 2 }}>
             <SectionTitle>Déjà commandé</SectionTitle>
             <Muted size={12}>
               {commandes.items.length} article(s) relevé(s) sur {commandes.sourceCount} pièce(s).
@@ -185,11 +242,11 @@ export function ClientDetailScreen({
               />
             </View>
           )}
-        </Card>
+        </CardList>
       )}
 
       {clientDocs.length > 0 && (
-        <Card style={{ padding: 0, gap: 0 }}>
+        <CardList>
           <View style={{ padding: spacing.lg, paddingBottom: spacing.sm }}>
             <SectionTitle>Derniers documents</SectionTitle>
           </View>
@@ -205,7 +262,7 @@ export function ClientDetailScreen({
               }
             />
           ))}
-        </Card>
+        </CardList>
       )}
     </ScrollView>
   );
