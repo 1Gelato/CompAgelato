@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Client, Task, TaskPriority, TaskStatus } from '@shared/types';
+import { isTaskLate } from '@shared/tasks';
 import {
   Badge,
   Button,
@@ -31,13 +32,6 @@ import {
 
 const PRIORITIES: TaskPriority[] = ['urgent', 'high', 'normal', 'low'];
 const STATUSES: TaskStatus[] = ['open', 'doing', 'done'];
-
-/** Échéance passée sans être faite : c'est ce que l'écran doit crier. */
-function isLate(task: Task): boolean {
-  return Boolean(
-    task.dueDate && task.status !== 'done' && task.dueDate < new Date().toISOString().slice(0, 10),
-  );
-}
 
 export function Taches() {
   const { data: tasks, loading, error, reload } = useTasks();
@@ -248,7 +242,7 @@ export function Taches() {
                   </td>
                   <td>
                     {task.dueDate ? (
-                      isLate(task) ? (
+                      isTaskLate(task) ? (
                         <Badge tone="badge--red">en retard — {dateFr(task.dueDate)}</Badge>
                       ) : (
                         dateFr(task.dueDate)

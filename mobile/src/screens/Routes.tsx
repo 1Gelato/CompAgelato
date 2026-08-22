@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DeliveryRoute, RouteStop } from '@shared/types';
-import { dateFr } from '@shared/format';
+import { dateFr, todayLocal } from '@shared/format';
 import { api, isOffline } from '../lib/runtime';
 import {
   errorMessage,
@@ -27,6 +27,7 @@ import {
 import { newRecordId } from '../core/offline';
 import { call, openNavigation } from '../lib/nav';
 import {
+  ActionTile,
   Badge,
   Button,
   Chips,
@@ -39,10 +40,10 @@ import {
   Muted,
   ProgressBar,
   SearchBar,
+  Screen,
   Sheet,
   SheetAction,
   useToast,
-  type IconName,
 } from '../components/ui';
 import { colors, font, radius, spacing, toneColors, touch } from '../theme';
 
@@ -87,7 +88,8 @@ export function RoutesListScreen({
    * part en file comme n'importe quel geste de tournée.
    */
   const create = async () => {
-    const today = new Date().toISOString().slice(0, 10);
+    // En local : une tournée créée à minuit et demie est bien celle du jour.
+    const today = todayLocal();
     setCreating(true);
     try {
       const route = await api.routes.save({
@@ -116,7 +118,7 @@ export function RoutesListScreen({
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <Screen>
       {hasRight('routes:save') && (
         <View style={{ padding: spacing.md }}>
           <Button title="Nouvelle tournée" icon="add" variant="primary" onPress={create} busy={creating} />
@@ -159,7 +161,7 @@ export function RoutesListScreen({
           );
         }}
       />
-    </View>
+    </Screen>
   );
 }
 
@@ -190,12 +192,11 @@ export function RouteDetailScreen({
   const [selected, setSelected] = useState<RouteStop | null>(null);
   const [saving, setSaving] = useState(false);
   /**
-   * Le verrou du pointage rapide. `markDone` envoie **toute la tournée** à
-   * `routes:save` : deux taps rapides sur deux arrêts feraient deux envois
-   * concurrents, et le second écraserait le `doneAt` du premier — une
-   * livraison perdue, précisément dans le geste que ce bouton accélère.
-   * Pendant un envoi, le rond tapé montre un sablier et les autres sont
-   * inertes ; Hervé pointe un arrêt à la fois, c'est ce qu'il attend.
+   * Le verrou du pointage rapide : il sérialise les envois — un seul
+   * `routes:save` en vol, le rond tapé montre un sablier, les autres sont
+   * inertes. La fraîcheur du **contenu**, elle, est garantie plus bas par
+   * `tourRef` : même le tap qui suit de près un acquittement repart du
+   * document qui vient d'être envoyé, jamais d'une capture de rendu périmée.
    */
   const [busyStopId, setBusyStopId] = useState<string | null>(null);
   const [linking, setLinking] = useState(false);
@@ -205,8 +206,25 @@ export function RouteDetailScreen({
   const [draftName, setDraftName] = useState('');
   const [draftDate, setDraftDate] = useState('');
 
-  const tour = useMemo(() => routes.find((r) => r.id === routeId), [routes, routeId]);
+  const serverTour = useMemo(() => routes.find((r) => r.id === routeId), [routes, routeId]);
   const editable = hasRight('routes:save');
+
+  /**
+   * La tournée la plus fraîche que l'écran connaisse. `routes:save` envoie le
+   * document **entier** : construire un envoi sur la capture de rendu pendant
+   * la fenêtre entre l'acquittement d'une sauvegarde et le retour du refetch
+   * (`refreshAll` ne s'attend pas) rejouerait une tournée périmée — deux
+   * pointages rapprochés, et le premier « livré » s'effaçait. Chaque
+   * sauvegarde acquittée devient donc la référence : `acked` pour le rendu,
+   * `tourRef` pour les gestes, jusqu'à ce qu'une liste fraîche — partie
+   * après l'acquittement, donc porteuse du changement — reprenne la main.
+   */
+  const [acked, setAcked] = useState<DeliveryRoute | null>(null);
+  const tourRef = useRef<DeliveryRoute | undefined>(undefined);
+  useEffect(() => setAcked(null), [serverTour]);
+
+  const tour = acked ?? serverTour;
+  tourRef.current = tour;
 
   if (loading) return <Loading />;
   if (!tour) return <EmptyState title="Tournée introuvable" />;
@@ -214,13 +232,33 @@ export function RouteDetailScreen({
   const done = tour.stops.filter((s) => s.doneAt).length;
   const provider = settings?.mapProvider ?? 'google';
 
-  /** Toute modification passe par là : `routes:save`, donc la file hors-ligne. */
-  const saveTour = async (next: Partial<DeliveryRoute>) => {
-    if (busyStopId) return; // un pointage rapide est en route : pas d'envoi concurrent
+  /** Une sauvegarde vient d'aboutir : elle devient la tournée de référence. */
+  const acknowledge = (sent: DeliveryRoute) => {
+    tourRef.current = sent;
+    setAcked(sent);
+    refreshAll();
+  };
+
+  /**
+   * Toute modification passe par là : `routes:save`, donc la file hors-ligne.
+   * Le payload se construit sur la tournée de référence, jamais sur la
+   * capture de rendu — et sur `null`, le geste est abandonné sans envoi.
+   */
+  const saveTour = async (mutate: (base: DeliveryRoute) => Partial<DeliveryRoute> | null) => {
+    if (busyStopId) {
+      // Un pointage rapide est en route : pas d'envoi concurrent — mais pas
+      // de geste avalé en silence non plus.
+      toast.push({ tone: 'warn', title: 'Pointage en cours', text: 'Réessayez dans un instant.' });
+      return;
+    }
+    const base = tourRef.current ?? tour;
+    const patch = mutate(base);
+    if (!patch) return;
+    const sent: DeliveryRoute = { ...base, ...patch };
     setSaving(true);
     try {
-      await api.routes.save({ ...tour, ...next });
-      refreshAll();
+      await api.routes.save(sent);
+      acknowledge(sent);
     } catch (err) {
       toast.push({ tone: 'danger', title: 'Échec', text: errorMessage(err) });
     } finally {
@@ -230,11 +268,11 @@ export function RouteDetailScreen({
   };
 
   const markDone = (stop: RouteStop, isDone: boolean) =>
-    saveTour({
-      stops: tour.stops.map((s) =>
+    saveTour((base) => ({
+      stops: base.stops.map((s) =>
         s.id === stop.id ? { ...s, doneAt: isDone ? new Date().toISOString() : undefined } : s,
       ),
-    });
+    }));
 
   /**
    * Le pointage depuis la rangée : livrer en deux gestes au lieu de trois.
@@ -247,11 +285,13 @@ export function RouteDetailScreen({
     setBusyStopId(stop.id);
     try {
       const doneAt = new Date().toISOString();
-      await api.routes.save({
-        ...tour,
-        stops: tour.stops.map((s) => (s.id === stop.id ? { ...s, doneAt } : s)),
-      });
-      refreshAll();
+      const base = tourRef.current ?? tour;
+      const sent: DeliveryRoute = {
+        ...base,
+        stops: base.stops.map((s) => (s.id === stop.id ? { ...s, doneAt } : s)),
+      };
+      await api.routes.save(sent);
+      acknowledge(sent);
       toast.push({
         tone: 'success',
         title: `Livré à ${new Date(doneAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`,
@@ -265,29 +305,30 @@ export function RouteDetailScreen({
   };
 
   /** Même règle que le bureau : un arrêt déplacé épinglé retient sa place. */
-  const moveStop = (stop: RouteStop, delta: number) => {
-    const from = tour.stops.findIndex((s) => s.id === stop.id);
-    const to = from + delta;
-    if (from < 0 || to < 0 || to >= tour.stops.length) return;
-    const next = [...tour.stops];
-    const [item] = next.splice(from, 1);
-    next.splice(to, 0, item);
-    return saveTour({
-      stops: next.map((s, index) => ({ ...s, pinnedIndex: s.pinned ? index : undefined })),
+  const moveStop = (stop: RouteStop, delta: number) =>
+    saveTour((base) => {
+      const from = base.stops.findIndex((s) => s.id === stop.id);
+      const to = from + delta;
+      if (from < 0 || to < 0 || to >= base.stops.length) return null;
+      const next = [...base.stops];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return {
+        stops: next.map((s, index) => ({ ...s, pinnedIndex: s.pinned ? index : undefined })),
+      };
     });
-  };
 
   const togglePin = (stop: RouteStop) =>
-    saveTour({
-      stops: tour.stops.map((s, index) =>
+    saveTour((base) => ({
+      stops: base.stops.map((s, index) =>
         s.id === stop.id
           ? { ...s, pinned: !s.pinned, pinnedIndex: !s.pinned ? index : undefined }
           : s,
       ),
-    });
+    }));
 
   const removeStop = (stop: RouteStop) =>
-    saveTour({ stops: tour.stops.filter((s) => s.id !== stop.id) });
+    saveTour((base) => ({ stops: base.stops.filter((s) => s.id !== stop.id) }));
 
   /**
    * L'optimisation réordonne les arrêts et calcule le coût réel — elle vit sur
@@ -367,7 +408,7 @@ export function RouteDetailScreen({
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <Screen>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>{tour.name}</Text>
         <Muted>
@@ -401,19 +442,19 @@ export function RouteDetailScreen({
           )}
           {editable && (
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              <HeaderAction
+              <ActionTile
                 icon="add"
                 label="Arrêt"
                 onPress={() => navigation.navigate('RouteAddStop', { routeId: tour.id })}
               />
-              <HeaderAction
+              <ActionTile
                 icon="flash"
                 label="Optimiser"
                 busy={optimizing}
                 disabled={tour.stops.length < 2}
                 onPress={() => void optimize(false)}
               />
-              <HeaderAction
+              <ActionTile
                 icon="pencil"
                 label="Modifier"
                 onPress={() => {
@@ -601,7 +642,7 @@ export function RouteDetailScreen({
               <Chips
                 options={vehicles.map((v) => ({ value: v.id, label: v.name }))}
                 value={tour.vehicleId ?? vehicles[0]?.id ?? ''}
-                onChange={(vehicleId) => void saveTour({ vehicleId })}
+                onChange={(vehicleId) => void saveTour(() => ({ vehicleId }))}
               />
             </Field>
           )}
@@ -616,7 +657,7 @@ export function RouteDetailScreen({
                 return;
               }
               setEditing(false);
-              void saveTour({ name: draftName.trim() || tour.name, date: iso });
+              void saveTour((base) => ({ name: draftName.trim() || base.name, date: iso }));
             }}
           />
           <SheetAction
@@ -648,7 +689,7 @@ export function RouteDetailScreen({
           <Button title="Annuler" onPress={() => setConfirmDelete(false)} />
         </View>
       </Sheet>
-    </View>
+    </Screen>
   );
 }
 
@@ -719,7 +760,7 @@ export function RouteAddStopScreen({
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <Screen>
       <View style={{ padding: spacing.md, gap: 6 }}>
         <SearchBar value={query} onChange={setQuery} placeholder="Nom, ville…" />
         <Muted size={12}>
@@ -759,45 +800,7 @@ export function RouteAddStopScreen({
       <View style={{ padding: spacing.md }}>
         <Button title="Terminé" variant="primary" onPress={() => navigation.goBack()} />
       </View>
-    </View>
-  );
-}
-
-/**
- * Les trois gestes d'édition de l'en-tête : icône au-dessus du libellé, en
- * tiers de largeur. Trois `Button` côte à côte tronquaient leurs textes ;
- * ici chaque tuile respire, à hauteur tactile pleine.
- */
-function HeaderAction({
-  icon,
-  label,
-  onPress,
-  busy,
-  disabled,
-}: {
-  icon: IconName;
-  label: string;
-  onPress: () => void;
-  busy?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled || busy}
-      style={({ pressed }) => [
-        styles.headerAction,
-        (disabled || busy) && { opacity: 0.5 },
-        pressed && { opacity: 0.7 },
-      ]}
-    >
-      {busy ? (
-        <ActivityIndicator size="small" color={toneColors.info.fg} />
-      ) : (
-        <Icon name={icon} size={18} color={toneColors.info.fg} />
-      )}
-      <Text style={styles.headerActionLabel}>{label}</Text>
-    </Pressable>
+    </Screen>
   );
 }
 
@@ -811,17 +814,6 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.separator,
   },
   headerTitle: { ...font.title, color: colors.text },
-  headerAction: {
-    flex: 1,
-    minHeight: touch.minHeight,
-    borderRadius: radius.md,
-    backgroundColor: toneColors.info.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-    paddingVertical: 6,
-  },
-  headerActionLabel: { fontSize: 11.5, fontWeight: '600', color: toneColors.info.fg },
   index: {
     width: 31,
     height: 31,

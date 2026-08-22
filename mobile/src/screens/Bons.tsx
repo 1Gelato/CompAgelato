@@ -41,6 +41,7 @@ import {
   Loading,
   Muted,
   SearchBar,
+  Screen,
   SectionTitle,
   useToast,
 } from '../components/ui';
@@ -88,7 +89,7 @@ export function BonsListScreen({
     'Client sans fiche';
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <Screen>
       {hasRight('delivery:save') && (
         <View style={{ padding: spacing.md }}>
           <Button
@@ -128,7 +129,7 @@ export function BonsListScreen({
           />
         )}
       />
-    </View>
+    </Screen>
   );
 }
 

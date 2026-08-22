@@ -15,6 +15,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { Ionicons } from '@expo/vector-icons';
 import type { AuthIdentity, AuthStatus, ChannelName } from '@shared/api';
 import { mayCall } from '@shared/api';
+import { isTaskLate } from '@shared/tasks';
 import { boot, setAuthRequiredHandler, startLive } from './src/lib/runtime';
 import { onNotificationOpened, registerForPush } from './src/lib/push';
 import { onOfflineChange, syncStatus } from './src/core/offline';
@@ -270,12 +271,12 @@ function MainTabs({
 
   // Le badge de l'onglet Tâches compte les **retards**, pas les tâches
   // ouvertes — un chiffre permanent ne serait que du bruit. La garde de rôle
-  // de useResource fait que ce coût est nul pour un livreur.
+  // de useResource fait que ce coût est nul pour un livreur. Pour un compte
+  // bureau, ce useTasks double bien celui de l'écran Tâches à chaque cycle de
+  // rafraîchissement : un GET de plus sur le tailnet, assumé — un cache
+  // partagé dans lib/data serait disproportionné pour en tirer un entier.
   const { data: tasks } = useTasks();
-  const today = new Date().toISOString().slice(0, 10);
-  const lateTasks = tasks.filter(
-    (t) => !t.deletedAt && t.status !== 'done' && t.dueDate && t.dueDate < today,
-  ).length;
+  const lateTasks = tasks.filter((t) => !t.deletedAt && isTaskLate(t)).length;
 
   return (
     <Tabs.Navigator
@@ -525,10 +526,16 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  // Rangée : sans `flexDirection: 'row'`, l'icône s'empilerait au-dessus du
+  // texte — un bandeau cassé en deux lignes.
   banner: {
     backgroundColor: colors.orange,
     paddingBottom: 6,
     paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
-  bannerText: { color: '#fff', fontWeight: '600', fontSize: 13.5, textAlign: 'center' },
+  bannerText: { color: '#fff', fontWeight: '600', fontSize: 13.5, flexShrink: 1 },
 });

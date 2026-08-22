@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { FlatList, RefreshControl, ScrollView, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { Client } from '@shared/types';
 import { dateFr, euro, num } from '@shared/format';
@@ -14,6 +14,7 @@ import {
 } from '../lib/data';
 import { call, openMailto, openNavigation } from '../lib/nav';
 import {
+  ActionTile,
   Badge,
   Button,
   Card,
@@ -25,10 +26,10 @@ import {
   Loading,
   Muted,
   SearchBar,
+  Screen,
   SectionTitle,
-  type IconName,
 } from '../components/ui';
-import { colors, font, radius, spacing, toneColors, touch } from '../theme';
+import { colors, font, spacing } from '../theme';
 
 export type ClientsStackParams = {
   ClientsList: undefined;
@@ -59,7 +60,7 @@ export function ClientsListScreen({
   }, [clients, query]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <Screen>
       <View style={{ padding: spacing.md }}>
         <SearchBar value={query} onChange={setQuery} placeholder="Nom, ville, code…" />
       </View>
@@ -88,44 +89,7 @@ export function ClientsListScreen({
           />
         )}
       />
-    </View>
-  );
-}
-
-/**
- * Une action de la fiche : icône au-dessus du libellé, en part égale de la
- * rangée. Appeler et naviguer sont les gestes de la tournée — ils méritent
- * des boutons à hauteur de pouce, pas des lignes de texte grises.
- */
-function ClientAction({
-  icon,
-  label,
-  onPress,
-}: {
-  icon: IconName;
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        {
-          flex: 1,
-          minHeight: touch.minHeight,
-          borderRadius: radius.md,
-          backgroundColor: toneColors.info.bg,
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 2,
-          paddingVertical: 6,
-        },
-        pressed && { opacity: 0.7 },
-      ]}
-    >
-      <Icon name={icon} size={18} color={toneColors.info.fg} />
-      <Text style={{ fontSize: 11.5, fontWeight: '600', color: toneColors.info.fg }}>{label}</Text>
-    </Pressable>
+    </Screen>
   );
 }
 
@@ -170,7 +134,7 @@ export function ClientDetailScreen({
         </Muted>
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
           {client.address.label ? (
-            <ClientAction
+            <ActionTile
               icon="navigate"
               label="Itinéraire"
               onPress={() =>
@@ -181,12 +145,12 @@ export function ClientDetailScreen({
               }
             />
           ) : null}
-          {phone ? <ClientAction icon="call" label="Appeler" onPress={() => call(phone)} /> : null}
+          {phone ? <ActionTile icon="call" label="Appeler" onPress={() => call(phone)} /> : null}
           {mobile ? (
-            <ClientAction icon="phone-portrait" label="Portable" onPress={() => call(mobile)} />
+            <ActionTile icon="phone-portrait" label="Portable" onPress={() => call(mobile)} />
           ) : null}
           {email ? (
-            <ClientAction
+            <ActionTile
               icon="mail"
               label="E-mail"
               onPress={() => openMailto(email, '', 'Bonjour,\n\n')}
@@ -198,14 +162,18 @@ export function ClientDetailScreen({
         ) : null}
       </Card>
 
-      <Card>
-        {client.contact ? <InfoRow label="Contact" value={client.contact} /> : null}
-        {phone ? <InfoRow label="Téléphone" value={phone} /> : null}
-        {mobile ? <InfoRow label="Portable" value={mobile} /> : null}
-        {email ? <InfoRow label="E-mail" value={email} /> : null}
-        {client.siret ? <InfoRow label="SIRET" value={client.siret} /> : null}
-        {client.notes ? <InfoRow label="Notes" value={client.notes} /> : null}
-      </Card>
+      {/* Tous les enfants sont conditionnels : sans coordonnées du tout, ne
+          pas laisser une carte blanche vide sous l'en-tête. */}
+      {client.contact || phone || mobile || email || client.siret || client.notes ? (
+        <Card>
+          {client.contact ? <InfoRow label="Contact" value={client.contact} /> : null}
+          {phone ? <InfoRow label="Téléphone" value={phone} /> : null}
+          {mobile ? <InfoRow label="Portable" value={mobile} /> : null}
+          {email ? <InfoRow label="E-mail" value={email} /> : null}
+          {client.siret ? <InfoRow label="SIRET" value={client.siret} /> : null}
+          {client.notes ? <InfoRow label="Notes" value={client.notes} /> : null}
+        </Card>
+      ) : null}
 
       {commandes.items.length > 0 && (
         <CardList>

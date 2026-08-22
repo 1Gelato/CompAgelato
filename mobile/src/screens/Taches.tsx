@@ -6,6 +6,7 @@ import {
   TASK_PRIORITY_LABEL,
   TASK_STATUS_LABEL,
 } from '@shared/format';
+import { isTaskLate } from '@shared/tasks';
 import { api } from '../lib/runtime';
 import { errorMessage, refreshAll, useClients, useRefresh, useTasks } from '../lib/data';
 import {
@@ -17,11 +18,12 @@ import {
   Input,
   ListItem,
   Loading,
+  Screen,
   Sheet,
   SheetAction,
   useToast,
 } from '../components/ui';
-import { colors, spacing, toneColors } from '../theme';
+import { spacing, toneColors } from '../theme';
 import type { Tone } from '../theme';
 
 /**
@@ -42,13 +44,6 @@ const PRIORITY_TONE: Record<TaskPriority, Tone> = {
   normal: 'info',
   low: 'default',
 };
-
-/** Échéance passée sans être faite : c'est ce que l'écran doit crier. */
-function isLate(task: Task): boolean {
-  return Boolean(
-    task.dueDate && task.status !== 'done' && task.dueDate < new Date().toISOString().slice(0, 10),
-  );
-}
 
 type Vue = 'todo' | 'all' | 'trash';
 
@@ -121,7 +116,7 @@ export function TachesScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <Screen>
       <View style={{ padding: spacing.md, gap: spacing.sm }}>
         <Chips
           value={view}
@@ -184,7 +179,7 @@ export function TachesScreen() {
                 <Badge tone={PRIORITY_TONE[task.priority]}>
                   {TASK_PRIORITY_LABEL[task.priority]}
                 </Badge>
-                {isLate(task) && (
+                {isTaskLate(task) && (
                   <Badge tone="danger" icon="alert-circle">
                     en retard
                   </Badge>
@@ -259,6 +254,6 @@ export function TachesScreen() {
           disabled={!title.trim()}
         />
       </Sheet>
-    </View>
+    </Screen>
   );
 }

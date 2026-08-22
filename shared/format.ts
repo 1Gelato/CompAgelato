@@ -35,6 +35,18 @@ export function dateFr(iso: string | null | undefined): string {
   return `${d}/${m}/${y}`;
 }
 
+/**
+ * La date du jour **locale**, au format AAAA-MM-JJ des échéances et des
+ * pièces. Le raccourci `toISOString().slice(0, 10)` donne le jour UTC :
+ * entre minuit et une ou deux heures du matin en France, c'est encore
+ * « hier » — une tâche échue passait inaperçue, une tournée créée dans la
+ * nuit portait la date de la veille.
+ */
+export function todayLocal(now: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
 export function dateLong(iso: string | null | undefined): string {
   if (!iso) return '—';
   const date = new Date(`${iso.slice(0, 10)}T12:00:00`);

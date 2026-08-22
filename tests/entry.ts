@@ -77,13 +77,16 @@ export { pendingFiles, uploadPending } from '../electron/services/uploadWatcher'
 export { CHANNELS } from '../shared/api';
 // Calculs partagés avec les écrans : marge et prix TTC, dont les définitions
 // doivent coïncider avec celles du logiciel de comptabilité.
-export { marginRate, priceTtc } from '../shared/format';
+export { marginRate, priceTtc, todayLocal } from '../shared/format';
 // Ce qu'un client a déjà commandé : même code sur le bureau, sur le téléphone
 // et ici — d'où l'intérêt de le vérifier une bonne fois.
 export { clientOrderHistory } from '../shared/orders';
 // Ce qui ressemble à une ligne d'article sans en être une : le lecteur de PDF
 // s'en sert pour ne pas la lire, les écrans pour ne pas la montrer.
 export { looksLikeVatRecapRow, cleanItemLabel } from '../shared/invoiceLines';
+// Le retard d'une tâche : la même règle nourrit les listes du bureau et du
+// téléphone et la pastille de l'onglet — en heure locale, pas en UTC.
+export { isTaskLate } from '../shared/tasks';
 // Le magasin lui-même : sans Electron, il se pilote en Node. C'est ainsi qu'on
 // vérifie la restauration d'une sauvegarde venue d'une autre machine.
 export { store as dataStore, isForeignPath, defaultWatchFolder } from '../electron/store';

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { dateFr, euro } from '@shared/format';
 import { useBankSummary, useBankTransactions, useRefresh } from '../lib/data';
-import { Badge, EmptyState, ListItem, Loading, SearchBar, Stat } from '../components/ui';
+import { Badge, EmptyState, ListItem, Loading, SearchBar, Screen, Stat } from '../components/ui';
 import { colors, spacing } from '../theme';
 
 /**
@@ -25,7 +25,7 @@ export function BanqueScreen() {
   }, [transactions, query]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <Screen>
       {summary && (
         <View style={styles.summary}>
           <Stat label="Solde connu" value={summary.balance !== undefined ? euro(summary.balance) : '—'} />
@@ -74,7 +74,7 @@ export function BanqueScreen() {
           />
         )}
       />
-    </View>
+    </Screen>
   );
 }
 

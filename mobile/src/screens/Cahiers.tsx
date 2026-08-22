@@ -13,11 +13,12 @@ import {
   Input,
   ListItem,
   Loading,
+  Screen,
   Sheet,
   SheetAction,
   useToast,
 } from '../components/ui';
-import { colors, spacing, toneColors } from '../theme';
+import { spacing, toneColors } from '../theme';
 import type { Tone } from '../theme';
 
 /**
@@ -113,7 +114,7 @@ export function CahiersScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <Screen>
       <View style={{ padding: spacing.md, gap: spacing.sm }}>
         <Chips
           value={kind}
@@ -251,6 +252,6 @@ export function CahiersScreen() {
         </Field>
         <Button title="Enregistrer" variant="primary" onPress={create} busy={busy} disabled={!title.trim()} />
       </Sheet>
-    </View>
+    </Screen>
   );
 }

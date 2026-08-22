@@ -76,10 +76,6 @@ export function Muted({ children, size = 13 }: { children: ReactNode; size?: num
   return <Text style={{ color: colors.secondary, fontSize: size }}>{children}</Text>;
 }
 
-export function Divider({ inset = 0 }: { inset?: number }) {
-  return <View style={[styles.divider, inset ? { marginLeft: inset } : null]} />;
-}
-
 export function Badge({
   tone = 'default',
   icon,
@@ -233,6 +229,46 @@ export function IconButton({
       ]}
     >
       <Ionicons name={icon} size={20} color={palette.fg} />
+    </Pressable>
+  );
+}
+
+/**
+ * Une tuile d'action : icône au-dessus du libellé, en part égale d'une
+ * rangée. Les gestes de terrain (naviguer, appeler, optimiser) méritent des
+ * cibles à hauteur de pouce — trois `Button` côte à côte tronqueraient leurs
+ * textes. Servie par l'en-tête de tournée et la fiche client : même dessin,
+ * un seul endroit à régler.
+ */
+export function ActionTile({
+  icon,
+  label,
+  onPress,
+  busy,
+  disabled,
+}: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+  busy?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled || busy}
+      style={({ pressed }) => [
+        styles.actionTile,
+        (disabled || busy) && { opacity: 0.5 },
+        pressed && { opacity: 0.7 },
+      ]}
+    >
+      {busy ? (
+        <ActivityIndicator size="small" color={toneColors.info.fg} />
+      ) : (
+        <Ionicons name={icon} size={18} color={toneColors.info.fg} />
+      )}
+      <Text style={styles.actionTileLabel}>{label}</Text>
     </Pressable>
   );
 }
@@ -726,10 +762,6 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.separator,
-  },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -761,6 +793,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  actionTile: {
+    flex: 1,
+    minHeight: touch.minHeight,
+    borderRadius: radius.md,
+    backgroundColor: toneColors.info.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingVertical: 6,
+  },
+  actionTileLabel: { fontSize: 11.5, fontWeight: '600', color: toneColors.info.fg },
   input: {
     backgroundColor: colors.card,
     borderRadius: radius.sm,

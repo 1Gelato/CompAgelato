@@ -17,6 +17,7 @@ import {
   ListItem,
   Loading,
   SearchBar,
+  Screen,
   SectionTitle,
   SheetAction,
   useToast,
@@ -60,7 +61,7 @@ export function DocumentsListScreen({
   }, [documents, clientIndex, query, kind]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <Screen>
       <View style={{ padding: spacing.md, gap: spacing.sm }}>
         <SearchBar value={query} onChange={setQuery} placeholder="Numéro, client, montant…" />
         <Chips
@@ -111,7 +112,7 @@ export function DocumentsListScreen({
           );
         }}
       />
-    </View>
+    </Screen>
   );
 }
 
