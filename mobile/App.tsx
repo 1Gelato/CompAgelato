@@ -18,7 +18,7 @@ import { mayCall } from '@shared/api';
 import { boot, setAuthRequiredHandler, startLive } from './src/lib/runtime';
 import { onNotificationOpened, registerForPush } from './src/lib/push';
 import { onOfflineChange, syncStatus } from './src/core/offline';
-import { refreshAll, setCurrentRole } from './src/lib/data';
+import { refreshAll, setCurrentRole, useTasks } from './src/lib/data';
 import { Loading, ToastProvider, useToast } from './src/components/ui';
 import { colors } from './src/theme';
 import { SetupScreen } from './src/screens/Setup';
@@ -268,6 +268,15 @@ function MainTabs({
     return !channel || !identity || mayCall(identity.role, channel);
   });
 
+  // Le badge de l'onglet Tâches compte les **retards**, pas les tâches
+  // ouvertes — un chiffre permanent ne serait que du bruit. La garde de rôle
+  // de useResource fait que ce coût est nul pour un livreur.
+  const { data: tasks } = useTasks();
+  const today = new Date().toISOString().slice(0, 10);
+  const lateTasks = tasks.filter(
+    (t) => !t.deletedAt && t.status !== 'done' && t.dueDate && t.dueDate < today,
+  ).length;
+
   return (
     <Tabs.Navigator
       screenOptions={({ route }) => ({
@@ -295,7 +304,16 @@ function MainTabs({
       })}
     >
       {visible.includes('Tournées') && <Tabs.Screen name="Tournées" component={RoutesFlow} />}
-      {visible.includes('Tâches') && <Tabs.Screen name="Tâches" component={TachesScreen} />}
+      {visible.includes('Tâches') && (
+        <Tabs.Screen
+          name="Tâches"
+          component={TachesScreen}
+          options={{
+            tabBarBadge: lateTasks || undefined,
+            tabBarBadgeStyle: { backgroundColor: colors.red, fontSize: 11, fontWeight: '600' },
+          }}
+        />
+      )}
       {visible.includes('Cahiers') && <Tabs.Screen name="Cahiers" component={CahiersScreen} />}
       {visible.includes('Clients') && <Tabs.Screen name="Clients" component={ClientsFlow} />}
       <Tabs.Screen name="Plus">

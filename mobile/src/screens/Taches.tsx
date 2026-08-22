@@ -21,7 +21,7 @@ import {
   SheetAction,
   useToast,
 } from '../components/ui';
-import { colors, spacing } from '../theme';
+import { colors, spacing, toneColors } from '../theme';
 import type { Tone } from '../theme';
 
 /**
@@ -41,12 +41,6 @@ const PRIORITY_TONE: Record<TaskPriority, Tone> = {
   high: 'warn',
   normal: 'info',
   low: 'default',
-};
-
-const STATUS_TONE: Record<TaskStatus, Tone> = {
-  open: 'warn',
-  doing: 'info',
-  done: 'success',
 };
 
 /** Échéance passée sans être faite : c'est ce que l'écran doit crier. */
@@ -90,8 +84,6 @@ export function TachesScreen() {
   );
 
   const trashCount = useMemo(() => tasks.filter((t) => t.deletedAt).length, [tasks]);
-
-  if (loading) return <Loading />;
 
   const create = async () => {
     if (!title.trim()) return;
@@ -137,11 +129,11 @@ export function TachesScreen() {
           options={[
             { value: 'todo', label: 'À faire' },
             { value: 'all', label: 'Tout' },
-            { value: 'trash', label: trashCount ? `Corbeille (${trashCount})` : 'Corbeille' },
+            { value: 'trash', label: 'Corbeille', count: trashCount },
           ]}
         />
         {view !== 'trash' && (
-          <Button title="+ Nouvelle tâche" variant="primary" onPress={() => setCreating(true)} />
+          <Button title="Nouvelle tâche" icon="add" variant="primary" onPress={() => setCreating(true)} />
         )}
       </View>
 
@@ -150,7 +142,11 @@ export function TachesScreen() {
         keyExtractor={(task) => task.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
+          loading ? (
+            <Loading />
+          ) : (
           <EmptyState
+            icon={view === 'trash' ? 'trash-outline' : 'checkbox-outline'}
             title={view === 'trash' ? 'Corbeille vide' : 'Aucune tâche'}
             text={
               view === 'trash'
@@ -158,21 +154,42 @@ export function TachesScreen() {
                 : 'Notez ce qui doit être fait — une relance, un rappel, un papier à envoyer.'
             }
           />
+          )
         }
         renderItem={({ item: task }) => (
           <ListItem
+            leading={
+              // Le liseré dit la priorité d'un coup d'œil, avant toute lecture.
+              <View
+                style={{
+                  width: 4,
+                  alignSelf: 'stretch',
+                  borderRadius: 2,
+                  backgroundColor: toneColors[PRIORITY_TONE[task.priority]].fg,
+                }}
+              />
+            }
             title={task.title}
             subtitle={[
               clientLabel(task),
-              task.dueDate ? `${isLate(task) ? 'en retard — ' : ''}${dateFr(task.dueDate)}` : '',
+              task.dueDate ? dateFr(task.dueDate) : '',
               task.assignedToName ?? '',
             ]
               .filter(Boolean)
               .join(' · ')}
             right={
-              <Badge tone={isLate(task) ? 'danger' : PRIORITY_TONE[task.priority]}>
-                {TASK_PRIORITY_LABEL[task.priority]}
-              </Badge>
+              // Deux informations, deux badges : le retard n'écrase plus la
+              // priorité — une tâche urgente en retard montre les deux.
+              <View style={{ alignItems: 'flex-end', gap: 3 }}>
+                <Badge tone={PRIORITY_TONE[task.priority]}>
+                  {TASK_PRIORITY_LABEL[task.priority]}
+                </Badge>
+                {isLate(task) && (
+                  <Badge tone="danger" icon="alert-circle">
+                    en retard
+                  </Badge>
+                )}
+              </View>
             }
             onPress={() => setSelected(task)}
           />
@@ -183,6 +200,7 @@ export function TachesScreen() {
       <Sheet open={Boolean(selected)} onClose={() => setSelected(null)} title={selected?.title}>
         {selected?.deletedAt ? (
           <SheetAction
+            icon="arrow-undo"
             title="Restaurer"
             tone="success"
             onPress={() => void run(() => api.tasks.restore(selected.id), 'Tâche restaurée')}
@@ -193,12 +211,14 @@ export function TachesScreen() {
               {STATUSES.filter((status) => status !== selected.status).map((status) => (
                 <SheetAction
                   key={status}
+                  icon={status === 'done' ? 'checkmark' : status === 'doing' ? 'play' : 'ellipse-outline'}
                   title={TASK_STATUS_LABEL[status]}
                   tone={status === 'done' ? 'success' : 'default'}
                   onPress={() => void run(() => api.tasks.setStatus(selected.id, status))}
                 />
               ))}
               <SheetAction
+                icon="trash"
                 title="Mettre à la corbeille"
                 tone="danger"
                 onPress={() =>

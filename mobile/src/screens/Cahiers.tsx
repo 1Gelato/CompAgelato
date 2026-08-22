@@ -17,7 +17,7 @@ import {
   SheetAction,
   useToast,
 } from '../components/ui';
-import { colors, spacing } from '../theme';
+import { colors, spacing, toneColors } from '../theme';
 import type { Tone } from '../theme';
 
 /**
@@ -79,8 +79,6 @@ export function CahiersScreen() {
     [entries, kind],
   );
 
-  if (loading) return <Loading />;
-
   const create = async () => {
     if (!title.trim()) return;
     setBusy(true);
@@ -129,16 +127,36 @@ export function CahiersScreen() {
             { value: 'wintering', label: 'Hivernage' },
           ]}
         />
-        <Button title="+ Nouvelle écriture" variant="primary" onPress={() => setCreating(true)} />
+        <Button title="Nouvelle écriture" icon="add" variant="primary" onPress={() => setCreating(true)} />
       </View>
 
       <FlatList
         data={filtered}
         keyExtractor={(entry) => entry.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        ListEmptyComponent={<EmptyState title="Rien dans ce cahier" />}
+        ListEmptyComponent={
+          loading ? (
+            <Loading />
+          ) : (
+            <EmptyState
+              icon="book-outline"
+              title="Rien dans ce cahier"
+              text="Un client appelle pendant la tournée ? La panne, l’envie d’achat ou la machine confiée se note ici, sur le champ."
+            />
+          )
+        }
         renderItem={({ item: entry }) => (
           <ListItem
+            leading={
+              <View
+                style={{
+                  width: 4,
+                  alignSelf: 'stretch',
+                  borderRadius: 2,
+                  backgroundColor: toneColors[STATUS_TONE[entry.status]].fg,
+                }}
+              />
+            }
             title={entry.title}
             subtitle={[
               KIND_LABEL[entry.kind],
@@ -172,6 +190,15 @@ export function CahiersScreen() {
             .map((status) => (
               <SheetAction
                 key={status}
+                icon={
+                  status === 'done'
+                    ? 'checkmark'
+                    : status === 'cancelled'
+                      ? 'close'
+                      : status === 'confirmed'
+                        ? 'play'
+                        : 'ellipse-outline'
+                }
                 title={statusLabel({ kind: selected.kind, status })}
                 tone={status === 'done' ? 'success' : status === 'cancelled' ? 'danger' : 'default'}
                 onPress={() => void setStatus(selected, status)}
