@@ -457,6 +457,14 @@ export function BonNouveauScreen({
 
       <Card>
         <SectionTitle>Articles livrés</SectionTitle>
+        {/* Sans un mot, rien ne dit que le catalogue répond : on croit devoir
+            tout retaper. L'indice ne s'affiche que s'il y a un catalogue à
+            interroger — inutile de promettre ce qui ne viendra pas. */}
+        {products.length > 0 && (
+          <Muted size={12}>
+            Tapez les premières lettres d’un article : le catalogue le complète, avec son prix.
+          </Muted>
+        )}
         {items.map((item, index) => (
           <View key={index} style={{ gap: 6 }}>
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
