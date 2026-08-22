@@ -1,5 +1,14 @@
 import { useMemo, useState } from 'react';
-import { FlatList, Linking, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Linking,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DeliveryRoute, RouteStop } from '@shared/types';
 import { dateFr } from '@shared/format';
@@ -23,16 +32,19 @@ import {
   Chips,
   EmptyState,
   Field,
+  Icon,
   Input,
   ListItem,
   Loading,
   Muted,
+  ProgressBar,
   SearchBar,
   Sheet,
   SheetAction,
   useToast,
+  type IconName,
 } from '../components/ui';
-import { colors, spacing } from '../theme';
+import { colors, font, radius, spacing, toneColors, touch } from '../theme';
 
 /** Le fournisseur de navigation, nommé comme l'utilisateur le connaît. */
 const PROVIDER_LABEL: Record<string, string> = {
@@ -63,8 +75,6 @@ export function RoutesListScreen({
   const { refreshing, onRefresh } = useRefresh();
   const toast = useToast();
   const [creating, setCreating] = useState(false);
-
-  if (loading) return <Loading />;
 
   const progress = (route: DeliveryRoute) => {
     const done = route.stops.filter((s) => s.doneAt).length;
@@ -109,18 +119,25 @@ export function RoutesListScreen({
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       {hasRight('routes:save') && (
         <View style={{ padding: spacing.md }}>
-          <Button title="＋  Nouvelle tournée" variant="primary" onPress={create} busy={creating} />
+          <Button title="Nouvelle tournée" icon="add" variant="primary" onPress={create} busy={creating} />
         </View>
       )}
       <FlatList
         data={routes}
         keyExtractor={(route) => route.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        // Le chargement vit dans la zone de liste : le bouton de création ne
+        // disparaît plus le temps d'une synchronisation.
         ListEmptyComponent={
-          <EmptyState
-            title="Aucune tournée"
-            text="Créez-en une ici ou depuis l’ordinateur : elle se suit ensuite sur la route."
-          />
+          loading ? (
+            <Loading />
+          ) : (
+            <EmptyState
+              icon="navigate-outline"
+              title="Aucune tournée"
+              text="Créez-en une ici ou depuis l’ordinateur : elle se suit ensuite sur la route."
+            />
+          )
         }
         renderItem={({ item: route }) => {
           const done = route.stops.filter((s) => s.doneAt).length;
@@ -136,6 +153,7 @@ export function RoutesListScreen({
                   {progress(route)}
                 </Badge>
               }
+              chevron
               onPress={() => navigation.navigate('RouteDetail', { routeId: route.id })}
             />
           );
@@ -171,6 +189,15 @@ export function RouteDetailScreen({
   const toast = useToast();
   const [selected, setSelected] = useState<RouteStop | null>(null);
   const [saving, setSaving] = useState(false);
+  /**
+   * Le verrou du pointage rapide. `markDone` envoie **toute la tournée** à
+   * `routes:save` : deux taps rapides sur deux arrêts feraient deux envois
+   * concurrents, et le second écraserait le `doneAt` du premier — une
+   * livraison perdue, précisément dans le geste que ce bouton accélère.
+   * Pendant un envoi, le rond tapé montre un sablier et les autres sont
+   * inertes ; Hervé pointe un arrêt à la fois, c'est ce qu'il attend.
+   */
+  const [busyStopId, setBusyStopId] = useState<string | null>(null);
   const [linking, setLinking] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -189,6 +216,7 @@ export function RouteDetailScreen({
 
   /** Toute modification passe par là : `routes:save`, donc la file hors-ligne. */
   const saveTour = async (next: Partial<DeliveryRoute>) => {
+    if (busyStopId) return; // un pointage rapide est en route : pas d'envoi concurrent
     setSaving(true);
     try {
       await api.routes.save({ ...tour, ...next });
@@ -207,6 +235,34 @@ export function RouteDetailScreen({
         s.id === stop.id ? { ...s, doneAt: isDone ? new Date().toISOString() : undefined } : s,
       ),
     });
+
+  /**
+   * Le pointage depuis la rangée : livrer en deux gestes au lieu de trois.
+   * Le dé-pointage, lui, reste dans la feuille — un « livré » accidentel
+   * (soleil, gant) se voit au badge d'heure et se répare en trois secondes,
+   * alors qu'un second chemin d'écriture rouvrirait la course.
+   */
+  const quickDone = async (stop: RouteStop) => {
+    if (busyStopId || saving) return;
+    setBusyStopId(stop.id);
+    try {
+      const doneAt = new Date().toISOString();
+      await api.routes.save({
+        ...tour,
+        stops: tour.stops.map((s) => (s.id === stop.id ? { ...s, doneAt } : s)),
+      });
+      refreshAll();
+      toast.push({
+        tone: 'success',
+        title: `Livré à ${new Date(doneAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`,
+        text: stop.label || 'Arrêt',
+      });
+    } catch (err) {
+      toast.push({ tone: 'danger', title: 'Pointage impossible', text: errorMessage(err) });
+    } finally {
+      setBusyStopId(null);
+    }
+  };
 
   /** Même règle que le bureau : un arrêt déplacé épinglé retient sa place. */
   const moveStop = (stop: RouteStop, delta: number) => {
@@ -315,58 +371,63 @@ export function RouteDetailScreen({
       <View style={styles.header}>
         <Text style={styles.headerTitle}>{tour.name}</Text>
         <Muted>
-          {dateFr(tour.date)} · {done}/{tour.stops.length} livrés
+          {dateFr(tour.date)}
           {tour.computation
-            ? ` · ${Math.round(tour.computation.distanceKm)} km, ${Math.round(tour.computation.durationMin + tour.computation.serviceMin)} min`
+            ? ` · ${Math.round(tour.computation.distanceKm)} km · ${Math.round(tour.computation.durationMin + tour.computation.serviceMin)} min`
             : ''}
         </Muted>
-        <View style={styles.progressTrack}>
-          <View
-            style={[
-              styles.progressBar,
-              { width: `${tour.stops.length ? Math.round((done / tour.stops.length) * 100) : 0}%` },
-            ]}
-          />
-        </View>
-        <View style={{ marginTop: spacing.sm, gap: 6 }}>
+        {tour.stops.length > 0 && (
+          <View style={{ marginTop: 6 }}>
+            <ProgressBar
+              ratio={done / tour.stops.length}
+              leftLabel={`${done}/${tour.stops.length} livré${done > 1 ? 's' : ''}`}
+              rightLabel={
+                done === tour.stops.length
+                  ? 'tournée terminée'
+                  : `${tour.stops.length - done} restant${tour.stops.length - done > 1 ? 's' : ''}`
+              }
+            />
+          </View>
+        )}
+        <View style={{ marginTop: spacing.sm, gap: 8 }}>
           {tour.stops.length > 0 && (
             <Button
-              title={`🧭  Ouvrir l’itinéraire (${PROVIDER_LABEL[provider]})`}
+              title={`Ouvrir l’itinéraire (${PROVIDER_LABEL[provider]})`}
+              icon="navigate"
               variant="primary"
               onPress={openWholeRoute}
               busy={linking}
             />
           )}
           {editable && (
-            <View style={{ flexDirection: 'row', gap: 6 }}>
-              <View style={{ flex: 1 }}>
-                <Button
-                  title="＋ Arrêt"
-                  onPress={() => navigation.navigate('RouteAddStop', { routeId: tour.id })}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Button
-                  title="⚡ Optimiser"
-                  onPress={() => void optimize(false)}
-                  busy={optimizing}
-                  disabled={tour.stops.length < 2}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Button
-                  title="✎ Modifier"
-                  onPress={() => {
-                    setDraftName(tour.name);
-                    setDraftDate(dateFr(tour.date));
-                    setEditing(true);
-                  }}
-                />
-              </View>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <HeaderAction
+                icon="add"
+                label="Arrêt"
+                onPress={() => navigation.navigate('RouteAddStop', { routeId: tour.id })}
+              />
+              <HeaderAction
+                icon="flash"
+                label="Optimiser"
+                busy={optimizing}
+                disabled={tour.stops.length < 2}
+                onPress={() => void optimize(false)}
+              />
+              <HeaderAction
+                icon="pencil"
+                label="Modifier"
+                onPress={() => {
+                  setDraftName(tour.name);
+                  setDraftDate(dateFr(tour.date));
+                  setEditing(true);
+                }}
+              />
             </View>
           )}
           {tour.stops.length > 0 && (
-            <Muted size={12}>Touchez un arrêt pour naviguer, appeler, pointer — ou le déplacer.</Muted>
+            <Muted size={12}>
+              Le rond coche un arrêt livré. Touchez la rangée pour naviguer, appeler, déplacer.
+            </Muted>
           )}
         </View>
       </View>
@@ -376,25 +437,37 @@ export function RouteDetailScreen({
         keyExtractor={(stop) => stop.id}
         ListEmptyComponent={
           <EmptyState
+            icon="location-outline"
             title="Aucun arrêt dans cette tournée"
-            text={editable ? 'Ajoutez des clients avec « ＋ Arrêt », puis optimisez.' : undefined}
+            text={editable ? 'Ajoutez des clients avec « Arrêt », puis optimisez.' : undefined}
           />
         }
         renderItem={({ item: stop, index }) => (
           <ListItem
             leading={
               <View style={[styles.index, stop.doneAt ? styles.indexDone : null]}>
-                <Text style={{ color: stop.doneAt ? '#fff' : colors.secondary, fontWeight: '700', fontSize: 13 }}>
-                  {stop.doneAt ? '✓' : index + 1}
-                </Text>
+                {stop.doneAt ? (
+                  <Icon name="checkmark" size={16} color="#fff" />
+                ) : (
+                  <Text style={styles.indexText}>{index + 1}</Text>
+                )}
               </View>
             }
-            title={`${stop.pinned ? '📌 ' : ''}${stop.label || 'Arrêt sans nom'}`}
+            title={
+              stop.pinned ? (
+                <>
+                  <Icon name="pin" size={13} color={toneColors.info.fg} />{' '}
+                  {stop.label || 'Arrêt sans nom'}
+                </>
+              ) : (
+                stop.label || 'Arrêt sans nom'
+              )
+            }
             subtitle={`${stop.address.label || 'Adresse non renseignée'}${
               stop.notes ? `\n${stop.notes}` : ''
             }`}
             right={
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
                 {stop.doneAt ? (
                   <Badge tone="success">
                     {new Date(stop.doneAt).toLocaleTimeString('fr-FR', {
@@ -405,7 +478,28 @@ export function RouteDetailScreen({
                 ) : stop.legDurationMin !== undefined ? (
                   <Muted size={12}>{Math.round(stop.legDurationMin)} min</Muted>
                 ) : null}
-                <Text style={{ color: colors.tertiary, fontSize: 18 }}>›</Text>
+                {stop.doneAt ? (
+                  <View style={[styles.check, styles.checkDone]}>
+                    <Icon name="checkmark" size={19} color="#fff" />
+                  </View>
+                ) : (
+                  <Pressable
+                    onPress={() => void quickDone(stop)}
+                    disabled={busyStopId !== null}
+                    accessibilityLabel={`Marquer ${stop.label || 'cet arrêt'} comme livré`}
+                    style={({ pressed }) => [
+                      styles.check,
+                      busyStopId !== null && busyStopId !== stop.id && { opacity: 0.35 },
+                      pressed && { opacity: 0.6 },
+                    ]}
+                  >
+                    {busyStopId === stop.id ? (
+                      <ActivityIndicator size="small" color={colors.accent} />
+                    ) : (
+                      <Icon name="checkmark" size={19} color={colors.accent} />
+                    )}
+                  </Pressable>
+                )}
               </View>
             }
             onPress={() => setSelected(stop)}
@@ -418,7 +512,8 @@ export function RouteDetailScreen({
         {selected && (
           <>
             <SheetAction
-              title="🧭  Naviguer vers cet arrêt"
+              icon="navigate"
+              title="Naviguer vers cet arrêt"
               subtitle={selected.address.label}
               onPress={() => {
                 openNavigation(selected, provider);
@@ -427,7 +522,8 @@ export function RouteDetailScreen({
             />
             {phone ? (
               <SheetAction
-                title={`📞  Appeler ${client?.name ?? ''}`}
+                icon="call"
+                title={`Appeler ${client?.name ?? ''}`.trim()}
                 subtitle={phone}
                 onPress={() => {
                   call(phone);
@@ -436,7 +532,8 @@ export function RouteDetailScreen({
               />
             ) : null}
             <SheetAction
-              title="📝  Bon de livraison"
+              icon="document-text"
+              title="Bon de livraison"
               subtitle="Articles livrés, signatures — le bureau le reçoit aussitôt"
               onPress={() => {
                 const target = selected;
@@ -450,13 +547,15 @@ export function RouteDetailScreen({
             />
             {selected.doneAt ? (
               <SheetAction
-                title="↩︎  Annuler le pointage"
+                icon="arrow-undo"
+                title="Annuler le pointage"
                 subtitle={`Livré à ${new Date(selected.doneAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`}
                 onPress={() => void markDone(selected, false)}
               />
             ) : (
               <SheetAction
-                title="✓  Marquer comme livré"
+                icon="checkmark"
+                title="Marquer comme livré"
                 tone="success"
                 subtitle="Conservé même sans réseau, envoyé à la reconnexion."
                 onPress={() => void markDone(selected, true)}
@@ -465,19 +564,25 @@ export function RouteDetailScreen({
             {editable && (
               <>
                 <SheetAction
-                  title={selected.pinned ? '📌  Détacher (l’optimisation peut le déplacer)' : '📌  Épingler à cette position'}
+                  icon="pin"
+                  title={selected.pinned ? 'Détacher (l’optimisation peut le déplacer)' : 'Épingler à cette position'}
                   onPress={() => void togglePin(selected)}
                 />
-                <SheetAction title="⬆️  Monter d’une place" onPress={() => void moveStop(selected, -1)} />
-                <SheetAction title="⬇️  Descendre d’une place" onPress={() => void moveStop(selected, 1)} />
+                <SheetAction icon="arrow-up" title="Monter d’une place" onPress={() => void moveStop(selected, -1)} />
+                <SheetAction icon="arrow-down" title="Descendre d’une place" onPress={() => void moveStop(selected, 1)} />
                 <SheetAction
-                  title="🗑  Retirer de la tournée"
+                  icon="trash"
+                  title="Retirer de la tournée"
                   tone="danger"
                   onPress={() => void removeStop(selected)}
                 />
               </>
             )}
-            {saving && <Button title="" onPress={() => {}} busy />}
+            {saving && (
+              <View style={{ paddingVertical: spacing.sm, alignItems: 'center' }}>
+                <ActivityIndicator color={colors.accent} />
+              </View>
+            )}
           </>
         )}
       </Sheet>
@@ -515,7 +620,8 @@ export function RouteDetailScreen({
             }}
           />
           <SheetAction
-            title="🔄  Recalculer l’itinéraire (sans changer l’ordre)"
+            icon="refresh"
+            title="Recalculer l’itinéraire (sans changer l’ordre)"
             onPress={() => {
               setEditing(false);
               void optimize(true);
@@ -523,7 +629,8 @@ export function RouteDetailScreen({
           />
           {hasRight('routes:remove') && (
             <SheetAction
-              title="🗑  Supprimer la tournée"
+              icon="trash"
+              title="Supprimer la tournée"
               tone="danger"
               onPress={() => {
                 setEditing(false);
@@ -622,7 +729,9 @@ export function RouteAddStopScreen({
       <FlatList
         data={candidates}
         keyExtractor={(client) => client.id}
-        ListEmptyComponent={<EmptyState title="Aucun client géolocalisé ne correspond" />}
+        ListEmptyComponent={
+          <EmptyState icon="location-outline" title="Aucun client géolocalisé ne correspond" />
+        }
         renderItem={({ item: client }) => {
           const already = inTour.has(client.id);
           return (
@@ -631,11 +740,15 @@ export function RouteAddStopScreen({
               subtitle={client.address.label || client.address.city || client.code}
               right={
                 already ? (
-                  <Badge tone="success">dans la tournée</Badge>
+                  <Badge tone="success" icon="checkmark">
+                    dans la tournée
+                  </Badge>
                 ) : busyId === client.id ? (
-                  <Muted size={12}>…</Muted>
+                  <ActivityIndicator size="small" color={colors.accent} />
                 ) : (
-                  <Text style={{ color: colors.accent, fontSize: 22, fontWeight: '600' }}>＋</Text>
+                  <View style={styles.addBubble}>
+                    <Icon name="add" size={20} color={colors.accent} />
+                  </View>
                 )
               }
               onPress={already ? undefined : () => void add(client.id)}
@@ -650,6 +763,44 @@ export function RouteAddStopScreen({
   );
 }
 
+/**
+ * Les trois gestes d'édition de l'en-tête : icône au-dessus du libellé, en
+ * tiers de largeur. Trois `Button` côte à côte tronquaient leurs textes ;
+ * ici chaque tuile respire, à hauteur tactile pleine.
+ */
+function HeaderAction({
+  icon,
+  label,
+  onPress,
+  busy,
+  disabled,
+}: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+  busy?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled || busy}
+      style={({ pressed }) => [
+        styles.headerAction,
+        (disabled || busy) && { opacity: 0.5 },
+        pressed && { opacity: 0.7 },
+      ]}
+    >
+      {busy ? (
+        <ActivityIndicator size="small" color={toneColors.info.fg} />
+      ) : (
+        <Icon name={icon} size={18} color={toneColors.info.fg} />
+      )}
+      <Text style={styles.headerActionLabel}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.card,
@@ -659,22 +810,48 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.separator,
   },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
-  progressTrack: {
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: 'rgba(0,0,0,0.07)',
-    marginTop: 6,
-    overflow: 'hidden',
+  headerTitle: { ...font.title, color: colors.text },
+  headerAction: {
+    flex: 1,
+    minHeight: touch.minHeight,
+    borderRadius: radius.md,
+    backgroundColor: toneColors.info.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingVertical: 6,
   },
-  progressBar: { height: '100%', backgroundColor: colors.green, borderRadius: 3 },
+  headerActionLabel: { fontSize: 11.5, fontWeight: '600', color: toneColors.info.fg },
   index: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(0,0,0,0.06)',
+    width: 31,
+    height: 31,
+    borderRadius: radius.full,
+    backgroundColor: colors.accentSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
   indexDone: { backgroundColor: colors.green },
+  indexText: { color: toneColors.info.fg, fontWeight: '700', fontSize: 13.5 },
+  /**
+   * Le rond de pointage : 44 px de vraie géométrie — la cible se fait par la
+   * taille, pas par un hitSlop qui ne s'étendrait pas hors du parent.
+   */
+  check: {
+    width: touch.icon,
+    height: touch.icon,
+    borderRadius: radius.full,
+    borderWidth: 2,
+    borderColor: 'rgba(0, 113, 227, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkDone: { backgroundColor: colors.green, borderColor: colors.green },
+  addBubble: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.full,
+    backgroundColor: colors.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
