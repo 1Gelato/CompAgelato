@@ -10,6 +10,20 @@
  * Le signe est ignoré : on cherche « 482 », pas « −482 ».
  */
 
+/**
+ * Recherche par texte : minuscules, accents retirés.
+ *
+ * « VANILLE » et « vanillé » doivent retrouver « Vanille » — sur un téléphone
+ * où l'on tape d'un pouce, à une main, dans une camionnette, exiger l'accent
+ * juste serait une brimade.
+ */
+export function normalizeText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
+}
+
 /** Une requête de montant : des chiffres, éventuellement une partie décimale. */
 const AMOUNT_QUERY = /^\d+([.,]\d{0,2})?$/;
 

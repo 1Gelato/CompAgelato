@@ -10,7 +10,6 @@ import { pushState, registerForPush, type PushState } from '../lib/push';
 import { discardIntent, retryNow, syncStatus } from '../core/offline';
 import { errorMessage } from '../lib/data';
 import {
-  Badge,
   Button,
   Card,
   Field,
@@ -23,24 +22,15 @@ import {
 import { colors, spacing } from '../theme';
 
 /**
- * Les réglages du téléphone : mon compte, la synchronisation de cet appareil,
- * les notifications, et la mise à jour de l'application.
+ * Les réglages du téléphone : mon compte, la mise à jour de l'application,
+ * le mot de passe.
+ *
+ * La synchronisation et les notifications **n'ont plus de carte** : elles
+ * marchent, et un écran qui répète en permanence que tout va bien n'apprend
+ * rien. Elles ne reparaissent que le jour où elles échouent — le bandeau
+ * orange en haut de l'application dit déjà le hors-ligne, et les deux
+ * encarts ci-dessous ne s'affichent que s'il y a un geste à faire.
  */
-
-/** L'état de l'abonnement, dit en français plutôt qu'en code. */
-function pushLabel(state: PushState | null): string {
-  if (!state) return 'Vérification…';
-  switch (state.status) {
-    case 'active':
-      return state.serverReady ? 'Actives' : 'Abonné — serveur non configuré';
-    case 'refusée':
-      return 'Refusées sur ce téléphone';
-    case 'indisponible':
-      return 'Indisponibles';
-    default:
-      return 'Erreur';
-  }
-}
 export function SettingsScreen({
   identity,
   onSignedOut,
@@ -60,7 +50,6 @@ export function SettingsScreen({
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [push, setPush] = useState<PushState | null>(pushState());
   const [busyPush, setBusyPush] = useState(false);
-  const [busyTest, setBusyTest] = useState(false);
 
   const refreshSync = useCallback(() => setStatus(syncStatus()), []);
 
@@ -82,22 +71,6 @@ export function SettingsScreen({
       setPush(await registerForPush());
     } finally {
       setBusyPush(false);
-    }
-  };
-
-  const sendTestPush = async () => {
-    setBusyTest(true);
-    try {
-      const result = await api.push.test();
-      toast.push({
-        tone: result.sent ? 'success' : 'warn',
-        title: result.sent ? 'Notification envoyée' : 'Rien n’est parti',
-        text: result.reason ?? `${result.sent} appareil(s) prévenu(s).`,
-      });
-    } catch (err) {
-      toast.push({ tone: 'danger', title: 'Échec', text: errorMessage(err) });
-    } finally {
-      setBusyTest(false);
     }
   };
 
@@ -180,93 +153,64 @@ export function SettingsScreen({
         />
       </Card>
 
-      {/* -------------------------------------------- Synchronisation */}
-      <Card>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <SectionTitle>Synchronisation</SectionTitle>
-          <Badge tone={status.online ? 'success' : 'warn'}>
-            {status.online ? 'En ligne' : 'Hors ligne'}
-          </Badge>
-        </View>
-        <Muted>
-          {status.lastPullAt
-            ? `Dernière synchronisation : ${new Date(status.lastPullAt).toLocaleString('fr-FR')}`
-            : 'Pas encore synchronisé.'}
-        </Muted>
-        {status.pending.length > 0 && (
-          <Muted>{status.pending.length} modification(s) en attente de rejeu.</Muted>
-        )}
-        {status.failed.map((intent) => (
-          <View
-            key={intent.id}
-            style={{
-              backgroundColor: colors.orangeSoft,
-              borderRadius: 8,
-              padding: spacing.md,
-              gap: 6,
-            }}
-          >
-            <Text style={{ fontWeight: '600', color: colors.text, fontSize: 13 }}>
-              Refusée par le serveur : {intent.namespace}.{intent.method}
-            </Text>
-            <Muted size={12}>{intent.error}</Muted>
-            <Button
-              title="Abandonner cette modification"
-              onPress={async () => setStatus(await discardIntent(intent.id))}
-            />
-          </View>
-        ))}
-        <Button title="Synchroniser maintenant" onPress={retry} busy={busySync} />
-      </Card>
-
-      {/* ------------------------------------------------ Notifications */}
-      <Card>
-        <SectionTitle>Notifications</SectionTitle>
-        <InfoRow
-          label="État"
-          value={
-            <Badge
-              tone={
-                push?.status === 'active'
-                  ? push.serverReady
-                    ? 'success'
-                    : 'warn'
-                  : push?.status === 'refusée'
-                    ? 'warn'
-                    : push
-                      ? 'danger'
-                      : 'default'
-              }
-              icon={push?.status === 'active' && push.serverReady ? 'checkmark' : undefined}
+      {/* --------------------------------- Modifications refusées (rare)
+          Le seul reste de l'ancienne carte « Synchronisation ». Un geste que
+          le serveur refuse resterait bloqué dans la file sans un endroit pour
+          l'abandonner : cet encart est ce recours, et il n'apparaît que dans
+          ce cas-là. */}
+      {status.failed.length > 0 && (
+        <Card>
+          <SectionTitle>Modifications refusées</SectionTitle>
+          <Muted size={12}>
+            Le serveur a refusé ces gestes. Ils resteront en attente tant qu’ils n’auront pas été
+            abandonnés.
+          </Muted>
+          {status.failed.map((intent) => (
+            <View
+              key={intent.id}
+              style={{
+                backgroundColor: colors.orangeSoft,
+                borderRadius: 8,
+                padding: spacing.md,
+                gap: 6,
+              }}
             >
-              {pushLabel(push)}
-            </Badge>
-          }
-        />
-        {push?.status === 'active' && !push.serverReady && (
-          <Muted size={12}>
-            Ce téléphone est abonné, mais le serveur n’a pas encore sa clé Firebase : rien ne
-            partira tant qu’elle n’est pas installée.
-          </Muted>
-        )}
-        {push?.status === 'refusée' && (
-          <Muted size={12}>
-            Autorisez les notifications dans les réglages Android de CompaGelato, puis touchez
-            « Réessayer ».
-          </Muted>
-        )}
-        {(push?.status === 'indisponible' || push?.status === 'erreur') && (
-          <Muted size={12}>{push.reason}</Muted>
-        )}
-        <Button title="Réessayer" onPress={retryPush} busy={busyPush} />
-        {push?.status === 'active' && push.serverReady && (
-          <Button title="Envoyer une notification d’essai" onPress={sendTestPush} busy={busyTest} />
-        )}
-        <Muted size={12}>
-          CompaGelato vous prévient des arrivées — jamais de vos propres gestes. Vous ne recevez
-          que ce que votre rôle vous permet de consulter.
-        </Muted>
-      </Card>
+              <Text style={{ fontWeight: '600', color: colors.text, fontSize: 13 }}>
+                {intent.namespace}.{intent.method}
+              </Text>
+              <Muted size={12}>{intent.error}</Muted>
+              <Button
+                title="Abandonner cette modification"
+                onPress={async () => setStatus(await discardIntent(intent.id))}
+              />
+            </View>
+          ))}
+          <Button title="Réessayer d’envoyer" onPress={retry} busy={busySync} />
+        </Card>
+      )}
+
+      {/* ------------------------------- Notifications en panne (rare)
+          Rien tant qu'elles fonctionnent. Sans cet encart, un abonnement
+          refusé serait invisible : on croirait l'application muette. */}
+      {push && (push.status !== 'active' || !push.serverReady) && (
+        <Card>
+          <SectionTitle>Notifications</SectionTitle>
+          {push.status === 'active' ? (
+            <Muted size={12}>
+              Ce téléphone est abonné, mais le serveur n’a pas encore sa clé Firebase : rien ne
+              partira tant qu’elle n’est pas installée.
+            </Muted>
+          ) : push.status === 'refusée' ? (
+            <Muted size={12}>
+              Les notifications sont refusées sur ce téléphone. Autorisez-les dans les réglages
+              Android de CompaGelato, puis touchez « Réessayer ».
+            </Muted>
+          ) : (
+            <Muted size={12}>{push.reason}</Muted>
+          )}
+          <Button title="Réessayer" onPress={retryPush} busy={busyPush} />
+        </Card>
+      )}
 
       {/* ------------------------------------------------ Mise à jour */}
       <Card>

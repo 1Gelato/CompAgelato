@@ -12,6 +12,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DeliveryRoute, RouteStop } from '@shared/types';
 import { dateFr, todayLocal } from '@shared/format';
+import { normalizeText } from '@shared/search';
 import { api, isOffline } from '../lib/runtime';
 import {
   errorMessage,
@@ -697,13 +698,6 @@ export function RouteDetailScreen({
 /* Ajout d'arrêts : les clients géolocalisés, cherchables               */
 /* ------------------------------------------------------------------ */
 
-function normalize(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '');
-}
-
 export function RouteAddStopScreen({
   route: navRoute,
   navigation,
@@ -720,10 +714,10 @@ export function RouteAddStopScreen({
   // Comme sur le bureau : seuls les clients géolocalisés peuvent entrer dans
   // une tournée — sans position, pas d'itinéraire calculable.
   const candidates = useMemo(() => {
-    const needle = normalize(query.trim());
+    const needle = normalizeText(query.trim());
     return clients
       .filter((c) => !c.archived && typeof c.address.lat === 'number')
-      .filter((c) => !needle || normalize(`${c.name} ${c.address.city ?? ''} ${c.address.label}`).includes(needle))
+      .filter((c) => !needle || normalizeText(`${c.name} ${c.address.city ?? ''} ${c.address.label}`).includes(needle))
       .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   }, [clients, query]);
 

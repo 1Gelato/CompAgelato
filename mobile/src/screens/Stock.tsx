@@ -4,7 +4,14 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProductType } from '@shared/types';
 import { dateFr, euro, num, priceTtc } from '@shared/format';
 import { api } from '../lib/runtime';
-import { errorMessage, refreshAll, useProducts, useRefresh, useStockMoves } from '../lib/data';
+import {
+  errorMessage,
+  hasRight,
+  refreshAll,
+  useProducts,
+  useRefresh,
+  useStockMoves,
+} from '../lib/data';
 import {
   Badge,
   Button,
@@ -172,25 +179,34 @@ export function ProductDetailScreen({
             }`}
           />
         ) : null}
+        {/* Le fournisseur ne descend pas jusqu'au livreur : la ligne
+            disparaît d'elle-même, sans condition de rôle à tenir ici. */}
         {product.supplier ? <InfoRow label="Fournisseur" value={product.supplier} /> : null}
         {product.description ? <InfoRow label="Description" value={product.description} /> : null}
-        <Button title="Ajuster le stock (inventaire)" icon="create-outline" onPress={() => setAdjusting(true)} />
-      </Card>
-
-      <Card style={{ gap: 4 }}>
-        <SectionTitle>Derniers mouvements</SectionTitle>
-        {moves.length === 0 ? (
-          <EmptyState title="Aucun mouvement" />
-        ) : (
-          moves.slice(0, 20).map((move) => (
-            <InfoRow
-              key={move.id}
-              label={`${dateFr(move.date)} · ${move.note ?? move.documentNumber ?? move.type}`}
-              value={`${move.qty > 0 ? '+' : ''}${num(move.qty)} → ${num(move.balanceAfter)}`}
-            />
-          ))
+        {hasRight('products:adjust') && (
+          <Button title="Ajuster le stock (inventaire)" icon="create-outline" onPress={() => setAdjusting(true)} />
         )}
       </Card>
+
+      {/* Le journal des mouvements est un canal du bureau : sans le droit, on
+          n'affiche pas une carte vide qui ferait croire à un stock sans
+          histoire. */}
+      {hasRight('stock:moves') && (
+        <Card style={{ gap: 4 }}>
+          <SectionTitle>Derniers mouvements</SectionTitle>
+          {moves.length === 0 ? (
+            <EmptyState title="Aucun mouvement" />
+          ) : (
+            moves.slice(0, 20).map((move) => (
+              <InfoRow
+                key={move.id}
+                label={`${dateFr(move.date)} · ${move.note ?? move.documentNumber ?? move.type}`}
+                value={`${move.qty > 0 ? '+' : ''}${num(move.qty)} → ${num(move.balanceAfter)}`}
+              />
+            ))
+          )}
+        </Card>
+      )}
 
       <Sheet open={adjusting} onClose={() => setAdjusting(false)} title="Inventaire">
         <Field

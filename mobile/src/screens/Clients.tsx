@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { Client } from '@shared/types';
 import { dateFr, euro, num } from '@shared/format';
 import { clientOrderHistory } from '@shared/orders';
+import { normalizeText } from '@shared/search';
 import {
   useClients,
   useDeliveryNotes,
@@ -36,13 +37,6 @@ export type ClientsStackParams = {
   ClientDetail: { clientId: string };
 };
 
-function normalize(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '');
-}
-
 export function ClientsListScreen({
   navigation,
 }: NativeStackScreenProps<ClientsStackParams, 'ClientsList'>) {
@@ -51,11 +45,11 @@ export function ClientsListScreen({
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
-    const needle = normalize(query.trim());
+    const needle = normalizeText(query.trim());
     const active = clients.filter((c) => !c.archived);
     if (!needle) return active;
     return active.filter((c) =>
-      normalize(`${c.name} ${c.code} ${c.address.city ?? ''} ${c.address.label}`).includes(needle),
+      normalizeText(`${c.name} ${c.code} ${c.address.city ?? ''} ${c.address.label}`).includes(needle),
     );
   }, [clients, query]);
 

@@ -17,6 +17,7 @@ import type {
   RouteQr,
 } from '@shared/api';
 import { COLLECTION_CHANNEL, mayCall } from '@shared/api';
+import { productsForRole } from '@shared/products';
 import type {
   AccountingDocument,
   Attachment,
@@ -762,7 +763,12 @@ export const coreHandlers: Registry = {
 
   products: {
     async list(): Promise<Product[]> {
-      return [...store.db.products].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+      // Le livreur reçoit le catalogue amputé de ce qui dit la marge : le
+      // retrait a lieu ici, pas à l'affichage.
+      return productsForRole(
+        [...store.db.products].sort((a, b) => a.name.localeCompare(b.name, 'fr')),
+        currentRole() ?? 'gerant',
+      );
     },
     async save(input: Partial<Product> & { id?: ID }) {
       const product = store.mutate((db) => {
@@ -798,6 +804,15 @@ export const coreHandlers: Registry = {
           minQty: round2(input.minQty ?? 0),
           unitCost: input.unitCost,
           supplier: input.supplier,
+          // Ces cinq-là manquaient : une fiche **créée** avec un prix de vente
+          // le perdait aussitôt (la modification, elle, les gardait par le
+          // `...input` ci-dessus). Le prix de vente sert en tournée — il
+          // remplit la ligne d'un bon dès qu'on choisit l'article.
+          description: input.description,
+          salePrice: input.salePrice,
+          vatRate: input.vatRate,
+          accountingCode: input.accountingCode,
+          leadTimeDays: input.leadTimeDays,
           aliases: input.aliases ?? [],
           archived: input.archived ?? false,
           createdAt: nowIso(),
@@ -1472,9 +1487,13 @@ export const coreHandlers: Registry = {
         // interdite est absente de la réponse — pas vide : absente.
         if (!mayCall(role, COLLECTION_CHANNEL[collection])) continue;
         const rows = store.db[collection] as ({ rev?: number } & { id: ID })[];
-        changes[collection] = full
-          ? [...rows]
-          : rows.filter((row) => (row.rev ?? 0) > since);
+        const visible = full ? [...rows] : rows.filter((row) => (row.rev ?? 0) > since);
+        // Le miroir obéit à la même règle que l'appel direct : sans quoi le
+        // prix d'achat, refusé par `products:list`, redescendrait ici.
+        changes[collection] =
+          collection === 'products'
+            ? productsForRole(visible as unknown as Product[], role)
+            : visible;
         if (!full) {
           const graves = sync.tombstones[collection] ?? [];
           const ids = graves.filter((g) => g.rev > since).map((g) => g.id);

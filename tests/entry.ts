@@ -87,6 +87,8 @@ export { looksLikeVatRecapRow, cleanItemLabel } from '../shared/invoiceLines';
 // Le retard d'une tâche : la même règle nourrit les listes du bureau et du
 // téléphone et la pastille de l'onglet — en heure locale, pas en UTC.
 export { isTaskLate } from '../shared/tasks';
+// Ce qu'un rôle voit d'un article : le livreur a le catalogue, jamais la marge.
+export { productForRole, productsForRole } from '../shared/products';
 // Le magasin lui-même : sans Electron, il se pilote en Node. C'est ainsi qu'on
 // vérifie la restauration d'une sauvegarde venue d'une autre machine.
 export { store as dataStore, isForeignPath, defaultWatchFolder } from '../electron/store';

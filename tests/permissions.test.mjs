@@ -168,7 +168,6 @@ test('le livreur ne REÇOIT pas la comptabilité, la banque ni le tableau de bor
     ['documents', 'list'],
     ['documents', 'get'],
     ['stats', 'dashboard'],
-    ['products', 'list'],
     ['stock', 'moves'],
     ['registers', 'list'],
     ['db', 'stats'],
@@ -180,6 +179,93 @@ test('le livreur ne REÇOIT pas la comptabilité, la banque ni le tableau de bor
     assert.equal(payload.ok, false);
     assert.ok(!('result' in payload), `${namespace}:${method} a renvoyé des données`);
   }
+});
+
+test('le livreur lit le catalogue, mais jamais le prix d’achat', async () => {
+  // Il en a besoin pour établir un bon : les suggestions d'articles viennent
+  // de là. Ce qui dit la marge, en revanche, ne doit pas quitter le serveur —
+  // et pas seulement être masqué à l'écran.
+  await callOk(
+    'products',
+    'save',
+    [
+      {
+        sku: 'VANILLE5',
+        name: 'Bac vanille 5 L',
+        type: 'consumable',
+        unit: 'bac',
+        qtyOnHand: 12,
+        minQty: 2,
+        unitCost: 7.4,
+        salePrice: 18.9,
+        supplier: 'Fournisseur du Nord',
+        aliases: [],
+        archived: false,
+      },
+    ],
+    gerantToken,
+  );
+
+  const vuParLeLivreur = await callOk('products', 'list', [], livreurToken);
+  const bac = vuParLeLivreur.find((p) => p.sku === 'VANILLE5');
+  assert.ok(bac, 'le livreur ne voit pas le catalogue');
+  assert.equal(bac.salePrice, 18.9, 'le prix de vente lui sert en tournée');
+  assert.equal(bac.unitCost, undefined, 'le prix d’achat est parti au livreur');
+  assert.equal(bac.supplier, undefined, 'le fournisseur est parti au livreur');
+
+  // Le même retrait s'applique au miroir hors-ligne : sinon le prix d'achat
+  // redescendrait par la synchronisation, hors de vue du contrôle d'appel.
+  const miroir = await callOk('sync', 'pull', [{}], livreurToken);
+  const duMiroir = (miroir.changes.products ?? []).find((p) => p.sku === 'VANILLE5');
+  assert.ok(duMiroir, 'le catalogue n’est pas répliqué chez le livreur');
+  assert.equal(duMiroir.unitCost, undefined, 'le prix d’achat descend dans le miroir');
+  assert.equal(duMiroir.supplier, undefined, 'le fournisseur descend dans le miroir');
+
+  // Le gérant, lui, garde tout.
+  const vuParLeGerant = await callOk('products', 'list', [], gerantToken);
+  const memeBac = vuParLeGerant.find((p) => p.sku === 'VANILLE5');
+  assert.equal(memeBac.unitCost, 7.4);
+  assert.equal(memeBac.supplier, 'Fournisseur du Nord');
+
+  // Et il ne peut toujours pas écrire dans le catalogue.
+  const { status } = await api('products', 'save', [{ sku: 'X', name: 'X' }], livreurToken);
+  assert.equal(status, 403, 'le livreur a pu modifier le catalogue');
+});
+
+test('la banque est réservée au gérant : même le bureau est refusé', async () => {
+  // Les comptes de l'entreprise ne regardent que le gérant. Le bureau garde
+  // tout le reste de la comptabilité — c'est la banque, et elle seule, qui
+  // lui est fermée.
+  await callOk(
+    'auth',
+    'saveUser',
+    [{ username: 'herve', displayName: 'Hervé', role: 'bureau', password: 'bureau-du-matin' }],
+    gerantToken,
+  );
+  const { token: bureauToken } = await callOk(
+    'auth',
+    'login',
+    [{ username: 'herve', password: 'bureau-du-matin', label: 'Téléphone' }],
+    '',
+  );
+
+  for (const [namespace, method] of [
+    ['bank', 'list'],
+    ['bank', 'summary'],
+    ['bank', 'reconcile'],
+  ]) {
+    const { status, payload } = await api(namespace, method, [], bureauToken);
+    assert.equal(status, 403, `${namespace}:${method} aurait dû être refusé au bureau`);
+    assert.ok(!('result' in payload), `${namespace}:${method} a renvoyé des données`);
+  }
+
+  // Le reste de son travail lui reste ouvert, banque mise à part.
+  await callOk('documents', 'list', [], bureauToken);
+  await callOk('products', 'list', [], bureauToken);
+  await callOk('tasks', 'list', [], bureauToken);
+
+  // Et le gérant, lui, garde sa banque.
+  await callOk('bank', 'list', [], gerantToken);
 });
 
 test('le livreur ne peut pas récupérer une facture en devinant son identifiant', async () => {

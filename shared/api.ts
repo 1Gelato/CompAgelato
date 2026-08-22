@@ -172,7 +172,12 @@ export const CHANNEL_ACCESS: Record<ChannelName, readonly Role[]> = {
   'attachments:openFolder': LOCAL,
 
   /* Stock ------------------------------------------------------------- */
-  'products:list': BUREAU,
+  // Le catalogue est lisible par tous : le livreur en a besoin pour établir
+  // un bon (les suggestions d'articles) et pour répondre à un client sur un
+  // prix. Le prix d'achat et le fournisseur, eux, lui sont retirés à la
+  // source — voir `productForRole` dans `shared/products.ts`. Écrire dans le
+  // catalogue reste au bureau.
+  'products:list': ALL,
   'products:save': BUREAU,
   'products:remove': BUREAU,
   'products:importFrom': BUREAU,
@@ -248,22 +253,27 @@ export const CHANNEL_ACCESS: Record<ChannelName, readonly Role[]> = {
   'geo:reverse': ALL,
   'geo:fuelPrice': ALL,
 
-  /* Banque — jamais pour le livreur ----------------------------------- */
-  'bank:list': BUREAU,
-  'bank:scan': BUREAU,
-  'bank:pickAndImport': BUREAU,
-  'bank:importFrom': BUREAU,
-  'bank:update': BUREAU,
-  'bank:remove': BUREAU,
-  'bank:suggestions': BUREAU,
-  'bank:reconcile': BUREAU,
-  'bank:autoReconcile': BUREAU,
-  'bank:summary': BUREAU,
-  'bank:exportCsv': BUREAU,
+  /* Banque — le gérant, et lui seul ------------------------------------
+     Les comptes de l'entreprise ne regardent personne d'autre : ni le
+     livreur, ni le bureau. Chacun a déjà l'application de sa banque sur son
+     téléphone pour ses propres relevés. C'est aussi ce qui retire l'écran
+     « Banque » de la grille du téléphone pour tout compte non gérant — le
+     serveur refuse de toute façon, le masquage n'est qu'un confort. */
+  'bank:list': GERANT,
+  'bank:scan': GERANT,
+  'bank:pickAndImport': GERANT,
+  'bank:importFrom': GERANT,
+  'bank:update': GERANT,
+  'bank:remove': GERANT,
+  'bank:suggestions': GERANT,
+  'bank:reconcile': GERANT,
+  'bank:autoReconcile': GERANT,
+  'bank:summary': GERANT,
+  'bank:exportCsv': GERANT,
   'bank:openFolder': LOCAL,
   'bank:chooseFolder': LOCAL,
-  'bank:duplicates': BUREAU,
-  'bank:mergeDuplicates': BUREAU,
+  'bank:duplicates': GERANT,
+  'bank:mergeDuplicates': GERANT,
 
   /* Tableau de bord — chiffre d'affaires et meilleurs clients ---------- */
   'stats:dashboard': BUREAU,

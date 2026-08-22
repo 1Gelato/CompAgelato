@@ -13,8 +13,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHeaderHeight } from '@react-navigation/elements';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { DeliveryNote, RegisterItem } from '@shared/types';
-import { dateFr } from '@shared/format';
+import type { DeliveryNote, Product, RegisterItem } from '@shared/types';
+import { dateFr, euro } from '@shared/format';
+import { normalizeText } from '@shared/search';
 import { api, isOffline } from '../lib/runtime';
 import {
   errorMessage,
@@ -22,6 +23,7 @@ import {
   refreshAll,
   useClients,
   useDeliveryNotes,
+  useProducts,
   useRefresh,
   useSettings,
 } from '../lib/data';
@@ -45,7 +47,7 @@ import {
   SectionTitle,
   useToast,
 } from '../components/ui';
-import { colors, font, spacing } from '../theme';
+import { colors, font, radius, spacing, touch } from '../theme';
 
 /**
  * Les bons de livraison — le bon papier signé sur le capot, numérisé.
@@ -251,6 +253,10 @@ export function BonNouveauScreen({
 }) {
   const params = route.params ?? {};
   const { data: clients } = useClients();
+  // Le catalogue importé de la comptabilité : il alimente les suggestions
+  // d'articles. Le rôle livreur n'y a pas droit (`products:list`) — la garde
+  // de `useResource` renvoie alors une liste vide, et la saisie libre reste.
+  const { data: products } = useProducts();
   const toast = useToast();
   // Hauteur de l'en-tête natif : sans elle, le clavier iOS recouvrait le champ
   // en cours de saisie. Android s'appuie sur l'adjustResize d'Expo — ne pas
@@ -262,6 +268,8 @@ export function BonNouveauScreen({
   const [clientQuery, setClientQuery] = useState('');
   const [pickingClient, setPickingClient] = useState(!params.clientId && !params.clientName);
   const [items, setItems] = useState<DraftItem[]>([{ label: '', qty: '1', price: '' }]);
+  /** La ligne dont on est en train de taper l'article : elle seule propose. */
+  const [suggestFor, setSuggestFor] = useState<number | null>(null);
   const [showPrices, setShowPrices] = useState(false);
   const [notes, setNotes] = useState('');
   const [driverName, setDriverName] = useState('');
@@ -302,6 +310,30 @@ export function BonNouveauScreen({
 
   const setItem = (index: number, patch: Partial<DraftItem>) =>
     setItems((current) => current.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+
+  /**
+   * Les articles du catalogue qui répondent à ce qui est tapé — nom ou
+   * référence. C'est le catalogue importé de la comptabilité, servi depuis le
+   * miroir local : il répond donc aussi en tournée, sans réseau.
+   */
+  const suggestions = useMemo(() => {
+    if (suggestFor === null) return [];
+    const needle = normalizeText(items[suggestFor]?.label ?? '').trim();
+    if (!needle) return [];
+    return products
+      .filter((p) => !p.archived)
+      .filter((p) => normalizeText(`${p.name} ${p.sku}`).includes(needle))
+      .slice(0, 6);
+  }, [products, items, suggestFor]);
+
+  /** Un article choisi remplit son libellé **et** son prix de vente. */
+  const pickProduct = (index: number, product: Product) => {
+    setItem(index, {
+      label: product.name,
+      ...(product.salePrice != null ? { price: String(product.salePrice) } : {}),
+    });
+    setSuggestFor(null);
+  };
 
   const validItems: RegisterItem[] = items
     .filter((item) => item.label.trim())
@@ -431,7 +463,11 @@ export function BonNouveauScreen({
               <View style={{ flex: 1 }}>
                 <Input
                   value={item.label}
-                  onChangeText={(label) => setItem(index, { label })}
+                  onChangeText={(label) => {
+                    setItem(index, { label });
+                    setSuggestFor(index);
+                  }}
+                  onFocus={() => setSuggestFor(index)}
                   placeholder="Article (ex. bac vanille 5 L)"
                 />
               </View>
@@ -452,6 +488,53 @@ export function BonNouveauScreen({
                 />
               )}
             </View>
+
+            {/* Le catalogue répond pendant qu'on tape : plus besoin de se
+                souvenir du libellé exact, ni de retaper le prix. */}
+            {suggestFor === index && suggestions.length > 0 && (
+              <View
+                style={{
+                  backgroundColor: colors.bg,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: colors.separator,
+                  overflow: 'hidden',
+                }}
+              >
+                {suggestions.map((product) => (
+                  <Pressable
+                    key={product.id}
+                    onPress={() => pickProduct(index, product)}
+                    style={({ pressed }) => [
+                      {
+                        minHeight: touch.minHeight,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: spacing.sm,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: 8,
+                      },
+                      pressed && { backgroundColor: colors.accentSoft },
+                    ]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ ...font.body, color: colors.text }} numberOfLines={1}>
+                        {product.name}
+                      </Text>
+                      <Muted size={12}>
+                        {product.sku}
+                        {product.unit ? ` · ${product.unit}` : ''}
+                      </Muted>
+                    </View>
+                    {product.salePrice != null ? (
+                      <Text style={{ ...font.sub, color: colors.secondary }}>
+                        {euro(product.salePrice)}
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                ))}
+              </View>
+            )}
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
               <View style={{ width: 110 }}>
                 <Input

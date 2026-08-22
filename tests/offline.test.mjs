@@ -299,7 +299,7 @@ test('filtrage par rôle : le miroir d’un livreur ne contient pas la banque', 
   assert.ok(filtered.changes.routes, 'les tournées descendent');
   assert.ok(filtered.changes.vehicles, 'les véhicules descendent');
   for (const forbidden of [
-    'documents', 'products', 'stockMoves', 'bankTransactions',
+    'documents', 'stockMoves', 'bankTransactions',
     'registerEntries', 'eventMachines', 'attachments',
   ]) {
     assert.equal(
@@ -307,6 +307,15 @@ test('filtrage par rôle : le miroir d’un livreur ne contient pas la banque', 
       undefined,
       `${forbidden} ne doit jamais atteindre l'appareil d'un livreur`,
     );
+  }
+
+  // Le catalogue, lui, descend : c'est lui qui propose les articles quand le
+  // livreur établit un bon, y compris en zone blanche. Mais amputé de ce qui
+  // dirait la marge — le retrait a lieu au serveur, pas à l'affichage.
+  assert.ok(filtered.changes.products, 'le catalogue doit descendre chez le livreur');
+  for (const article of filtered.changes.products) {
+    assert.equal(article.unitCost, undefined, 'le prix d’achat descend chez le livreur');
+    assert.equal(article.supplier, undefined, 'le fournisseur descend chez le livreur');
   }
 
   // Le gérant, lui, reçoit tout.

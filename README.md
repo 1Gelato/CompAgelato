@@ -837,11 +837,25 @@ connaissent ont les mêmes droits. Les **comptes** y remédient.
 | | Tournées | Clients | Documents | Stock | Banque | Tableau de bord | Réglages / Comptes |
 |---|---|---|---|---|---|---|---|
 | **Gérant** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Bureau** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **Livreur** | ✅ | lecture | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Bureau** | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| **Livreur** | ✅ | lecture | ❌ | lecture¹ | ❌ | ❌ | ❌ |
 
 Le tableau de bord est refusé au livreur : il a l'air anodin, mais il expose le
 chiffre d'affaires et les meilleurs clients.
+
+La **banque n'est ouverte qu'au gérant**, bureau compris : les comptes de
+l'entreprise ne regardent personne d'autre, et chacun a déjà l'application de
+sa propre banque sur son téléphone.
+
+¹ Le livreur **lit le catalogue** — c'est lui qui alimente les suggestions
+d'articles quand il établit un bon devant le client, et qui permet de répondre
+à un « ça coûte combien, ce bac ? ». Deux champs lui sont retirés **à la
+source** : le **prix d'achat** et le **fournisseur**, qui donneraient la marge
+de l'entreprise. Le retrait vit dans `productForRole` (`shared/products.ts`) et
+s'applique aux deux chemins — l'appel direct `products:list` **et** le miroir
+`sync:pull` : ces valeurs ne descendent donc jamais sur son téléphone, même
+hors ligne. Écrire dans le catalogue (créer, modifier, ajuster l'inventaire)
+reste au bureau.
 
 **Rien ne change tant que vous ne créez pas de compte.** Un serveur déjà en
 service continue de fonctionner au jeton partagé. Dès que le premier compte
