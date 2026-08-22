@@ -1286,6 +1286,24 @@ ou compte supprimé font taire le téléphone.
 L'APK se construit **localement**, avec Android Studio. Aucun compte Expo,
 aucun service en ligne.
 
+**La version native courante est la 1.1.0.** Elle embarque la refonte
+visuelle complète et trois choses qu'une mise à jour par les airs ne sait pas
+livrer : un **écran de démarrage** (fond de l'app, cornet centré — avant :
+écran blanc), une **icône adaptative** en vrais calques (le cornet blanc sur
+son dégradé, plus l'icône carrée rognée par le masque Android — les fichiers
+`android-icon-*.png` d'origine étaient des gabarits d'usine, ils ont été
+régénérés depuis l'icône), et la **couleur de notification** alignée sur
+l'accent (#0071E3, fin du quatrième bleu).
+
+⚠️ **Conséquence du passage à 1.1.0** — c'est le garde-fou voulu du
+protocole : dès que le serveur fabrique ses mises à jour depuis ce commit,
+les téléphones restés en **APK 1.0.0 ne reçoivent plus rien** par les airs.
+Ils continuent de fonctionner tels quels ; construisez et installez la
+nouvelle APK **par-dessus** (même clé de signature : les données, la session
+et le miroir hors-ligne du téléphone sont conservés). L'APK 1.1.0 contient
+déjà tout — un téléphone qui aurait raté les dernières mises à jour n'y perd
+rien.
+
 **Prérequis : Java 17 — ni moins, ni beaucoup plus.** Gradle refuse de
 démarrer sous Java 17, et un poste qui a servi à autre chose traîne souvent un
 Java 11. Mais **Java 24 et au-delà échouent aussi**, d'une façon qui égare :

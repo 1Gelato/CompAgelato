@@ -2,7 +2,7 @@
   "expo": {
     "name": "CompaGelato",
     "slug": "compagelato",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -29,8 +29,10 @@
       "usesCleartextTraffic": true,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "backgroundColor": "#eaf4ff",
-        "foregroundImage": "./assets/icon.png"
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png",
+        "backgroundColor": "#eaf4ff"
       },
       "predictiveBackGestureEnabled": false
     },
@@ -44,7 +46,7 @@
       [
         "expo-notifications",
         {
-          "color": "#1f6feb",
+          "color": "#0071e3",
           "defaultChannel": "compagelato"
         }
       ],
@@ -55,6 +57,14 @@
           "android": {
             "usesCleartextTraffic": true
           }
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#f5f5f7",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160
         }
       ]
     ]
