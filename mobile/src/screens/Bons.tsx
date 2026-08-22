@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FlatList, Modal, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import {
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useHeaderHeight } from '@react-navigation/elements';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DeliveryNote, RegisterItem } from '@shared/types';
 import { dateFr } from '@shared/format';
@@ -17,11 +28,13 @@ import {
 import { loadMySignature, saveMySignature } from '../lib/signature';
 import { SignaturePad, SignatureView, type Strokes } from '../components/SignaturePad';
 import {
+  AppSwitch,
   Badge,
   Button,
   Card,
   EmptyState,
   Field,
+  IconButton,
   InfoRow,
   Input,
   ListItem,
@@ -31,7 +44,7 @@ import {
   SectionTitle,
   useToast,
 } from '../components/ui';
-import { colors, spacing } from '../theme';
+import { colors, font, spacing } from '../theme';
 
 /**
  * Les bons de livraison — le bon papier signé sur le capot, numérisé.
@@ -74,14 +87,13 @@ export function BonsListScreen({
     note.clientName ||
     'Client sans fiche';
 
-  if (loading) return <Loading />;
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       {hasRight('delivery:save') && (
         <View style={{ padding: spacing.md }}>
           <Button
-            title="＋  Nouveau bon de livraison"
+            title="Nouveau bon de livraison"
+            icon="add"
             variant="primary"
             onPress={() => navigation.navigate('BonNouveau', undefined)}
           />
@@ -92,10 +104,15 @@ export function BonsListScreen({
         keyExtractor={(note) => note.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
-          <EmptyState
-            title="Aucun bon de livraison"
-            text="Depuis une tournée, touchez un arrêt puis « Bon de livraison » — ou créez-en un ici."
-          />
+          loading ? (
+            <Loading />
+          ) : (
+            <EmptyState
+              icon="document-text-outline"
+              title="Aucun bon de livraison"
+              text="Depuis une tournée, touchez un arrêt puis « Bon de livraison » — ou créez-en un ici."
+            />
+          )
         }
         renderItem={({ item: note }) => (
           <ListItem
@@ -106,6 +123,7 @@ export function BonsListScreen({
                 {STATUS_LABEL[note.status]}
               </Badge>
             }
+            chevron
             onPress={() => navigation.navigate('BonDetail', { noteId: note.id })}
           />
         )}
@@ -233,6 +251,10 @@ export function BonNouveauScreen({
   const params = route.params ?? {};
   const { data: clients } = useClients();
   const toast = useToast();
+  // Hauteur de l'en-tête natif : sans elle, le clavier iOS recouvrait le champ
+  // en cours de saisie. Android s'appuie sur l'adjustResize d'Expo — ne pas
+  // empiler les deux mécanismes.
+  const headerHeight = useHeaderHeight();
 
   const [clientId, setClientId] = useState<string | undefined>(params.clientId);
   const [clientName, setClientName] = useState(params.clientName ?? '');
@@ -337,6 +359,11 @@ export function BonNouveauScreen({
   };
 
   return (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={headerHeight}
+    >
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.bg }}
       contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
@@ -379,15 +406,18 @@ export function BonNouveauScreen({
             <Text style={{ flex: 1, fontSize: 16, fontWeight: '600', color: colors.text }}>
               {displayedClient || '—'}
             </Text>
-            <Text
-              style={{ color: colors.accent, fontWeight: '600' }}
+            <Pressable
               onPress={() => {
                 setClientId(undefined);
                 setPickingClient(true);
               }}
+              style={({ pressed }) => [
+                { paddingVertical: 10, paddingHorizontal: 8 },
+                pressed && { opacity: 0.6 },
+              ]}
             >
-              Changer
-            </Text>
+              <Text style={{ color: colors.accent, fontWeight: '600' }}>Changer</Text>
+            </Pressable>
           </View>
         )}
       </Card>
@@ -413,12 +443,12 @@ export function BonNouveauScreen({
                 />
               </View>
               {items.length > 1 && (
-                <Text
-                  style={{ color: colors.red, fontSize: 18, paddingHorizontal: 2 }}
+                <IconButton
+                  icon="trash-outline"
+                  tone="danger"
+                  label="Retirer cette ligne"
                   onPress={() => setItems((current) => current.filter((_, i) => i !== index))}
-                >
-                  ✕
-                </Text>
+                />
               )}
             </View>
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
@@ -435,13 +465,14 @@ export function BonNouveauScreen({
           </View>
         ))}
         <Button
-          title="＋ Ajouter un article"
+          title="Ajouter un article"
+          icon="add"
           onPress={() => setItems((current) => [...current, { label: '', qty: '1', price: '' }])}
         />
         {total > 0 && (
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Muted size={13}>Total</Muted>
-            <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text }}>
+            <Text style={{ ...font.headline, fontWeight: '700', color: colors.text }}>
               {total.toFixed(2)} € HT
             </Text>
           </View>
@@ -466,7 +497,7 @@ export function BonNouveauScreen({
                 : 'Le client ne verra que les quantités. Le bureau garde le montant.'}
             </Muted>
           </View>
-          <Switch value={showPrices} onValueChange={setShowPrices} />
+          <AppSwitch value={showPrices} onValueChange={setShowPrices} />
         </View>
       </Card>
 
@@ -514,7 +545,8 @@ export function BonNouveauScreen({
               Vérifiez les articles, puis tendez le téléphone au client.
             </Muted>
             <Button
-              title="✍️  Faire signer le client"
+              title="Faire signer le client"
+              icon="pencil"
               variant="primary"
               onPress={() => setSigning(true)}
               disabled={!readyToSign}
@@ -557,6 +589,7 @@ export function BonNouveauScreen({
       )}
       <View style={{ height: spacing.xl }} />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -616,7 +649,7 @@ function ClientSignatureScreen({
         }}
       >
         <View>
-          <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>
+          <Text style={{ ...font.title, color: colors.text }}>
             Bon de livraison
           </Text>
           <Muted size={13}>{clientName}</Muted>

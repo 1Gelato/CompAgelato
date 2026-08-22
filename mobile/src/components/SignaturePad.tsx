@@ -194,7 +194,7 @@ const styles = StyleSheet.create({
   },
   hint: {
     position: 'absolute',
-    color: colors.tertiary,
+    color: colors.secondary,
     fontSize: 14,
   },
   clear: {
