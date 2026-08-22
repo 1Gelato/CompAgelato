@@ -1045,6 +1045,38 @@ s'imprime comme n'importe quel cahier.
 **Notifications natives** : l'application prévient elle-même des arrivées,
 fermée et écran éteint — voir plus bas.
 
+### Le langage visuel de l'app mobile
+
+Tout le vocabulaire visuel vit dans **deux fichiers** — `mobile/src/theme.ts`
+(les jetons) et `mobile/src/components/ui.tsx` (les composants) — et les
+écrans n'ont pas le droit d'inventer : pas de `fontSize` littéral, pas de
+couleur en dur, pas d'emoji en guise d'icône (la seule famille est Ionicons,
+figée par le type `IconName`).
+
+Les jetons disent les choix, et leurs raisons sont écrites dedans :
+
+- **Six tailles de texte nommées** (`font.stat` → `font.caption`), graisses
+  limitées à 400/600/700 — Roboto confond 500 et 600 sur une partie des
+  téléphones Android.
+- **Élévation** : chaque carte porte une ombre douce **et** un liseré
+  hairline — quand le plein soleil efface l'ombre, le liseré continue de
+  détacher la carte du fond. C'est le thème d'un outil de tournée, pas d'un
+  salon.
+- **Contrastes AA prouvés** : la table des rapports calculés (sur le fond
+  réellement composité, pas sur la couleur nominale) est en commentaire de
+  `theme.ts`. `tertiary` est réservé au décoratif — chevrons, poignées —
+  jamais à un texte qu'on doit lire.
+- **48 dp sous chaque doigt** (`touch`) : la cible se fait en vraie
+  géométrie ; `hitSlop` n'est qu'une marge de confort, il ne s'étend pas
+  au-delà du parent sur Android.
+
+La refonte se livre **par lots, chacun une mise à jour par les airs** — tout
+est JavaScript pur, aucune APK à réinstaller. Le contrat du lot fondation :
+l'API des composants n'évolue que par ajout (`variant="default"` d'un Button
+reste valide pour toujours — son rendu est simplement devenu **tonal**, fond
+bleu doux, au lieu d'une carte blanche invisible sur le fond gris), et la
+preuve est que `npx tsc --noEmit` passe sans qu'un seul écran ait changé.
+
 **Réseau** : l'app passe par Tailscale (`100.100.53.66:4680`, proposé
 d'office). Vérifiez que Tailscale est activé sur le téléphone.
 
