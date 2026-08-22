@@ -1,9 +1,8 @@
-import { Pressable, ScrollView, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { ScrollView } from 'react-native';
 import type { AuthIdentity, ChannelName } from '@shared/api';
 import { mayCall } from '@shared/api';
-import { Muted, SectionTitle } from '../components/ui';
-import { colors, radius, spacing } from '../theme';
+import { NavRow, SectionTitle, type IconName } from '../components/ui';
+import { colors, spacing } from '../theme';
 
 /**
  * Le reste de l'application, en grille.
@@ -12,13 +11,14 @@ import { colors, radius, spacing } from '../theme';
  * (« Tourn… », « Docu… », « Régla… ») et des cibles trop étroites pour un
  * pouce. Quatre onglets portent donc le quotidien, et cet écran accueille ce
  * qu'on ouvre plus rarement — avec des noms entiers et de vraies surfaces à
- * toucher.
+ * toucher. Le motif visuel de ces rangées vit dans `NavRow` : c'est lui qui
+ * a essaimé dans la trousse, pas l'inverse.
  */
 
 export interface PlusEntry {
   name: string;
   label: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: IconName;
   channel: ChannelName | null;
   hint: string;
 }
@@ -88,41 +88,13 @@ export function PlusScreen({
     >
       <SectionTitle>Tout le reste</SectionTitle>
       {visible.map((entry) => (
-        <Pressable
+        <NavRow
           key={entry.name}
+          icon={entry.icon}
+          label={entry.label}
+          hint={entry.hint}
           onPress={() => onOpen(entry.name)}
-          style={({ pressed }) => [
-            {
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: spacing.md,
-              backgroundColor: colors.card,
-              borderRadius: radius.md,
-              padding: spacing.md,
-            },
-            pressed && { backgroundColor: 'rgba(0,0,0,0.03)' },
-          ]}
-        >
-          <View
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: radius.sm,
-              backgroundColor: colors.accentSoft,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Ionicons name={entry.icon} size={20} color={colors.accent} />
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={{ fontSize: 15.5, fontWeight: '600', color: colors.text }}>
-              {entry.label}
-            </Text>
-            <Muted size={12}>{entry.hint}</Muted>
-          </View>
-          <Text style={{ color: colors.tertiary, fontSize: 18 }}>›</Text>
-        </Pressable>
+        />
       ))}
     </ScrollView>
   );

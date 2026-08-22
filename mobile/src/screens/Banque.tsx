@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { dateFr, euro } from '@shared/format';
 import { useBankSummary, useBankTransactions, useRefresh } from '../lib/data';
-import { Badge, EmptyState, Loading, Muted, SearchBar } from '../components/ui';
+import { Badge, EmptyState, ListItem, Loading, SearchBar, Stat } from '../components/ui';
 import { colors, spacing } from '../theme';
 
 /**
@@ -24,28 +24,13 @@ export function BanqueScreen() {
     );
   }, [transactions, query]);
 
-  if (loading) return <Loading />;
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       {summary && (
         <View style={styles.summary}>
-          <View style={styles.summaryItem}>
-            <Muted size={12}>Solde connu</Muted>
-            <Text style={styles.summaryValue}>
-              {summary.balance !== undefined ? euro(summary.balance) : '—'}
-            </Text>
-          </View>
-          <View style={styles.summaryItem}>
-            <Muted size={12}>Encaissé</Muted>
-            <Text style={[styles.summaryValue, { color: colors.green }]}>
-              {euro(summary.totalIn)}
-            </Text>
-          </View>
-          <View style={styles.summaryItem}>
-            <Muted size={12}>À rapprocher</Muted>
-            <Text style={styles.summaryValue}>{summary.unreconciled}</Text>
-          </View>
+          <Stat label="Solde connu" value={summary.balance !== undefined ? euro(summary.balance) : '—'} />
+          <Stat label="Encaissé" value={euro(summary.totalIn)} tone="success" />
+          <Stat label="À rapprocher" value={String(summary.unreconciled)} />
         </View>
       )}
 
@@ -58,35 +43,35 @@ export function BanqueScreen() {
         keyExtractor={(tx) => tx.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
-          <EmptyState
-            title="Aucune opération"
-            text="Les relevés s’importent depuis l’ordinateur ou l’interface web."
-          />
+          loading ? (
+            <Loading />
+          ) : (
+            <EmptyState
+              icon="card-outline"
+              title="Aucune opération"
+              text="Les relevés s’importent depuis l’ordinateur ou l’interface web."
+            />
+          )
         }
         renderItem={({ item: tx }) => (
-          <View style={styles.row}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text numberOfLines={1} style={{ fontSize: 14, color: colors.text }}>
-                {tx.label}
-              </Text>
-              <Muted size={12}>
-                {dateFr(tx.date)}
-                {tx.category ? ` · ${tx.category}` : ''}
-              </Muted>
-            </View>
-            <View style={{ alignItems: 'flex-end', gap: 2 }}>
-              <Text
-                style={{
-                  fontSize: 14,
-                  fontWeight: '600',
-                  color: tx.amount >= 0 ? colors.green : colors.text,
-                }}
-              >
-                {euro(tx.amount)}
-              </Text>
-              {tx.documentId ? <Badge tone="success">rapprochée</Badge> : null}
-            </View>
-          </View>
+          <ListItem
+            title={tx.label}
+            subtitle={`${dateFr(tx.date)}${tx.category ? ` · ${tx.category}` : ''}`}
+            right={
+              <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                <Text
+                  style={{
+                    fontSize: 15,
+                    fontWeight: '600',
+                    color: tx.amount >= 0 ? colors.green : colors.text,
+                  }}
+                >
+                  {euro(tx.amount)}
+                </Text>
+                {tx.documentId ? <Badge tone="success">rapprochée</Badge> : null}
+              </View>
+            }
+          />
         )}
       />
     </View>
@@ -98,23 +83,5 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     padding: spacing.md,
-  },
-  summaryItem: {
-    flex: 1,
-    backgroundColor: colors.card,
-    borderRadius: 10,
-    padding: spacing.md,
-    gap: 2,
-  },
-  summaryValue: { fontSize: 16, fontWeight: '700', color: colors.text },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 9,
-    backgroundColor: colors.card,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.separator,
   },
 });

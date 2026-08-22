@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { FlatList, RefreshControl, ScrollView, View } from 'react-native';
+import { FlatList, RefreshControl, ScrollView, Text, View } from 'react-native';
 import * as Sharing from 'expo-sharing';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EmailPreparation } from '@shared/api';
@@ -21,7 +21,7 @@ import {
   SheetAction,
   useToast,
 } from '../components/ui';
-import { colors, spacing } from '../theme';
+import { colors, font, spacing } from '../theme';
 import type { Tone } from '../theme';
 
 export type DocumentsStackParams = {
@@ -59,8 +59,6 @@ export function DocumentsListScreen({
       });
   }, [documents, clientIndex, query, kind]);
 
-  if (loading) return <Loading />;
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <View style={{ padding: spacing.md, gap: spacing.sm }}>
@@ -80,7 +78,13 @@ export function DocumentsListScreen({
         data={filtered}
         keyExtractor={(doc) => doc.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        ListEmptyComponent={<EmptyState title="Aucun document ne correspond" />}
+        ListEmptyComponent={
+          loading ? (
+            <Loading />
+          ) : (
+            <EmptyState icon="document-text-outline" title="Aucun document ne correspond" />
+          )
+        }
         renderItem={({ item: doc }) => {
           const client = doc.clientId
             ? clientIndex.get(doc.clientId)?.name
@@ -90,13 +94,18 @@ export function DocumentsListScreen({
               title={`${KIND_LABEL[doc.kind]} ${doc.number}`}
               subtitle={`${dateFr(doc.date)}${client ? ` · ${client}` : ''}`}
               right={
+                // Un montant n'est pas un statut : il se lit en chiffre, pas
+                // en pilule — le badge reste réservé à l'état de la pièce.
                 <View style={{ alignItems: 'flex-end', gap: 3 }}>
+                  <Text style={{ ...font.body, fontWeight: '600', color: colors.text }}>
+                    {euro(doc.totalTTC)}
+                  </Text>
                   <Badge tone={STATUS_TONE_MOBILE[doc.status] ?? 'default'}>
                     {STATUS_LABEL[doc.status] ?? doc.status}
                   </Badge>
-                  <Badge>{euro(doc.totalTTC)}</Badge>
                 </View>
               }
+              chevron
               onPress={() => navigation.navigate('DocumentDetail', { documentId: doc.id })}
             />
           );
@@ -192,19 +201,22 @@ export function DocumentDetailScreen({
       <Card style={{ gap: 2, padding: spacing.sm }}>
         {doc.sourceFile ? (
           <SheetAction
-            title={busy === 'pdf' ? '⏳  Téléchargement…' : '📄  Ouvrir / partager le PDF'}
+            icon="document-text"
+            title={busy === 'pdf' ? 'Téléchargement…' : 'Ouvrir / partager le PDF'}
             subtitle="Lecture, impression ou envoi depuis le téléphone"
             onPress={sharePdf}
           />
         ) : null}
         <SheetAction
-          title="✉️  Préparer un e-mail"
+          icon="mail"
+          title="Préparer un e-mail"
           subtitle={client?.email ?? 'Brouillon dans la messagerie du téléphone'}
           onPress={email}
         />
         {doc.status !== 'paid' ? (
           <SheetAction
-            title="✓  Marquer réglée"
+            icon="checkmark"
+            title="Marquer réglée"
             tone="success"
             onPress={() =>
               run('paid', async () => {
@@ -215,7 +227,8 @@ export function DocumentDetailScreen({
           />
         ) : (
           <SheetAction
-            title="↩︎  Repasser en validée"
+            icon="arrow-undo"
+            title="Repasser en validée"
             onPress={() =>
               run('unpaid', async () => {
                 await api.documents.setStatus(doc.id, 'confirmed');
@@ -225,7 +238,8 @@ export function DocumentDetailScreen({
           />
         )}
         <SheetAction
-          title={doc.printedAt ? '🖨  Retirer le repère « imprimé »' : '🖨  Marquer imprimé'}
+          icon="print"
+          title={doc.printedAt ? 'Retirer le repère « imprimé »' : 'Marquer imprimé'}
           onPress={() =>
             run('printed', async () => {
               await api.documents.setPrinted(doc.id, !doc.printedAt);

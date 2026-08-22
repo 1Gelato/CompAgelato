@@ -1,11 +1,22 @@
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { dateFr, euro, KIND_LABEL } from '@shared/format';
 import { useDashboard, useRefresh } from '../lib/data';
-import { Card, EmptyState, InfoRow, Loading, Muted, SectionTitle } from '../components/ui';
+import { Card, EmptyState, InfoRow, Loading, SectionTitle, Stat } from '../components/ui';
 import { colors, spacing } from '../theme';
 
-/** L'activité en cartes simples : les chiffres qui se lisent en dix secondes. */
-export function DashboardScreen() {
+/**
+ * L'activité en cartes simples : les chiffres qui se lisent en dix secondes.
+ * Chaque tuile mène à l'écran qu'elle résume — un chiffre qui intrigue se
+ * creuse d'un geste, sans repasser par la grille.
+ */
+export function DashboardScreen({
+  navigation,
+}: {
+  // « Clients » n'appartient pas à la pile Plus : l'appel remonte alors aux
+  // onglets — c'est React Navigation qui fait buller, le type nominal ne
+  // peut rien en dire.
+  navigation: { navigate: (name: string) => void };
+}) {
   const { data: stats, loading, error } = useDashboard();
   const { refreshing, onRefresh } = useRefresh();
 
@@ -13,6 +24,7 @@ export function DashboardScreen() {
   if (!stats) {
     return (
       <EmptyState
+        icon="stats-chart-outline"
         title="Tableau de bord indisponible"
         text={error ?? 'Le tableau de bord se calcule sur le serveur : il faut le réseau.'}
       />
@@ -28,23 +40,34 @@ export function DashboardScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <View style={styles.tiles}>
-        <View style={styles.tile}>
-          <Muted size={12}>CA du mois (TTC)</Muted>
-          <Text style={styles.tileValue}>{month ? euro(month.ttc) : '—'}</Text>
+        <View style={styles.cell}>
+          <Stat
+            label="CA du mois (TTC)"
+            value={month ? euro(month.ttc) : '—'}
+            onPress={() => navigation.navigate('Documents')}
+          />
         </View>
-        <View style={styles.tile}>
-          <Muted size={12}>Factures</Muted>
-          <Text style={styles.tileValue}>{stats.invoices}</Text>
+        <View style={styles.cell}>
+          <Stat
+            label="Factures"
+            value={String(stats.invoices)}
+            onPress={() => navigation.navigate('Documents')}
+          />
         </View>
-        <View style={styles.tile}>
-          <Muted size={12}>Clients</Muted>
-          <Text style={styles.tileValue}>{stats.clients}</Text>
+        <View style={styles.cell}>
+          <Stat
+            label="Clients"
+            value={String(stats.clients)}
+            onPress={() => navigation.navigate('Clients')}
+          />
         </View>
-        <View style={styles.tile}>
-          <Muted size={12}>Stock à surveiller</Muted>
-          <Text style={[styles.tileValue, stats.lowStock.length ? { color: colors.orange } : null]}>
-            {stats.lowStock.length}
-          </Text>
+        <View style={styles.cell}>
+          <Stat
+            label="Stock à surveiller"
+            value={String(stats.lowStock.length)}
+            tone={stats.lowStock.length ? 'warn' : undefined}
+            onPress={() => navigation.navigate('Stock')}
+          />
         </View>
       </View>
 
@@ -88,13 +111,5 @@ export function DashboardScreen() {
 
 const styles = StyleSheet.create({
   tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  tile: {
-    flexBasis: '47%',
-    flexGrow: 1,
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: spacing.lg,
-    gap: 4,
-  },
-  tileValue: { fontSize: 20, fontWeight: '700', color: colors.text },
+  cell: { flexBasis: '47%', flexGrow: 1, flexDirection: 'row' },
 });

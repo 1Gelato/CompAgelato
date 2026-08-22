@@ -54,8 +54,6 @@ export function StockListScreen({
       .filter((p) => !needle || `${p.name} ${p.sku}`.toLowerCase().includes(needle));
   }, [products, query, type]);
 
-  if (loading) return <Loading />;
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <View style={{ padding: spacing.md, gap: spacing.sm }}>
@@ -77,7 +75,13 @@ export function StockListScreen({
         data={filtered}
         keyExtractor={(product) => product.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        ListEmptyComponent={<EmptyState title="Aucun article ne correspond" />}
+        ListEmptyComponent={
+          loading ? (
+            <Loading />
+          ) : (
+            <EmptyState icon="cube-outline" title="Aucun article ne correspond" />
+          )
+        }
         renderItem={({ item: product }) => {
           const low = product.minQty > 0 && product.qtyOnHand < product.minQty;
           return (
@@ -89,6 +93,7 @@ export function StockListScreen({
                   {num(product.qtyOnHand)} {product.unit}
                 </Badge>
               }
+              chevron
               onPress={() => navigation.navigate('ProductDetail', { productId: product.id })}
             />
           );
@@ -140,13 +145,19 @@ export function ProductDetailScreen({
       contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
     >
       <Card>
-        <SectionTitle>{product.name}</SectionTitle>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <View style={{ flex: 1 }}>
+            <SectionTitle>{product.name}</SectionTitle>
+          </View>
+          {low && (
+            <Badge tone="warn" icon="warning">
+              sous le seuil
+            </Badge>
+          )}
+        </View>
         <InfoRow label="Référence" value={product.sku} />
         <InfoRow label="Nature" value={TYPE_LABEL[product.type] ?? product.type} />
-        <InfoRow
-          label="En stock"
-          value={`${num(product.qtyOnHand)} ${product.unit}${low ? '  ⚠️ sous le seuil' : ''}`}
-        />
+        <InfoRow label="En stock" value={`${num(product.qtyOnHand)} ${product.unit}`} />
         {product.minQty > 0 ? (
           <InfoRow label="Seuil d’alerte" value={`${num(product.minQty)} ${product.unit}`} />
         ) : null}
@@ -162,7 +173,7 @@ export function ProductDetailScreen({
         ) : null}
         {product.supplier ? <InfoRow label="Fournisseur" value={product.supplier} /> : null}
         {product.description ? <InfoRow label="Description" value={product.description} /> : null}
-        <Button title="Ajuster le stock (inventaire)" onPress={() => setAdjusting(true)} />
+        <Button title="Ajuster le stock (inventaire)" icon="create-outline" onPress={() => setAdjusting(true)} />
       </Card>
 
       <Card style={{ gap: 4 }}>
